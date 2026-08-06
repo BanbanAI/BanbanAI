@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=0.1, maximum-scale=1, user-scalable=no, minimal-ui">
+  <title>
+    【官】斑斑AI低代码-真免费！一站式企业AI工作台-一键私有化部署
+  </title>
+  <meta name="keywords" content="AI，零代码,低代码,在线表单,在线报表,流程审批,数据采集,数据管理,人员管理,快速开发工具,数字化转型">
+  <meta name="description" content="免费的企业级AI工作台，支持AI生成业务应用和数据分析，一键私有化部署，覆盖表单、看板、流程、权限及数据集成全链路能力，助力中小企业加速AI落地，实现业务提效增长。">
+  <base href="/">
+
+  <link rel="shortcut icon" href="/ico/favicon.ico?v=1" type="image/x-icon">
+  <link rel="stylesheet" href="vendor/element-plus/element-plus@2.3.14_dist_index.min.css">
+  <link rel="stylesheet" href="vendor/video/video-js.min.css">
+  <link rel="stylesheet" type="text/css" href="/css/index.css?v=">
+  <link rel="stylesheet" href="/node_modules/animate.css/animate.min.css">
+
+  <!--  -->
+  <script>
+    (function(w, d, t, u, o) {
+        w[u] = w[u] || [], o.ts = (new Date).getTime();
+        var n = d.createElement(t);
+        n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
+        n.async = 1, n.onload = n.onreadystatechange = function() {
+            var s = this.readyState;
+            s && "loaded" !== s && "complete" !== s ||
+            (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
+            n.onload = n.onreadystatechange = null)
+    };
+        var i = d.getElementsByTagName(t)[0];
+        i.parentNode.insertBefore(n, i);
+    })(window, document, "script", "uetq", {
+        ti: "187261935",
+        enableAutoSpaTracking: true
+    });
+  </script>
+  <script>
+    var _hmt = _hmt || [];
+    (function () {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?e772abfbbf51d827f20864a430f9f2eb";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+    var _czc = _czc || [];
+    (function () {
+      var um = document.createElement("script");
+      um.src = "https://s9.cnzz.com/z.js?id=1281423822&async=1";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(um, s);
+    })();
+    function analysis(data) {
+      _hmt.push(data);
+      _czc.push(data);
+      if (window.uetq) window.uetq.push('event', data[1], {"event_label":data[2],"event_value":1,"event_category":data[3]});
+    }
+  </script>
+  <!--  -->
+  <script>
+    (function () {
+      function detectIframe() {
+        try {
+          return window.self !== window.top;
+        } catch (error) {
+          return true;
+        }
+      }
+
+      window.__IS_IN_IFRAME__ = detectIframe();
+
+      if (window.__IS_IN_IFRAME__) {
+        document.documentElement.classList.add("is-in-iframe");
+      }
+    })();
+  </script>
+  <style>
+    html.is-in-iframe .header-wrapper {
+      display: none !important;
+    }
+  </style>
+  <script>
+    function changeLang(lang) {
+      let path = window.location.pathname;
+      const langPatterns = ['zh', 'en', 'jp', 'ja'];
+      let newPath = path;
+      let changed = false
+      for (let pattern of langPatterns) {
+        if (path.includes(`/${pattern}/`)) {
+          changed = true
+          newPath = path.replace(`/${pattern}/`, `/${lang}/`);
+          break;
+        }
+
+        if (path == `/${pattern}`) {
+          changed = true
+          newPath = `/${lang}`
+          break
+        };
+      }
+      if (!langPatterns.some(pattern => path.includes(`/${pattern}/`)) && !changed) {
+        newPath = `/${lang}${path}`;
+      }
+      window.location.href = newPath;
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.__IS_IN_IFRAME__) {
+        document.body.classList.add("is-in-iframe");
+      }
+
+      const links = document.querySelectorAll(".contentWrap a");
+
+      links.forEach((link) => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault(); // 阻止默认跳转行为
+          const targetId = link.getAttribute("href"); // 获取目标锚点 ID
+          const targetElement = document.querySelector(targetId);
+
+          if (targetElement) {
+            // 计算目标位置并减去 100px
+            const targetPosition =
+              targetElement.getBoundingClientRect().top + window.pageYOffset - 100;
+
+            // 平滑滚动到目标位置
+            window.scrollTo({
+              top: targetPosition,
+              behavior: "smooth",
+            });
+          }
+        });
+      });
+
+      // 监听滚动事件，当页面滚动时改变header样式
+      const header = document.querySelector(".header-wrapper");
+      window.addEventListener("scroll", () => {
+        if (!header) {
+          return;
+        }
+        if (window.scrollY > 50) {
+          header.classList.add("scrolled");
+        } else {
+          header.classList.remove("scrolled");
+        }
+      });
+    });
+  </script>
+</head>
+
+<body class="">
+  <script>
+    if (window.__IS_IN_IFRAME__) {
+      document.body.classList.add("is-in-iframe");
+    }
+  </script>
+
+  
+  <div class="header-wrapper " v-show="!isInIframe">
+    
+    <header class="header_area">
+      <div id="sticky-wrapper" class="sticky-wrapper">
+        <div class="main_header_area">
+          <div class="logo">
+            <a class="nav-brand" href="/">
+              <img src="/image/header/logo.svg" alt="">
+            </a>
+          </div>
+          <div class="nav-wrap">
+            <div class="nav" :class="{active: /^\/(?:en|jp|zh|ja)?\/?$/.test(route)}">
+              <a class="nav-brand" href="/">
+                首页
+              </a>
+            </div>
+            <div class="nav" :class="{active: /\bproduct\b/.test(route)}">
+              <a class="nav-brand" href="/product">
+                功能
+              </a>
+            </div>
+            <div class="nav" :class="{active: /\bdownload\b/.test(route)}">
+              <a class="nav-brand" href="/download">
+                下载
+              </a>
+            </div>
+            <div class="nav">
+              <a class="nav-brand" href="/docs" target="_blank"
+                rel="noreferrer">
+                使用教程
+              </a>
+            </div>
+            <!-- <div class="nav" :class="{active: /\bmarket\b/.test(route)}">
+              <a class="nav-brand" href="/market">
+                模板中心
+              </a>
+            </div> -->
+            <div class="nav" :class="{active: /\bcommunity\b/.test(route)}">
+              <a class="nav-brand" href="https://www.banban.work/community/" target="_blank">
+                问答社区
+              </a>
+            </div>
+            <div class="nav" :class="{active: /\bcontact\b/.test(route)}">
+              <a class="nav-brand" href="/contact">
+                联系我们
+              </a>
+            </div>
+          </div>
+          <div class="classy-nav-container btn">
+            <a onclick="showWidget()" aria-label="Windows download" role="link" rel="nofollow">
+              <img src="/image/home/hero/consult-service.svg" alt="">
+              咨询客服
+            </a>
+          </div>
+          
+          <div class="classy-nav-container login-btn">
+            <a href="javascript:void(0)" aria-label="Windows download" role="link" rel="nofollow" @click="openLoginDialog">
+              登录/注册
+            </a>
+          </div>
+          
+          
+        </div>
+      </div>
+    </header>
+  </div>
+  <login-dialog ref="loginRef" :is-login="false"></login-dialog>
+  <contact-dialog ref="contactRef"></contact-dialog>
+  
+
+<div class="wrap-404 content-area">
+	<div id="primary" class="container">
+		<main id="main" class="site-main" role="main">
+			<section class="error-404 not-found">
+				<header class="page-header">
+					<img src="/image/common/404.png" class="error-404-img">
+				</header>
+				<div class="page-content">
+				</div>
+			</section>
+		</main>
+	</div>
+</div>
+
+
+<footer>
+  
+  <div class="footer-banner">
+    <div class="container">
+      <div class="footer-banner-content">
+        <h2 class="wow fadeIn20" data-wow-duration="0.5s" data-wow-delay="0.3s">零成本AI数字化转型，就用斑斑</h2>
+          <a
+            href="javascript:void(0)"
+            onclick="downloadAppByPlatform('footer');"
+            class="footer-banner-download wow fadeIn20"
+            data-wow-duration="0.5s"
+            data-wow-delay="0.5s"
+            rel="nofollow"
+          >
+          <img src="/image/home/hero/hero-download.svg" alt="">
+          <span>下载到本地</span>
+        </a>
+      </div>
+    </div>
+  </div>
+  
+  
+  <div class="link">
+    <div class="container">
+      <div class="wrap">
+        <div class="left">
+            <!-- <div class="logo"><img src="/image/footer/logo.png" alt=""></div> -->
+            <div class="logo"><img src="/image/header/logo.svg" alt=""></div>
+              <div class="bottom">
+                  <div class="code"></div>
+                  <div class="contact">
+                    <div class="contact-item">地址: 杭州市文一西路海创科技中心 311121</div>
+                    <div class="contact-item">公司: 杭州多算科技有限公司</div>
+                    <div class="contact-item">邮箱: support@banban.work</div>
+                  </div>
+              </div>
+        </div>
+        <div class="right">
+          <div class="intro-wrap">
+            <a><div class="title">产品情况</div></a>
+            <a target="_blank" ><div class="intro-item">产品介绍</div></a>
+            <a href="/download"><div class="intro-item">软件下载</div></a>
+          </div>
+          <div class="intro-wrap">
+            <a><div class="title">帮助中心</div></a>
+            <a target="_blank" rel="noreferrer" href="https://www.banban.work/docs/"><div class="intro-item">教程文档</div></a>
+            <a target="_blank" rel="noreferrer" href="https://space.bilibili.com/3706989515377514"><div class="intro-item">视频教程</div></a>
+            <a target="_blank" rel="noreferrer" href="https://www.banban.work/docs/v1/fb9ykab77ymdz09o/"><div class="intro-item">实战案例</div></a>
+            <a target="_blank" rel="noreferrer" href="https://www.banban.work/docs/v1/oq81gkai3e10kny3/"><div class="intro-item">常见问题</div></a>
+          </div>
+          <div class="intro-wrap">
+            <a><div class="title">友情链接</div></a>
+              <a target="_blank" href="https://www.shanhaibi.com/"><div class="intro-item">山海鲸可视化</div></a>
+              <a target="_blank" href="https://www.gisbox.com.cn/"><div class="intro-item">GISBox</div></a>
+              <a target="_blank" href="https://www.wakestone.cn/"><div class="intro-item">瓦石物联</div></a>
+              <a target="_blank" href="https://atmolens.cn/"><div class="intro-item">气象官</div></a>
+              <a target="_blank" href="https://shapezo.gisbox.com.cn/"><div class="intro-item">造形家</div></a>
+              <a target="_blank" href="https://translight3d.cn/"><div class="intro-item">轻装3D</div></a>
+          </div>
+          <div class="intro-wrap">
+              <a><div class="title">关于我们</div></a>
+              <a href="/contact"><div class="intro-item">公司介绍</div></a>
+              <a href="mailto:support@banban.work" target="_blank" rel="noopener"><div class="intro-item">邮箱反馈</div></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+    <div class="copyright">
+      <div class="container">
+        <div class="wrap">
+          <p>Copyright © 2020-2026 杭州多算科技有限公司, All Rights Reserved.  
+          <a class="ICP" href="https://beian.mps.gov.cn/#/query/webSearch?code=33011002019073" rel="noreferrer" target="_blank">
+            <img src="/image/main/ICP.png" alt="">
+            <span>&nbsp;浙公网安备33011002019073号</span>
+          </a>
+            <a href="https://beian.miit.gov.cn" rel="nofollow" target="_blank">浙ICP备20006837号-17</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  <div class="mobile" :class="{mobileShow: isPhone}">
+    <div class="mobile-wrap">
+      <a href="javascript:void(0);" class="consult" onclick="showWidget()">
+        <img src="/image/main/service.svg" alt="">
+        <p>咨询客服</p>
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script type="text/javascript" src="vendor/vue/vue.global@3.3.4_prod.js"></script>
+<script type="text/javascript" src="vendor/element-plus/element-plus@2.3.14_dist_index.full.min.js"></script>
+<script type="text/javascript" src="vendor/video/video.min.js"></script>
+<script type="text/javascript" src="vendor/axios/axios.js"></script>
+<script type="text/javascript" src="js/index.js?v="></script>
+<script type="text/javascript" src="vendor/md5/md5.js"></script>
