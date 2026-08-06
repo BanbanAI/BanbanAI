@@ -63,7 +63,7 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./show5.png" alt="跨系统数据集成" width="100%" />
+      <img src="./show5.jpg" alt="跨系统数据集成" width="100%" />
       <br /><sub><strong>跨系统数据集成</strong></sub>
     </td>
     <td align="center" width="50%">
