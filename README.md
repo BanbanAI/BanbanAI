@@ -43,8 +43,8 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="./show1.png" alt="业务表单设计" width="100%" />
-      <br /><sub><strong>业务表单设计</strong></sub>
+      <img src="./show0.png" alt="AI创建应用" width="100%" />
+      <br /><sub><strong>AI创建应用</strong></sub>
     </td>
     <td align="center" width="50%">
       <img src="./show1.png" alt="业务表单设计" width="100%" />
