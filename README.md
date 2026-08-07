@@ -67,7 +67,7 @@
       <br /><sub><strong>权限与组织管理</strong></sub>
     </td>
     <td align="center" width="50%">
-      <img src="./show6.png" alt="多端适配与协同" width="100%" />
+      <img src="./show5.png" alt="多端适配与协同" width="100%" />
       <br /><sub><strong>多端适配与协同</strong></sub>
     </td>
   </tr>
