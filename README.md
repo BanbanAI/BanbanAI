@@ -47,24 +47,24 @@
       <br /><sub><strong>业务表单设计</strong></sub>
     </td>
     <td align="center" width="50%">
-      <img src="./show2.png" alt="数据可视化看板" width="100%" />
-      <br /><sub><strong>数据可视化看板</strong></sub>
+      <img src="./show1.png" alt="业务表单设计" width="100%" />
+      <br /><sub><strong>业务表单设计</strong></sub>
     </td>
   </tr>
   <tr>
+    <td align="center" width="50%">
+      <img src="./show2.png" alt="数据可视化看板擎" width="100%" />
+      <br /><sub><strong>数据可视化看板</strong></sub>
+    </td>
     <td align="center" width="50%">
       <img src="./show3.png" alt="流程自动化引擎" width="100%" />
       <br /><sub><strong>流程自动化引擎</strong></sub>
     </td>
-    <td align="center" width="50%">
-      <img src="./show4.png" alt="权限与组织管理" width="100%" />
-      <br /><sub><strong>权限与组织管理</strong></sub>
-    </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./show5.jpg" alt="跨系统数据集成" width="100%" />
-      <br /><sub><strong>跨系统数据集成</strong></sub>
+      <img src="./show4.png" alt="权限与组织管理" width="100%" />
+      <br /><sub><strong>权限与组织管理</strong></sub>
     </td>
     <td align="center" width="50%">
       <img src="./show6.png" alt="多端适配与协同" width="100%" />
