@@ -1,0 +1,165 @@
+Banban AI License Agreement
+
+Copyright (c) 2025-2026 Hangzhou Duosuan Technology Co., Ltd.
+
+Last Updated: August 1, 2026
+
+1. Acceptance and Updates
+
+Hangzhou Duosuan Technology Co., Ltd. ("Duosuan Technology") provides the
+Banban AI Low-Code Platform and related software, plugins, installers, images,
+documentation, and services. By obtaining, installing, running, modifying,
+copying, or redistributing the software by any means, or by purchasing or using
+a Commercial Edition package, you accept the terms of this Agreement that apply
+to the relevant software or service. If you do not agree, stop using the
+relevant software or service.
+
+Duosuan Technology may adopt or amend this Agreement from time to time as
+necessary. Any amendment will be announced by publication on the relevant
+website, without separate notice. An amended Agreement takes effect
+automatically upon publication and becomes part of this Agreement.
+
+2. Definitions
+
+2.1 "Software" means the core code, plugins, source code, object code,
+installers, images, modified versions, updates, and upgrades of the Banban AI
+Low-Code Platform that are released by Duosuan Technology and expressly marked
+as GPLv3.
+
+2.2 "Community Edition" means the free version of the Software that Duosuan
+Technology makes available to users through public channels.
+
+2.3 "Commercial Edition" means a software version or authorized service
+provided by Duosuan Technology or its authorized channels that includes
+commercial plugins, commercial features, technical support, or other
+additional benefits.
+
+2.4 "Basic Edition," "Professional Edition," "Enterprise Edition," and
+"Group Edition" mean the four packages of the Commercial Edition. Their
+features, prices, terms, and support are subject to the applicable order page or
+written contract.
+
+2.5 "Application" means an application developed by a user based on the
+Software or Commercial Edition features for a specific business scenario, such
+as an ERP or CRM system.
+
+2.6 "Third-Party Customer" means an individual, enterprise, or other
+organization that purchases, accepts, or uses an Application.
+
+2.7 "Third-Party Open-Source Software" means a component provided with the
+Software or Commercial Edition that is subject to its own open-source license
+or copyright notice.
+
+3. Intellectual Property Protection
+
+Except for Third-Party Open-Source Software, Duosuan Technology and its
+licensors own the copyrights, trademarks, patents, trade secrets, and other
+intellectual property rights in the Software, commercial plugins,
+documentation, interfaces, trademarks, logos, and other materials.
+
+4. License Types and Priority
+
+This Agreement constitutes the general licensing framework for the Banban AI
+Low-Code Software and all editions thereof, including the Community Edition and
+the Commercial Edition.
+
+This Agreement incorporates the terms of the GNU General Public License,
+version 3 ("GPLv3"). A complete copy of GPLv3 is included in this repository
+as LICENSE-GPL and is also available at:
+https://www.gnu.org/licenses/gpl-3.0.html. Users must comply with GPLv3 and
+with the supplemental terms stated in this Agreement. If GPLv3 conflicts with
+this Agreement, the supplemental terms in this Agreement prevail for purposes
+of interpretation.
+
+5. Rights and Obligations Under the Open Source License
+
+5.1 The Software may be used for commercial purposes.
+
+5.2 You may not remove or alter any Banban AI Low-Code branding, names, links,
+version information, license information, or similar notices displayed in the
+Software interface.
+
+5.3 You may not remove or alter any intellectual property notices concerning
+Banban AI Low-Code in the code.
+
+5.4 You may not use the original or modified Software to offer the public any
+no-code, zero-code, low-code, or AI platform SaaS or PaaS product.
+
+6. Rights and Obligations Under the Commercial License
+
+6.1 Commercial License Rights
+
+- Users of the Basic, Professional, Enterprise, and Group Editions may use the
+  corresponding commercial features within the authorized term and scope.
+- Users of the Enterprise and Group Editions may independently develop,
+  configure, and deploy Applications, and sell or provide those Applications
+  to Third-Party Customers.
+- Users of the Enterprise and Group Editions may provide Third-Party Customers
+  with use of Applications, implementation, training, and technical services,
+  but may not separately sell, transfer, rent, or share the Commercial Edition
+  license itself.
+- Unless otherwise agreed in a contract, an Enterprise or Group Edition user
+  sells a self-developed Application to a Third-Party Customer, not an
+  independent sublicense of Duosuan Technology's Commercial Edition Software.
+- If a contract provides otherwise, the contract prevails.
+
+6.2 Commercial License Obligations
+
+- You may not sell, transfer, rent, lend, gift, or share a Commercial Edition
+  account, license key, commercial plugin, or Commercial Edition installer.
+- You may not use a Commercial Edition license as the basis for providing
+  any no-code, zero-code, low-code, or AI platform SaaS or PaaS product to a
+  third party.
+- Basic Edition and Professional Edition users may not rely on a Duosuan
+  Technology Commercial Edition authorization to sell Applications to
+  Third-Party Customers. To obtain that right, you must purchase the Enterprise
+  Edition or Group Edition.
+- When Enterprise Edition or Group Edition users deliver Applications to
+  Third-Party Customers, they are solely responsible for the Application's
+  content, data compliance, customer contracts, after-sales support, and
+  applicable legal obligations.
+- You may not delete or tamper with copyright, license, trademark, or other
+  rights notices in the code.
+- If a contract provides otherwise, the contract prevails.
+
+7. Breach, Termination, and Reinstatement
+
+If a user violates GPLv3, the Commercial Edition supplemental terms, or this
+Agreement, Duosuan Technology may suspend or terminate the Commercial Edition
+additional benefits, technical support, and related account services. Fees
+already paid will not be refunded, and Duosuan Technology reserves the right to
+hold the user legally liable. Termination, reinstatement, and downstream
+rights under the GPLv3 license are governed by Section 8 and other applicable
+provisions of GPLv3. Termination of a Commercial Edition authorization does not
+revoke GPLv3 rights that the user lawfully acquired before termination.
+
+8. Disclaimer of Warranties and Limitation of Liability
+
+To the maximum extent permitted by applicable law, the Software and additional
+commercial features are provided "as is." Duosuan Technology does not warrant
+that the Software is suitable for a particular business, will operate
+continuously and without errors, or will meet all user requirements. The user
+is solely responsible for contractual, data, content, compliance, and
+third-party liabilities arising from Applications developed and sold by the
+user. The GPLv3 disclaimer and limitation of liability provisions apply
+preferentially to Software covered by GPLv3.
+
+9. Governing Law, Dispute Resolution, and Severability
+
+The formation, performance, and interpretation of this Agreement are governed
+by the laws of the People's Republic of China. The parties should first seek to
+resolve any dispute through amicable consultation. If consultation fails, the
+dispute shall be submitted to the competent People's Court having jurisdiction
+over the location of Hangzhou Duosuan Technology Co., Ltd. If any provision is
+held invalid, the validity of the remaining provisions is not affected, and the
+invalid provision shall be interpreted, to the extent permitted by law, in the
+most effective manner that most closely reflects its original intent.
+
+10. Contact Information and Effective Date
+
+Rights holder: Hangzhou Duosuan Technology Co., Ltd.
+Contact email: support@banban.work
+
+This Agreement takes effect on the date of its publication. If the LICENSE file
+for a specific Software version, a Commercial Edition order, or a written
+contract provides otherwise, its terms apply to the extent specified there.
