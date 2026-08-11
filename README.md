@@ -78,12 +78,10 @@
 | 资源 | 入口 |
 | --- | --- |
 | 产品官网 | [banban.work](https://www.banban.work/) |
-| 本地下载 | [下载标准版](https://www.banban.work/download) |
 | 使用教程 | [教程文档](https://www.banban.work/docs/) |
 | 问答社区 | [加入社区](https://www.banban.work/community/) |
 | 视频教程 | [Bilibili](https://space.bilibili.com/3706989515377514) |
 
-标准版免费开放完整 AI 低代码核心能力；复杂场景可联系团队获取专属部署、深度集成与交付服务。
 
 ## 联系我们
 
