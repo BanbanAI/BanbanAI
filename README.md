@@ -43,31 +43,31 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="./show0.png" alt="AI创建应用" width="100%" />
+      <img src="./assets/show0.png" alt="AI创建应用" width="100%" />
       <br /><sub><strong>AI创建应用</strong></sub>
     </td>
     <td align="center" width="50%">
-      <img src="./show1.png" alt="业务表单设计" width="100%" />
+      <img src="./assets/show1.png" alt="业务表单设计" width="100%" />
       <br /><sub><strong>业务表单设计</strong></sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./show2.png" alt="数据可视化看板擎" width="100%" />
+      <img src="./assets/show2.png" alt="数据可视化看板擎" width="100%" />
       <br /><sub><strong>数据可视化看板</strong></sub>
     </td>
     <td align="center" width="50%">
-      <img src="./show3.png" alt="流程自动化引擎" width="100%" />
+      <img src="./assets/show3.png" alt="流程自动化引擎" width="100%" />
       <br /><sub><strong>流程自动化引擎</strong></sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./show4.png" alt="权限与组织管理" width="100%" />
+      <img src="./assets/show4.png" alt="权限与组织管理" width="100%" />
       <br /><sub><strong>权限与组织管理</strong></sub>
     </td>
     <td align="center" width="50%">
-      <img src="./show5.png" alt="多端适配与协同" width="100%" />
+      <img src="./assets/show5.png" alt="多端适配与协同" width="100%" />
       <br /><sub><strong>多端适配与协同</strong></sub>
     </td>
   </tr>
