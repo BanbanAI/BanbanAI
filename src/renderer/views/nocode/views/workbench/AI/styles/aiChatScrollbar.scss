@@ -1,0 +1,28 @@
+@mixin ai-chat-scrollbar($axis: x) {
+  @if $axis == x {
+    overflow-x: auto;
+    overflow-y: hidden;
+  } @else if $axis == y {
+    overflow-y: auto;
+    overflow-x: hidden;
+  } @else {
+    overflow: auto;
+  }
+
+  scrollbar-width: thin;
+  scrollbar-color: #c9cdd4 transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #c9cdd4;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

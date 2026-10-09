@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.carousel",
+    "displayName":  "轮播图",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-basic-carousel-icon.svg",
+    "show":  true
+}

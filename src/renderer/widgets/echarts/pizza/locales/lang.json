@@ -1,0 +1,42 @@
+{
+  "zh-CN": {
+    "fields": "字段设置",
+    "axisFields": "数据字段",
+    "angleAxis": "角度轴",
+    "angleAxisLabel": "显示轴文本",
+    "angleAxisFont": "轴刻度字体",
+    "angleAxisOffset": "文本距轴线距离",
+    "angleAxisColor": "轴线颜色",
+    "angleAxisWidth": "轴线宽度"
+  },
+  "en": {
+    "fields": "Field Settings",
+    "axisFields": "Data Field",
+    "angleAxis": "Angle Axis",
+    "angleAxisLabel": "Show Axis Label",
+    "angleAxisFont": "Axis Scale Font",
+    "angleAxisOffset": "Label distance from axis",
+    "angleAxisColor": "Color",
+    "angleAxisWidth": "Width"
+  },
+  "ja": {
+    "fields": "フィールドの設定",
+    "axisFields": "データフィールド",
+    "angleAxis": "角度軸",
+    "angleAxisLabel": "軸テキストを表示",
+    "angleAxisFont": "軸目盛フォント",
+    "angleAxisOffset": "テキストの位置",
+    "angleAxisColor": "軸線の色",
+    "angleAxisWidth": "軸線の幅"
+  },
+  "zh-TW": {
+    "fields": "字段設置",
+    "axisFields": "數據字段",
+    "angleAxis": "角度軸",
+    "angleAxisLabel": "顯示軸文本",
+    "angleAxisFont": "軸刻度字體",
+    "angleAxisOffset": "文本距軸線距離",
+    "angleAxisColor": "軸線顏色",
+    "angleAxisWidth": "軸線寬度"
+  }
+}

@@ -1,0 +1,282 @@
+{
+  "key": "work-order-management",
+  "name": "工单管理",
+  "version": "0.1.0",
+  "aliases": [
+    "工单管理",
+    "工单管理系统",
+    "服务工单",
+    "服务工单管理",
+    "售后工单",
+    "售后工单系统",
+    "工单售后系统",
+    "维修工单",
+    "维修工单管理系统",
+    "IT运维工单",
+    "IT运维管理",
+    "IT运维管理系统",
+    "IT 运维工单系统",
+    "内部运维工单",
+    "内部支持工单"
+  ],
+  "beginnerSummary": "适合管理售后、维修、IT 支持等服务处理流程，统一承接提单、派工、处理进度、服务反馈和常见售后增强，而不是默认展开成 CRM 或完整库存系统。",
+  "intentExamples": [
+    "帮我做一个工单管理系统，要有派工、处理进度和回访",
+    "做一个售后工单系统，要带投诉、退货退款和满意度回访",
+    "做一个维修工单管理系统，要登记维修进度和备件领用",
+    "做一个 IT 运维工单系统，员工提单后分配给 IT 处理",
+    "我只想做一个客户满意度调查问卷"
+  ],
+  "modules": [
+    {
+      "key": "ticket-center",
+      "name": "工单中心",
+      "purpose": "统一受理服务请求、派工处理和状态跟踪。"
+    },
+    {
+      "key": "service-feedback",
+      "name": "回访评价",
+      "purpose": "记录服务完成后的满意度回访和反馈意见。"
+    },
+    {
+      "key": "service-support",
+      "name": "服务支撑",
+      "purpose": "按需补充投诉、退货退款和备件协同等常见增强切片。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "ticket",
+      "name": "工单",
+      "moduleKey": "ticket-center",
+      "purpose": "记录服务请求、受理分配、处理状态和完成情况。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "工单标题",
+          "semanticRole": "ticket-title",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "工单类型",
+          "semanticRole": "ticket-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "提交人",
+          "semanticRole": "requester",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理人",
+          "semanticRole": "assignee",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        },
+        {
+          "name": "工单状态",
+          "semanticRole": "ticket-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "提交时间",
+          "semanticRole": "submitted-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "完成时间",
+          "semanticRole": "completed-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        },
+        {
+          "name": "问题描述",
+          "semanticRole": "issue-description",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "service-feedback-record",
+      "name": "满意度回访",
+      "moduleKey": "service-feedback",
+      "purpose": "记录服务完成后的评分、意见和回访结果。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联工单",
+          "semanticRole": "ticket-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "满意度评分",
+          "semanticRole": "satisfaction-rating",
+          "suggestedWidget": "rating",
+          "requiredByDefault": true
+        },
+        {
+          "name": "反馈意见",
+          "semanticRole": "feedback-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联工单",
+          "targetFormKey": "ticket",
+          "reason": "回访必须依附已完成或已关闭的工单主链。"
+        }
+      ]
+    },
+    {
+      "key": "complaint",
+      "name": "客户投诉",
+      "moduleKey": "service-support",
+      "purpose": "记录售后问题反馈和投诉处理入口。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "投诉主题",
+          "semanticRole": "complaint-title",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "投诉内容",
+          "semanticRole": "complaint-content",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "return-refund",
+      "name": "退货退款",
+      "moduleKey": "service-support",
+      "purpose": "承接售后逆向履约处理，不默认外扩到完整订单和库存经营链。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联工单",
+          "semanticRole": "ticket-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理状态",
+          "semanticRole": "return-refund-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联工单",
+          "targetFormKey": "ticket",
+          "reason": "退货退款是售后工单的增强处理切片。"
+        }
+      ]
+    },
+    {
+      "key": "spare-part-record",
+      "name": "备件记录",
+      "moduleKey": "service-support",
+      "purpose": "记录维修或售后过程中的服务备件使用，不默认升级成完整库存体系。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联工单",
+          "semanticRole": "ticket-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "备件名称",
+          "semanticRole": "spare-part-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "数量",
+          "semanticRole": "quantity",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联工单",
+          "targetFormKey": "ticket",
+          "reason": "备件流转服务于工单处理，而不是独立库存经营主链。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "ticket",
+      "to": "service-feedback-record",
+      "label": "工单完成后进入满意度回访"
+    },
+    {
+      "from": "ticket",
+      "to": "return-refund",
+      "label": "售后工单可进入退货退款处理"
+    },
+    {
+      "from": "ticket",
+      "to": "spare-part-record",
+      "label": "维修或售后工单可登记备件使用"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "客户门户或外部提单入口",
+      "reason": "属于更高阶的对外服务入口，不适合作为所有工单场景的默认前置。"
+    },
+    {
+      "name": "扫码报修",
+      "reason": "属于特定行业入口能力，不适合首轮默认生成。"
+    },
+    {
+      "name": "多角色工作台与消息通知",
+      "reason": "更适合作为流程和协同增强，而不是首轮基础对象集。"
+    },
+    {
+      "name": "统计分析看板",
+      "reason": "属于运营展示层能力，不应先于工单主链默认生成。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "做一个工单管理系统，要有派工、处理进度和回访",
+      "expectedBehavior": "命中 work-order-management foundation，生成工单和满意度回访，不自动补完整 CRM 或库存系统。"
+    },
+    {
+      "userPrompt": "做一个售后工单系统，要带投诉、退货退款和满意度回访",
+      "expectedBehavior": "命中 work-order-management 的售后切片，补客户投诉、退货退款和满意度回访，但保持统一工单主链。"
+    },
+    {
+      "userPrompt": "做一个维修工单管理系统，要登记维修进度和备件领用",
+      "expectedBehavior": "命中 work-order-management 的维修切片，补备件记录，但不自动扩成完整库存经营链。"
+    },
+    {
+      "userPrompt": "做一个 IT 运维工单系统，员工提单后分配给 IT 处理",
+      "expectedBehavior": "命中 work-order-management 的内部 IT 支持切片，不并回 CRM，也不切到行政待办主链。"
+    },
+    {
+      "userPrompt": "我只想做一个客户满意度调查问卷",
+      "expectedBehavior": "只触发回访调查切片，不重建整套工单系统。"
+    }
+  ]
+}

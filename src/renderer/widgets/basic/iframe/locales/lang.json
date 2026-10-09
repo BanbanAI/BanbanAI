@@ -1,0 +1,50 @@
+{
+  "zh-CN": {
+    "dataSelect": "数据源选择",
+    "iframeLink": "iframe地址",
+    "iframeFolder": "文件夹地址",
+    "microphone": "开启麦克风",
+    "camera": "视频输入",
+    "heavy-load": "显示时重载",
+    "iframeFolderTip": "选择的文件会拷贝进项目目录。如有修改，请重新上传或在软件内点击此右侧文件夹按钮，修改项目目录中的文件",
+    "load-tip": "切换显示隐藏时会重新加载",
+    "fieldSetting": "字段设置",
+    "iframeUrlField": "iframe地址字段"
+  },
+  "en": {
+    "dataSelect": "Select data source",
+    "iframeLink": "iframe link",
+    "iframeFolder": "Folder address",
+    "microphone": "Microphone",
+    "camera": "Video input",
+    "heavy-load": "Reload on display",
+    "iframeFolderTip": "The selected file will be copied into the project directory. If you have any modifications, please upload it again or click this folder button on the right in the software to modify the files in the project directory",
+    "load-tip": "Reloads when switching between show and hide",
+    "fieldSetting": "Field settings",
+    "iframeUrlField": "iFrame Address Field"
+  },
+  "ja": {
+    "dataSelect": "データソース",
+    "iframeLink": "iframeリンク",
+    "iframeFolder": "フォルダ",
+    "microphone": "マイク",
+    "camera": "ビデオ入力",
+    "heavy-load": "ディスプレイ上の負荷",
+    "iframeFolderTip": "選択したファイルはプロジェクトディレクトリにコピーされます。変更がある場合は、再アップロードするか、ソフトウェア内のこの右側のフォルダボタンをクリックして、プロジェクトディレクトリ内のファイルを変更してください。",
+    "load-tip": "表示と非表示の切り替え時にリロードする",
+    "fieldSetting": "字段设置",
+    "iframeUrlField": "iframe地址字段"
+  },
+  "zh-TW": {
+    "dataSelect": "數據源選擇",
+    "iframeLink": "iframe地址",
+    "iframeFolder": "文件夾地址",
+    "microphone": "開啟麥克風",
+    "camera": "視頻輸入",
+    "heavy-load": "顯示時重載",
+    "iframeFolderTip": "選擇的文件會拷貝進項目目錄。如有修改，請重新上傳或在軟件內點擊此右側文件夾按鈕，修改項目目錄中的文件",
+    "load-tip": "切換顯示隱藏時會重新加載",
+    "fieldSetting": "字段設置",
+    "iframeUrlField": "iframe地址字段"
+  }
+}

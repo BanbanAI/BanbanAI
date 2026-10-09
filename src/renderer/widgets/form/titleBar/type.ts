@@ -1,0 +1,15 @@
+export enum TitleType {
+  TITLE_1 = 'title_1',
+  TITLE_2 = 'title_2',
+  TITLE_3 = 'title_3',
+  TITLE_4 = 'title_4',
+  TITLE_5 = 'title_5',
+  TITLE_6 = 'title_6',
+  TITLE_7 = 'title_7',
+  TITLE_8 = 'title_8',
+  TITLE_9 = 'title_9',
+  TITLE_10 = 'title_10',
+  TITLE_11 = 'title_11',
+  TITLE_12 = 'title_12',
+  TITLE_13 = 'title_13',
+}

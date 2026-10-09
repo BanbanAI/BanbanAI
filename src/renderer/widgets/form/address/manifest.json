@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.address",
+    "displayName":  "地址",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-address-icon.svg",
+    "show":  true
+}

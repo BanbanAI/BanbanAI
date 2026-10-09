@@ -1,0 +1,17 @@
+.idea
+.vs
+.vscode
+.DS_Store
+.env
+.tmp
+.trae
+.users.md
+node_modules
+*.log
+logs
+/dist
+src/renderer/components.d.ts
+src/renderer/auto-imports.d.ts
+__tests__
+.playwright-cli
+docs

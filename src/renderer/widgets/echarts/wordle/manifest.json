@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.wordle",
+    "displayName":  "词云",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-wordle-icon.svg",
+    "show":  true
+}

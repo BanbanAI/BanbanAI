@@ -1,0 +1,283 @@
+name: Release
+
+# 触发方式二选一：
+#   1. push 一个 v2.0.0 这样的 tag
+#   2. 手动 run，填一个已存在的 tag
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已存在的 tag，例如 v2.0.0（必须与 package.json 的 version 一致）"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PRODUCT: banban-client
+  ARTIFACT_DIR: dist/app/main/zh-CN/package
+
+jobs:
+  prepare:
+    name: 生成 release 正文
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      base: ${{ steps.meta.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - id: meta
+        run: |
+          TAG="${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "base=${PRODUCT}-${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # 产物名里嵌了版本号，tag 和 package.json 不一致会直接产生死链
+      - name: 校验 tag 与 package.json version 一致
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "tag $TAG 与 package.json version $VERSION 不一致" >&2
+            exit 1
+          fi
+
+      - name: 拼装 Downloads 表格与 Release Notes
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          node tools/release/compose-release-body.js \
+            --tag "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out release-body.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-body
+          path: release-body.md
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: 构建 ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          # ──────────────────────────────────────────────────────────────
+          # macOS 目前走「本地 yarn build + yarn release:upload:mac 补传」。
+          # 以后要改成 CI 全自动，取消下面两条注释，并同时取消
+          # 「导入签名证书」「配置公证凭据」两个 step 的注释 + 配好对应 secrets。
+          # ──────────────────────────────────────────────────────────────
+          # - os: macos-15        # Apple silicon
+          #   platform: mac
+          #   arch: arm64
+          # - os: macos-15-intel  # Intel
+          #   platform: mac
+          #   arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: 安装 rpm 打包工具
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - run: yarn install --frozen-lockfile
+
+      # ──────────────────────────────────────────────────────────────────
+      # macOS 专用：签名证书 + 公证凭据。启用 mac 两条腿时取消注释。
+      #
+      # 一次性准备（做完把值填进 Settings → Secrets and variables → Actions）：
+      #   MAC_CERT_P12        本机「钥匙串访问」导出 Developer ID Application 证书为
+      #                       .p12，再 base64 -i cert.p12 编码后的内容
+      #   MAC_CERT_PASSWORD   导出 .p12 时设的密码
+      #   KEYCHAIN_PASSWORD   随便生成一串，仅用于 runner 上的临时 keychain
+      #   APPLE_API_KEY       App Store Connect → Users and Access → Integrations →
+      #                       Team Keys 生成的 .p8，base64 编码后的内容（只能下载一次）
+      #   APPLE_API_KEY_ID / APPLE_API_ISSUER   同上页面的两个 ID
+      #
+      # runner 每次都是全新的机器，凭据只能每次现场灌进去，没法"提前设置好"。
+      # ──────────────────────────────────────────────────────────────────
+      # - name: 导入签名证书
+      #   if: matrix.platform == 'mac'
+      #   env:
+      #     CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      #     CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+      #     KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      #   run: |
+      #     KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+      #     echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+      #
+      #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+      #     security set-keychain-settings -lut 3600 "$KEYCHAIN"
+      #     security default-keychain -s "$KEYCHAIN"
+      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+      #
+      #     security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+      #       -P "$CERT_PASSWORD" -T /usr/bin/codesign
+      #
+      #     # 少了这行，codesign 会去弹密钥授权对话框然后卡到超时
+      #     security set-key-partition-list -S apple-tool:,apple:,codesign: \
+      #       -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+      #
+      #     security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+      #     rm -f "$RUNNER_TEMP/cert.p12"
+      #
+      # - name: 配置公证凭据
+      #   if: matrix.platform == 'mac'
+      #   env:
+      #     APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      #     APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      #     APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      #   run: |
+      #     # 建一个和本机同名的 profile，electron-builder.config.ts 里的
+      #     # keychainProfile: "NOTARY_BANBAN" 就不用改任何代码
+      #     echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      #     xcrun notarytool store-credentials NOTARY_BANBAN \
+      #       --key "$RUNNER_TEMP/AuthKey.p8" \
+      #       --key-id "$APPLE_API_KEY_ID" \
+      #       --issuer "$APPLE_API_ISSUER"
+      #     rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: 打包
+        run: yarn build
+
+      # electron-builder 产出的文件名带中文 productName 且不含架构，
+      # 这里统一改成 ASCII 稳定名，Downloads 表格里的链接才成立。
+      - name: 归一化产物名
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          found=0
+
+          rename() {
+            local ext="$1" target="$2"
+            # 排除 win-unpacked / linux-unpacked / mac-* 里的可执行文件
+            while IFS= read -r file; do
+              cp -f "$file" "upload/$target"
+              echo "$(basename "$file") -> $target"
+              found=1
+            done < <(find "$ARTIFACT_DIR" -type f -name "*.$ext" -not -path "*unpacked*" -not -path "*mac-*")
+          }
+
+          case "$PLATFORM" in
+            win)   rename exe "$BASE-win-$ARCH-setup.exe" ;;
+            mac)   rename dmg "$BASE-mac-$ARCH.dmg"; rename zip "$BASE-mac-$ARCH.zip" ;;
+            linux) rename AppImage "$BASE-linux-$ARCH.AppImage"
+                   rename deb "$BASE-linux-$ARCH.deb"
+                   rename rpm "$BASE-linux-$ARCH.rpm" ;;
+          esac
+
+          if [ "$found" -eq 0 ]; then
+            echo "没有找到任何安装包，检查 $ARTIFACT_DIR" >&2
+            exit 1
+          fi
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}-${{ matrix.arch }}
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: 建 draft release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 创建 draft 并上传全部安装包
+        id: draft
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          commit: ${{ github.sha }}
+          bodyFile: artifacts/release-body/release-body.md
+          artifacts: "artifacts/dist-*/*"
+          draft: true
+          makeLatest: false
+          prerelease: ${{ contains(needs.prepare.outputs.tag, '-') }}
+          allowUpdates: true
+          replacesArtifacts: true
+          artifactErrorsFailBuild: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 产物上传完再把 GitHub 生成的 What's Changed 追加进正文。
+      # draft 阶段正文里暂时只有 Downloads + Release Notes。
+      - name: 追加 What's Changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          # 发布分支都是从 main 切出来的，GitHub 无法按祖先关系推断上一个 tag
+          PREVIOUS_TAG="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -r --arg tag "$TAG" \
+              '[.[][] | select(.draft | not) | select(.tag_name != $tag)] | sort_by(.published_at) | (last | .tag_name) // empty')"
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "没有已发布的版本可以对比，跳过 What's Changed"
+            exit 0
+          fi
+
+          echo "对比 $PREVIOUS_TAG..$TAG"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" \
+            -f previous_tag_name="$PREVIOUS_TAG" \
+            --jq '.body' > "$RUNNER_TEMP/generated-notes.md"
+
+          node tools/release/compose-release-body.js \
+            --tag "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --changes "$RUNNER_TEMP/generated-notes.md" \
+            --out "$RUNNER_TEMP/release-body.md"
+
+          # PATCH 时省略 tag_name 会把 draft 重置成 untagged-<sha>，所以显式带上
+          jq -Rs --arg tag "$TAG" '{ tag_name: $tag, body: . }' < "$RUNNER_TEMP/release-body.md" \
+            > "$RUNNER_TEMP/release-body.json"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            --input "$RUNNER_TEMP/release-body.json" > /dev/null
+
+          echo "draft 已就绪。macOS 安装包请在本地跑 yarn release:upload:mac 补传，再手动 Publish"

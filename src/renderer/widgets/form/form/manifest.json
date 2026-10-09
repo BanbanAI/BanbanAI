@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.form",
+    "displayName":  "表单",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-form-icon.svg",
+    "show":  true
+}

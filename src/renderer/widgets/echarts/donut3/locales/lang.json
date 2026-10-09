@@ -1,0 +1,26 @@
+{
+  "zh-CN": {
+    "shapeInternalRatio": "圆环占比",
+    "label": "图形文本",
+    "labelStyleCluster": "文字样式",
+    "shapeSize": "图形大小占比"
+  },
+  "en": {
+    "shapeInternalRatio": "Ring Ratio",
+    "label": "Graphic text",
+    "labelStyleCluster": "Text Style",
+    "shapeSize": "Size Ratio"
+  },
+  "ja": {
+    "shapeInternalRatio": "トーラス占有率",
+    "label": "グラフィックテキスト",
+    "labelStyleCluster": "テキスト様式",
+    "shapeSize": "サイズ"
+  },
+  "zh-TW": {
+    "shapeInternalRatio": "圓環佔比",
+    "label": "圖形文本",
+    "labelStyleCluster": "文字樣式",
+    "shapeSize": "圖形大小佔比"
+  }
+}

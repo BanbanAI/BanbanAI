@@ -1,0 +1,22 @@
+{
+  "zh-CN": {
+    "fieldsSetting": "字段设置",
+    "axisValue": "取值字段",
+    "tooltipUnitSetName": "单位名称设置"
+  },
+  "en": {
+    "fieldsSetting": "Field Settings",
+    "axisValue": "Value Field",
+    "tooltipUnitSetName": "Unit name settings"
+  },
+  "ja": {
+    "fieldsSetting": "フィールドの設定",
+    "axisValue": "値フィールド",
+    "tooltipUnitSetName": "単位名の設定"
+  },
+  "zh-TW": {
+    "fieldsSetting": "字段設置",
+    "axisValue": "取值字段",
+    "tooltipUnitSetName": "單位名稱設置"
+  }
+}

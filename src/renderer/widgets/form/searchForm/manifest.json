@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.searchForm",
+    "displayName":  "查询表单",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-searchForm-icon.svg",
+    "show":  true
+}

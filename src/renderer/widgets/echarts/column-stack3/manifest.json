@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.column-stack3",
+    "displayName":  "3D堆叠柱状图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.column3",
+    "icon":  "widget-echarts-column-stack3-icon.svg",
+    "show":  true
+}

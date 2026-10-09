@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.treeSelect",
+    "displayName":  "下拉单选",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-treeSelect-icon.svg",
+    "show":  true
+}

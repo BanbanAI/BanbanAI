@@ -1,0 +1,334 @@
+@use "./theme/common.scss" as *;
+@use "./theme/dark.scss" as *;
+@use "element-plus/theme-chalk/src/index.scss" as *;
+@use "element-plus/theme-chalk/src/dark/css-vars.scss" as *;
+
+
+@font-face {
+  font-family: "lcd";
+  src: url("../assets/font/banban-led.eot"),
+    url("../assets/font/banban-led.ttf") format('truetype');
+}
+
+@font-face {
+  font-family: "din";
+  src: url("../assets/font/D-DIN.otf") format('opentype'),
+    url("../assets/font/D-DIN.ttf") format('ttf'),
+    url("../assets/font/D-DIN.woff2") format('woff2'),
+    url("../assets/font/D-DIN.woff") format('woff');
+}
+
+/************************
+* 
+*  1.全局基础设置
+*
+************************/
+* {
+  margin: 0;
+  padding: 0;
+  font-family: "PingFangSC-Regular", "din", "Microsoft Yahei", "Arial", "Helvetica Neue", "Helvetica", sans-serif;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  font-size: 12px;
+  font-weight: 400;
+  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1;
+  cursor: var(--cursor-default)
+}
+
+html.full-screen{
+  .window-header{
+    display: none;
+  }
+}
+
+ol,
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+input,
+textarea,
+select {
+  outline: none;
+  border: none;
+  color: var(--el-text-color);
+}
+
+label {
+  margin-bottom: 0;
+  cursor: var(--cursor-pointer);
+}
+
+a,
+a:hover {
+  text-decoration: none;
+}
+
+a:hover {
+  color: #4596ff
+}
+
+a.btn.loading {
+  background-color: #aaa !important;
+  border: 1px solid #aaa;
+  transition: none;
+}
+
+a.btn img {
+  width: 30px;
+  top: -3px;
+  position: relative;
+}
+
+a,
+.btn,
+.cursor-pointer {
+  cursor: var(--cursor-pointer);
+}
+
+input,
+textarea,
+.cursor-text {
+  cursor: var(--cursor-text);
+}
+
+input[type=checkbox],
+input[type=radio] {
+  cursor: var(--cursor-pointer);
+}
+
+canvas:focus {
+  outline: none;
+}
+
+.is-ai-form-filled {
+  animation: workbench-ai-form-fill-highlight 4s ease-out;
+  border-radius: 4px;
+}
+
+@keyframes workbench-ai-form-fill-highlight {
+  0%,
+  72% {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+    background-color: var(--color-primary-light-9);
+  }
+
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+    background-color: transparent;
+  }
+}
+
+::-webkit-input-placeholder {
+  color:#999;
+  font-size: 13px;
+}
+
+:root {
+  --scrollbar-size: 6px;
+  --scrollbar-radius: 3px;
+  --scrollbar-color-track: #d5d5d5;
+  --scrollbar-color-thumb: #a5a5a5;
+  .scrollbar-thin {
+    --scrollbar-size: 4px;
+    --scrollbar-radius: 2px;
+  }
+  .scrollbar-thick {
+    --scrollbar-size: 8px;
+    --scrollbar-radius: 4px;
+  }
+}
+
+::-webkit-scrollbar,
+::-webkit-scrollbar:horizontal {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+  background-color: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track:horizontal {
+  background-color: var(--scrollbar-color-track);
+}
+::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb:horizontal {
+  background-color: var(--scrollbar-color-thumb);
+  border-radius: var(--scrollbar-radius);
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag !important;
+}
+@mixin popper-styles($margin) {
+  border: none !important;
+
+  .el-scrollbar {
+    --el-scrollbar-bg-color: var(--el-bg-color-page) !important;
+  }
+
+  .el-select-dropdown__wrap {
+    background-color: var(--el-bg-color-page);
+  }
+
+  .el-dropdown__list {
+    padding: 0 !important;
+  }
+
+  .el-popper__arrow {
+    display: none !important;
+  }
+
+  .el-scrollbar__view,
+  .el-dropdown-menu {
+    background-color: var(--el-bg-color-page);
+    padding: 2px;
+
+    .el-select-dropdown__item,
+    .el-dropdown-menu__item {
+      height: 32px;
+      line-height: 32px;
+      margin-bottom: $margin;
+      border-radius: 2px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      &.is-selected {
+        background-color: var(--el-bg-color-page);
+      }
+
+      &.is-hovering {
+        background-color: var(--bg-color-overlay);
+      }
+    }
+  }
+}
+
+// 实际使用
+.custom-popper-small {
+  @include popper-styles(2px);
+}
+
+.custom-popper-large {
+  @include popper-styles(8px);
+}
+
+.custom-select-tree-popper {
+  border: none !important;
+
+  .el-scrollbar {
+    --el-scrollbar-bg-color: var(--el-bg-color-page) !important;
+  }
+
+  .el-dropdown__list {
+    padding: 0 !important;
+  }
+
+  .el-popper__arrow {
+    display: none !important;
+  }
+
+  .el-scrollbar__view {
+    background-color: var(--el-bg-color-page);
+    padding: 2px;
+  }
+
+  .el-tree-node {
+    margin-bottom: 2px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    .el-tree-node__children {
+      margin-top: 2px;
+    }
+  }
+
+  .el-tree-node.is-expanded {
+    background-color: transparent;
+
+    &>.el-tree-node__content {
+      background-color: transparent;
+    }
+  }
+
+  /* 确保子节点也没有背景色 */
+  .el-tree-node__children {
+    background-color: transparent;
+
+    .el-tree-node__content {
+      background-color: transparent;
+    }
+  }
+
+  .el-tree-node__content {
+    height: 32px;
+    line-height: 32px;
+    border-radius: 2px;
+
+    &:hover {
+      background-color: var(--bg-color-overlay) !important;
+    }
+  }
+}
+:focus-visible {
+  outline: none;
+}
+
+.detail-loading-mask,
+.subform-viewer > .el-loading-mask,
+.mobile-subform-viewer > .el-loading-mask,
+.nocode-form > .el-loading-mask,
+.submit-form-layer > .el-loading-mask,
+.form-wrapper > .el-loading-mask,
+.iframe-wrap > .el-loading-mask {
+  .el-loading-spinner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 0;
+    transform: translateY(-50%);
+    font-size: 14px;
+    line-height: 20px;
+
+    .circular {
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+    }
+
+    .el-loading-text {
+      margin: 0;
+      color: var(--el-text-color-regular);
+    }
+  }
+}
+.el-message {
+  border-radius: 4px;
+
+  .el-message__closeBtn {
+    margin-left: 8px;
+  }
+}
+

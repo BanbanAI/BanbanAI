@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.radial",
+    "displayName":  "玉珏图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-radial-icon.svg",
+    "show":  true
+}

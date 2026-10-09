@@ -1,0 +1,23 @@
+#!/bin/bash
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/common"
+
+case "$1" in
+  start)
+    exec "$SCRIPT_DIR/start.sh"
+    ;;
+  stop)
+    exec "$SCRIPT_DIR/stop.sh"
+    ;;
+  status)
+    status_service
+    exit $?
+    ;;
+  restart)
+    "$SCRIPT_DIR/stop.sh" && exec "$SCRIPT_DIR/start.sh"
+    ;;
+  *)
+    exit 1
+    ;;
+esac

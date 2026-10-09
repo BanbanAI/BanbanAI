@@ -1,0 +1,9 @@
+{
+    "name":  "widget.form.table",
+    "displayName":  "数据管理表",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-table-icon.svg",
+    "show":  true,
+    "cover":  "widget-form-table-cover.png"
+}

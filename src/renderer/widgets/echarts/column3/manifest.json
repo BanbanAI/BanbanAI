@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.column3",
+    "displayName":  "3D柱状图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.column",
+    "icon":  "widget-echarts-column3-icon.svg",
+    "show":  true
+}

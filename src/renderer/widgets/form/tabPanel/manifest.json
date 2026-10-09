@@ -1,0 +1,7 @@
+{
+    "name":  "widget.form.tabPanel",
+    "displayName":  "多标签面板",
+    "version":  "0.0.1",
+    "super":  "",
+    "show":  true
+}

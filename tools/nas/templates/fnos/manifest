@@ -1,0 +1,11 @@
+appname=ds-banban-nas
+version=1.0.0
+desc=斑斑低代码 NAS 包
+display_name=斑斑低代码
+arch=x86_64
+source=thirdparty
+maintainer=多算科技
+maintainer_url=https://www.banban.work
+distributor=多算科技
+distributor_url=https://www.banban.work
+helpurl=https://www.banban.work

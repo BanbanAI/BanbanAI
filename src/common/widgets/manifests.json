@@ -1,0 +1,1120 @@
+[
+  {
+    "name": "widget.form.address",
+    "displayName": "地址",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-address-icon.svg",
+    "show": true,
+    "path": "form/address"
+  },
+  {
+    "name": "widget.echarts.wordle",
+    "displayName": "词云",
+    "version": "0.1.1",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-wordle-icon.svg",
+    "show": true,
+    "path": "echarts/wordle"
+  },
+  {
+    "name": "widget.form.autoCompute",
+    "displayName": "实时计算",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-autoCompute-icon.svg",
+    "show": true,
+    "path": "form/autoCompute"
+  },
+  {
+    "name": "widget.form.amountInput",
+    "displayName": "金额",
+    "version": "0.0.1",
+    "super": "",
+    "show": true,
+    "path": "form/amountInput"
+  },
+  {
+    "name": "widget.echarts.waterfall",
+    "displayName": "瀑布图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-waterfall-icon.svg",
+    "show": true,
+    "path": "echarts/waterfall"
+  },
+  {
+    "name": "widget.echarts.scatter",
+    "displayName": "散点图",
+    "version": "0.0.2",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-scatter-icon.svg",
+    "show": true,
+    "path": "echarts/scatter"
+  },
+  {
+    "name": "widget.echarts.sankey-v2",
+    "displayName": "桑基图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-sankey-v2-icon.svg",
+    "show": true,
+    "path": "echarts/sankeyV2"
+  },
+  {
+    "name": "widget.echarts.waffle",
+    "displayName": "华夫图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-waffle-icon.svg",
+    "show": true,
+    "path": "echarts/waffle"
+  },
+  {
+    "name": "widget.echarts.treemap",
+    "displayName": "矩形图",
+    "version": "0.1.1",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-treemap-icon.svg",
+    "show": true,
+    "path": "echarts/treemap"
+  },
+  {
+    "name": "widget.form.filter",
+    "displayName": "表单筛选",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-filter-icon.svg",
+    "show": true,
+    "path": "form/filter"
+  },
+  {
+    "name": "widget.form.file-uploader",
+    "displayName": "上传附件",
+    "version": "0.0.1",
+    "super": "widget.form.uploader",
+    "icon": "widget-form-file-uploader-icon.svg",
+    "show": true,
+    "path": "form/fileUploader"
+  },
+  {
+    "name": "widget.form.handwrittenSignature",
+    "displayName": "手写签名",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-handwrittenSignature-icon.svg",
+    "show": true,
+    "path": "form/handwrittenSignature"
+  },
+  {
+    "name": "widget.form.form",
+    "displayName": "表单",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-form-icon.svg",
+    "show": true,
+    "path": "form/form"
+  },
+  {
+    "name": "widget.form.departmentSelect",
+    "displayName": "部门",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-departmentSelect-icon.svg",
+    "show": true,
+    "path": "form/departmentSelect"
+  },
+  {
+    "name": "widget.form.checkboxGroup",
+    "displayName": "多选",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-checkboxGroup-icon.svg",
+    "show": true,
+    "path": "form/checkboxGroup"
+  },
+  {
+    "name": "widget.form.dateRangePicker",
+    "displayName": "时间范围",
+    "version": "0.1.1",
+    "super": "widget.form.datePicker",
+    "icon": "widget-form-dateRangePicker-icon.svg",
+    "show": true,
+    "path": "form/dateRangePicker"
+  },
+  {
+    "name": "widget.form.datePicker",
+    "displayName": "日期时间",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-datePicker-icon.svg",
+    "show": true,
+    "path": "form/datePicker"
+  },
+  {
+    "name": "widget.echarts.polar-bar",
+    "displayName": "极坐标柱状图",
+    "version": "0.1.1",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-polar-bar-icon.svg",
+    "show": true,
+    "path": "echarts/polar-bar"
+  },
+  {
+    "name": "widget.echarts.pizza",
+    "displayName": "披萨图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-pizza-icon.svg",
+    "show": true,
+    "path": "echarts/pizza"
+  },
+  {
+    "name": "widget.echarts.progress-v2",
+    "displayName": "百分比图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-progress-v2-icon.svg",
+    "show": true,
+    "path": "echarts/progressV2"
+  },
+  {
+    "name": "widget.echarts.polar-heatmap",
+    "displayName": "色块图2",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-polar-heatmap-icon.svg",
+    "show": true,
+    "path": "echarts/polar-heatmap"
+  },
+  {
+    "name": "widget.echarts.pie3",
+    "displayName": "3D饼状图",
+    "version": "0.1.0",
+    "super": "widget.echarts.pie",
+    "icon": "widget-echarts-pie3-icon.svg",
+    "show": true,
+    "path": "echarts/pie3"
+  },
+  {
+    "name": "widget.echarts.line",
+    "displayName": "折线图",
+    "version": "0.0.2",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-line-icon.svg",
+    "show": true,
+    "path": "echarts/line"
+  },
+  {
+    "name": "widget.echarts.interval-histogram",
+    "displayName": "区间柱状图",
+    "version": "0.1.0",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-interval-histogram-icon.svg",
+    "show": true,
+    "path": "echarts/interval-histogram"
+  },
+  {
+    "name": "widget.echarts.pie",
+    "displayName": "饼状图",
+    "version": "0.0.2",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-pie-icon.svg",
+    "show": true,
+    "path": "echarts/pie"
+  },
+  {
+    "name": "widget.echarts.liquid",
+    "displayName": "水球图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-liquid-icon.svg",
+    "show": true,
+    "path": "echarts/liquid"
+  },
+  {
+    "name": "widget.echarts.rose-donut",
+    "displayName": "玫瑰环图",
+    "version": "0.1.0",
+    "super": "widget.echarts.rose",
+    "icon": "widget-echarts-rose-donut-icon.svg",
+    "show": true,
+    "path": "echarts/rose-donut"
+  },
+  {
+    "name": "widget.echarts.rose",
+    "displayName": "玫瑰图",
+    "version": "0.1.0",
+    "super": "widget.echarts.pie",
+    "icon": "widget-echarts-rose-icon.svg",
+    "show": true,
+    "path": "echarts/rose"
+  },
+  {
+    "name": "widget.echarts.rose3-donut",
+    "displayName": "3D玫瑰环图",
+    "version": "0.1.0",
+    "super": "widget.echarts.pie3",
+    "icon": "widget-echarts-rose3-donut-icon.svg",
+    "show": true,
+    "path": "echarts/rose3-donut"
+  },
+  {
+    "name": "widget.echarts.rose3",
+    "displayName": "3D玫瑰图",
+    "version": "0.1.0",
+    "super": "widget.echarts.pie3",
+    "icon": "widget-echarts-rose3-icon.svg",
+    "show": true,
+    "path": "echarts/rose3"
+  },
+  {
+    "name": "widget.echarts.roadmap",
+    "displayName": "路径图",
+    "version": "0.0.2",
+    "super": "widget.echarts.line",
+    "icon": "widget-echarts-roadmap-icon.svg",
+    "show": true,
+    "path": "echarts/roadmap"
+  },
+  {
+    "name": "widget.echarts.radar",
+    "displayName": "雷达图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-radar-icon.svg",
+    "show": true,
+    "path": "echarts/radar"
+  },
+  {
+    "name": "widget.echarts.punch",
+    "displayName": "时间序列气泡图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-punch-icon.svg",
+    "show": true,
+    "path": "echarts/punch"
+  },
+  {
+    "name": "widget.echarts.river",
+    "displayName": "河流图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-river-icon.svg",
+    "show": true,
+    "path": "echarts/river"
+  },
+  {
+    "name": "widget.echarts.radial",
+    "displayName": "玉珏图",
+    "version": "0.1.1",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-radial-icon.svg",
+    "show": true,
+    "path": "echarts/radial"
+  },
+  {
+    "name": "widget.form.tabPanel",
+    "displayName": "多标签面板",
+    "version": "0.0.1",
+    "super": "",
+    "show": true,
+    "path": "form/tabPanel"
+  },
+  {
+    "name": "widget.form.table",
+    "displayName": "数据管理表",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-table-icon.svg",
+    "show": true,
+    "cover": "widget-form-table-cover.png",
+    "path": "form/table"
+  },
+  {
+    "name": "widget.form.textarea",
+    "displayName": "多行文本",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-textarea-icon.svg",
+    "show": true,
+    "path": "form/textArea"
+  },
+  {
+    "name": "widget.form.tagInput",
+    "displayName": "标签文本",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-tagInput-icon.svg",
+    "show": true,
+    "path": "form/tagInput"
+  },
+  {
+    "name": "widget.form.switch",
+    "displayName": "开关",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-switch-icon.svg",
+    "show": true,
+    "path": "form/switch"
+  },
+  {
+    "name": "widget.form.splitLine",
+    "displayName": "分割线",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-splitLine-icon.svg",
+    "show": true,
+    "path": "form/splitLine"
+  },
+  {
+    "name": "widget.form.serialNumber",
+    "displayName": "自动编号",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-serialNumber-icon.svg",
+    "show": true,
+    "path": "form/serialNumber"
+  },
+  {
+    "name": "widget.form.submitform",
+    "displayName": "填报表单",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-submitform-icon.svg",
+    "show": true,
+    "cover": "widget-form-submitform-cover.png",
+    "path": "form/submitForm"
+  },
+  {
+    "name": "widget.form.subform",
+    "displayName": "子表单",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-subform-icon.svg",
+    "show": true,
+    "path": "form/subForm"
+  },
+  {
+    "name": "widget.group.panel",
+    "displayName": "分组面板",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-group-panel-icon.svg",
+    "show": true,
+    "path": "group/panel"
+  },
+  {
+    "name": "widget.form.viewtable",
+    "displayName": "数据明细表",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-viewtable-icon.svg",
+    "show": true,
+    "cover": "widget-form-viewtable-cover.png",
+    "path": "form/viewTable"
+  },
+  {
+    "name": "widget.group.tab",
+    "displayName": "选项卡",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-group-tab-icon.svg",
+    "show": false,
+    "path": "group/tab"
+  },
+  {
+    "name": "widget.group.panel-tab",
+    "displayName": "选项卡",
+    "version": "0.1.1",
+    "super": "widget.group.tab",
+    "icon": "widget-group-panel-tab-icon.svg",
+    "show": true,
+    "path": "group/panel-tab"
+  },
+  {
+    "name": "widget.form.uploader",
+    "displayName": "表单上传组件",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-uploader-icon.svg",
+    "show": true,
+    "path": "form/uploader"
+  },
+  {
+    "name": "widget.form.titleBar",
+    "displayName": "标题栏",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-titleBar-icon.svg",
+    "show": true,
+    "path": "form/titleBar"
+  },
+  {
+    "name": "widget.form.timePicker",
+    "displayName": "时间",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-timePicker-icon.svg",
+    "show": true,
+    "path": "form/timePicker"
+  },
+  {
+    "name": "widget.form.treeSelect",
+    "displayName": "下拉单选",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-treeSelect-icon.svg",
+    "show": true,
+    "path": "form/treeSelect"
+  },
+  {
+    "name": "widget.form.treeMultipleSelect",
+    "displayName": "下拉多选",
+    "version": "0.1.1",
+    "super": "widget.form.treeSelect",
+    "icon": "widget-form-treeMultipleSelect-icon.svg",
+    "show": true,
+    "path": "form/treeMultipleSelect"
+  },
+  {
+    "name": "widget.form.menu-filter",
+    "displayName": "筛选菜单",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-menu-filter-icon.svg",
+    "show": true,
+    "path": "form/menuFilter"
+  },
+  {
+    "name": "widget.form.memberSelect",
+    "displayName": "成员",
+    "version": "0.1.1",
+    "super": "widget.form.departmentSelect",
+    "icon": "widget-form-memberSelect-icon.svg",
+    "show": true,
+    "path": "form/memberSelect"
+  },
+  {
+    "name": "widget.form.numberInput",
+    "displayName": "数字",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-numberInput-icon.svg",
+    "show": true,
+    "path": "form/number"
+  },
+  {
+    "name": "widget.form.multipleTabs",
+    "displayName": "选项卡",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-multipleTabs-icon.svg",
+    "show": true,
+    "path": "form/multipleTabs"
+  },
+  {
+    "name": "widget.form.markdownEditor",
+    "displayName": "Markdown",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-markdownEditor-icon.svg",
+    "show": true,
+    "path": "form/markdownEditor"
+  },
+  {
+    "name": "widget.form.imageTextShow",
+    "displayName": "图文展示",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-imageTextShow-icon.svg",
+    "show": true,
+    "path": "form/imageTextShow"
+  },
+  {
+    "name": "widget.form.hyperlink",
+    "displayName": "超链接",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-hyperlink-icon.svg",
+    "show": true,
+    "path": "form/hyperlink"
+  },
+  {
+    "name": "widget.form.textInput",
+    "displayName": "单行文本",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-textInput-icon.svg",
+    "show": true,
+    "path": "form/input"
+  },
+  {
+    "name": "widget.form.image-uploader",
+    "displayName": "上传图片",
+    "version": "0.0.1",
+    "super": "widget.form.uploader",
+    "icon": "widget-form-image-uploader-icon.svg",
+    "show": true,
+    "path": "form/imageUploader"
+  },
+  {
+    "name": "widget.form.richTextEditor",
+    "displayName": "富文本",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-richTextEditor-icon.svg",
+    "show": true,
+    "path": "form/richTextEditor"
+  },
+  {
+    "name": "widget.form.relatedData",
+    "displayName": "关联数据",
+    "version": "0.1.1",
+    "super": "widget.form.selectData",
+    "icon": "widget-form-relatedData-icon.svg",
+    "show": true,
+    "path": "form/relatedData"
+  },
+  {
+    "name": "widget.form.selectData",
+    "displayName": "选择数据",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-selectData-icon.svg",
+    "show": true,
+    "path": "form/selectData"
+  },
+  {
+    "name": "widget.form.searchForm",
+    "displayName": "查询表单",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-form-searchForm-icon.svg",
+    "show": true,
+    "path": "form/searchForm"
+  },
+  {
+    "name": "widget.form.rate",
+    "displayName": "评分",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-rate-icon.svg",
+    "show": true,
+    "path": "form/rate"
+  },
+  {
+    "name": "widget.form.pivot-table",
+    "displayName": "数据透视表",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-form-pivot-table-icon.svg",
+    "show": true,
+    "cover": "widget-form-pivot-table-cover.jpg",
+    "path": "form/pivotTable"
+  },
+  {
+    "name": "widget.form.phoneInput",
+    "displayName": "手机",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-phoneInput-icon.svg",
+    "show": true,
+    "path": "form/phoneInput"
+  },
+  {
+    "name": "widget.form.radioGroup",
+    "displayName": "单选",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-radioGroup-icon.svg",
+    "show": true,
+    "path": "form/radioGroup"
+  },
+  {
+    "name": "widget.form.position",
+    "displayName": "定位",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-form-position-icon.svg",
+    "show": true,
+    "path": "form/position"
+  },
+  {
+    "name": "widget.basic.pdf",
+    "displayName": "PDF",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-basic-pdf-icon.svg",
+    "show": true,
+    "path": "basic/pdf"
+  },
+  {
+    "name": "widget.basic.paragraph",
+    "displayName": "多行文本",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-paragraph-icon.svg",
+    "show": true,
+    "path": "basic/paragraph"
+  },
+  {
+    "name": "widget.basic.trend",
+    "displayName": "数据变化",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-trend-icon.svg",
+    "show": true,
+    "path": "basic/trend"
+  },
+  {
+    "name": "widget.basic.videos",
+    "displayName": "轮播视频",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-videos-icon.svg",
+    "show": true,
+    "path": "basic/videos"
+  },
+  {
+    "name": "widget.basic.video",
+    "displayName": "视频",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-basic-video-icon.svg",
+    "show": true,
+    "path": "basic/video"
+  },
+  {
+    "name": "widget.basic.timer-v2",
+    "displayName": "时间",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-timer-v2-icon.svg",
+    "show": true,
+    "path": "basic/timerV2"
+  },
+  {
+    "name": "widget.basic.text",
+    "displayName": "单行文本",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-basic-text-icon.svg",
+    "show": true,
+    "path": "basic/text"
+  },
+  {
+    "name": "widget.basic.carousel",
+    "displayName": "轮播图",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-carousel-icon.svg",
+    "show": true,
+    "path": "basic/carousel"
+  },
+  {
+    "name": "widget.basic.card-v2",
+    "displayName": "指标卡",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-card-v2-icon.svg",
+    "show": true,
+    "path": "basic/cardV2"
+  },
+  {
+    "name": "widget.basic.audio",
+    "displayName": "音频",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-basic-audio-icon.svg",
+    "show": true,
+    "path": "basic/audio"
+  },
+  {
+    "name": "widget.basic.horizontal-filter-menu",
+    "displayName": "按钮快捷筛选",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-basic-horizontal-filter-menu-icon.svg",
+    "show": true,
+    "path": "basic/horizontal-filter-menu"
+  },
+  {
+    "name": "widget.basic.image",
+    "displayName": "图片",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-image-icon.svg",
+    "show": true,
+    "path": "basic/image"
+  },
+  {
+    "name": "widget.basic.iframe",
+    "displayName": "iframe",
+    "version": "0.1.0",
+    "super": "",
+    "icon": "widget-basic-iframe-icon.svg",
+    "show": true,
+    "path": "basic/iframe"
+  },
+  {
+    "name": "widget.basic.filter-menu",
+    "displayName": "下拉快捷筛选",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-basic-filter-menu-icon.svg",
+    "show": true,
+    "path": "basic/filter-menu"
+  },
+  {
+    "name": "widget.basic.filter",
+    "displayName": "下拉筛选",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-basic-filter-icon.svg",
+    "show": true,
+    "path": "basic/filter"
+  },
+  {
+    "name": "widget.basic.filter-input",
+    "displayName": "输入框筛选",
+    "version": "0.0.1",
+    "super": "widget.basic.filter",
+    "icon": "widget-basic-filter-input-icon.svg",
+    "show": true,
+    "path": "basic/filter-input"
+  },
+  {
+    "name": "widget.basic.filter-button",
+    "displayName": "筛选按钮",
+    "version": "0.0.1",
+    "super": "",
+    "icon": "widget-basic-filter-button-icon.svg",
+    "show": true,
+    "path": "basic/filter-button"
+  },
+  {
+    "name": "widget.echarts.column3",
+    "displayName": "3D柱状图",
+    "version": "0.1.1",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-column3-icon.svg",
+    "show": true,
+    "path": "echarts/column3"
+  },
+  {
+    "name": "widget.echarts.column-stack3",
+    "displayName": "3D堆叠柱状图",
+    "version": "0.1.1",
+    "super": "widget.echarts.column3",
+    "icon": "widget-echarts-column-stack3-icon.svg",
+    "show": true,
+    "path": "echarts/column-stack3"
+  },
+  {
+    "name": "widget.echarts.donut3",
+    "displayName": "3D环形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.pie3",
+    "icon": "widget-echarts-donut3-icon.svg",
+    "show": true,
+    "path": "echarts/donut3"
+  },
+  {
+    "name": "widget.echarts.donut",
+    "displayName": "环形图",
+    "version": "0.0.2",
+    "super": "widget.echarts.pie",
+    "icon": "widget-echarts-donut-icon.svg",
+    "show": true,
+    "path": "echarts/donut"
+  },
+  {
+    "name": "widget.echarts.column-stack",
+    "displayName": "堆叠柱状图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-column-stack-icon.svg",
+    "show": true,
+    "path": "echarts/column-stack"
+  },
+  {
+    "name": "widget.echarts.symbol-column",
+    "displayName": "图形柱状图",
+    "version": "0.1.1",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-symbol-column-icon.svg",
+    "show": true,
+    "path": "echarts/colum-symbol"
+  },
+  {
+    "name": "widget.echarts.color-lump",
+    "displayName": "色块图1",
+    "version": "0.1.0",
+    "super": "widget.echarts.polar-heatmap",
+    "icon": "widget-echarts-color-lump-icon.svg",
+    "show": true,
+    "path": "echarts/color-lump"
+  },
+  {
+    "name": "widget.echarts.column-percent",
+    "displayName": "百分比堆叠柱状图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-column-percent-icon.svg",
+    "show": true,
+    "path": "echarts/column-percent"
+  },
+  {
+    "name": "widget.echarts.column",
+    "displayName": "分组柱状图",
+    "version": "0.1.1",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-column-icon.svg",
+    "show": true,
+    "path": "echarts/column"
+  },
+  {
+    "name": "widget.echarts.heatmap",
+    "displayName": "热力图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-heatmap-icon.svg",
+    "show": true,
+    "path": "echarts/heatmap"
+  },
+  {
+    "name": "widget.echarts.gauge",
+    "displayName": "仪表盘",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-gauge-icon.svg",
+    "show": true,
+    "path": "echarts/gauge"
+  },
+  {
+    "name": "widget.echarts.interval-graph",
+    "displayName": "区间条形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.interval-histogram",
+    "icon": "widget-echarts-interval-graph-icon.svg",
+    "show": true,
+    "path": "echarts/interval-graph"
+  },
+  {
+    "name": "widget.echarts.histogram",
+    "displayName": "直方图",
+    "version": "0.1.0",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-histogram-icon.svg",
+    "show": true,
+    "path": "echarts/histogram"
+  },
+  {
+    "name": "widget.echarts.gantt",
+    "displayName": "甘特图",
+    "version": "0.1.0",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-gantt-icon.svg",
+    "show": true,
+    "path": "echarts/gantt"
+  },
+  {
+    "name": "widget.echarts.funnel",
+    "displayName": "漏斗图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-funnel-icon.svg",
+    "show": true,
+    "path": "echarts/funnel"
+  },
+  {
+    "name": "widget.echarts.dynamic-bar",
+    "displayName": "动态条形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-dynamic-bar-icon.svg",
+    "show": true,
+    "path": "echarts/dynamic-bar"
+  },
+  {
+    "name": "widget.echarts.funnel-symmetric",
+    "displayName": "对称漏斗图",
+    "version": "0.1.0",
+    "super": "widget.echarts.funnel",
+    "icon": "widget-echarts-funnel-symmetric-icon.svg",
+    "show": true,
+    "path": "echarts/funnel-symmetric"
+  },
+  {
+    "name": "widget.echarts.funnel-contrast",
+    "displayName": "对比漏斗图",
+    "version": "0.1.0",
+    "super": "widget.echarts.funnel",
+    "icon": "widget-echarts-funnel-contrast-icon.svg",
+    "show": true,
+    "path": "echarts/funnel-contrast"
+  },
+  {
+    "name": "widget.echarts.bar-percent",
+    "displayName": "百分比堆叠条形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column-percent",
+    "icon": "widget-echarts-bar-percent-icon.svg",
+    "show": true,
+    "path": "echarts/bar-percent"
+  },
+  {
+    "name": "widget.echarts.bar",
+    "displayName": "分组条形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-bar-icon.svg",
+    "show": true,
+    "path": "echarts/bar"
+  },
+  {
+    "name": "widget.echarts.symbol-bar",
+    "displayName": "图形条形图",
+    "version": "0.1.1",
+    "super": "widget.echarts.symbol-column",
+    "icon": "widget-echarts-symbol-bar-icon.svg",
+    "show": true,
+    "path": "echarts/bar-symbol"
+  },
+  {
+    "name": "widget.echarts.bar-stack",
+    "displayName": "堆叠条形图",
+    "version": "0.1.0",
+    "super": "widget.echarts.bar",
+    "icon": "widget-echarts-bar-stack-icon.svg",
+    "show": true,
+    "path": "echarts/bar-stack"
+  },
+  {
+    "name": "widget.echarts.axis",
+    "displayName": "axis",
+    "version": "0.0.2",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-axis-icon.svg",
+    "show": false,
+    "path": "echarts/axis"
+  },
+  {
+    "name": "widget.echarts.area-interval",
+    "displayName": "区间面积图",
+    "version": "0.1.0",
+    "super": "widget.echarts.line",
+    "icon": "widget-echarts-area-interval-icon.svg",
+    "show": true,
+    "path": "echarts/area-interval"
+  },
+  {
+    "name": "widget.echarts.area",
+    "displayName": "面积图",
+    "version": "0.0.2",
+    "super": "widget.echarts.line",
+    "icon": "widget-echarts-area-icon.svg",
+    "show": true,
+    "path": "echarts/area"
+  },
+  {
+    "name": "widget.echarts.area-stack",
+    "displayName": "堆叠面积图",
+    "version": "0.0.2",
+    "super": "widget.echarts.area",
+    "icon": "widget-echarts-area-stack-icon.svg",
+    "show": true,
+    "path": "echarts/area-stack"
+  },
+  {
+    "name": "widget.echarts.area-rainfall",
+    "displayName": "雨量关系图",
+    "version": "0.0.2",
+    "super": "widget.echarts.area",
+    "icon": "widget-echarts-area-rainfall-icon.svg",
+    "show": true,
+    "path": "echarts/area-rainfall"
+  },
+  {
+    "name": "widget.echarts.bubble-shape",
+    "displayName": "气泡图2",
+    "version": "0.1.0",
+    "super": "widget.echarts.bubble",
+    "icon": "widget-echarts-bubble-shape-icon.svg",
+    "show": true,
+    "path": "echarts/bubble-shape"
+  },
+  {
+    "name": "widget.echarts.bubble",
+    "displayName": "气泡图",
+    "version": "0.0.2",
+    "super": "widget.echarts.scatter",
+    "icon": "widget-echarts-bubble-icon.svg",
+    "show": true,
+    "path": "echarts/bubble"
+  },
+  {
+    "name": "widget.echarts.calendar-heatmap",
+    "displayName": "日历热力图",
+    "version": "0.1.0",
+    "super": "widget.echarts.color-lump",
+    "icon": "widget-echarts-calendar-heatmap-icon.svg",
+    "show": true,
+    "path": "echarts/calendar-heatmap"
+  },
+  {
+    "name": "widget.echarts.bullet",
+    "displayName": "子弹图",
+    "version": "0.1.0",
+    "super": "widget.echarts.basic",
+    "icon": "widget-echarts-bullet-icon.svg",
+    "show": true,
+    "path": "echarts/bullet"
+  },
+  {
+    "name": "widget.echarts.box-diagram",
+    "displayName": "箱型图",
+    "version": "0.1.0",
+    "super": "widget.echarts.axis",
+    "icon": "widget-echarts-box-diagram-icon.svg",
+    "show": true,
+    "path": "echarts/box-diagram"
+  },
+  {
+    "name": "widget.echarts.biaxial",
+    "displayName": "分组双轴图",
+    "version": "0.1.0",
+    "super": "widget.echarts.column",
+    "icon": "widget-echarts-biaxial-icon.svg",
+    "show": true,
+    "path": "echarts/biaxial"
+  },
+  {
+    "name": "widget.echarts.basic",
+    "displayName": "ECharts图表",
+    "version": "0.1.1",
+    "super": "",
+    "icon": "widget-echarts-basic-icon.svg",
+    "show": true,
+    "path": "echarts/basic"
+  },
+  {
+    "name": "widget.echarts.biaxial-stack",
+    "displayName": "堆叠双轴图",
+    "version": "0.1.0",
+    "super": "widget.echarts.biaxial",
+    "icon": "widget-echarts-biaxial-stack-icon.svg",
+    "show": true,
+    "path": "echarts/biaxial-stack"
+  },
+  {
+    "name": "widget.echarts.biaxial-reverse",
+    "displayName": "柱形雨量图",
+    "version": "0.1.0",
+    "super": "widget.echarts.biaxial",
+    "icon": "widget-echarts-biaxial-reverse-icon.svg",
+    "show": true,
+    "path": "echarts/biaxial-reverse"
+  }
+]

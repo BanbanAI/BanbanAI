@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.selectData",
+    "displayName":  "选择数据",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-selectData-icon.svg",
+    "show":  true
+}

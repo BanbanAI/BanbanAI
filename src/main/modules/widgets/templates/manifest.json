@@ -1,0 +1,1567 @@
+{
+  "chart": {
+    "type": "chart",
+    "label": "图表",
+    "series": "",
+    "children": [
+      {
+        "label": "条形图",
+        "type": "条形图",
+        "image": "",
+        "children": [
+          {
+            "id": "3ddef3848e16c828118ba6fab9bb636b",
+            "alias": "T型分组条形图",
+            "image": "chart/条形图/T型分组条形图/index.jpg",
+            "category": "条形图",
+            "isAlpha": false,
+            "url": "chart/条形图/T型分组条形图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bar"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "8ddb95e344682a0e5e706304760377dc",
+            "alias": "分组条形图",
+            "image": "chart/条形图/分组条形图/index.jpg",
+            "category": "条形图",
+            "isAlpha": false,
+            "url": "chart/条形图/分组条形图",
+            "version": 5,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bar"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "9de0a4fe9b0ea292311462246daa5d9e",
+            "alias": "堆叠条形图",
+            "image": "chart/条形图/堆叠条形图/index.jpg",
+            "category": "条形图",
+            "isAlpha": false,
+            "url": "chart/条形图/堆叠条形图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bar-stack"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "ccafce0e89168f6c5b1666099a93a50a",
+            "alias": "百分比堆叠条形图",
+            "image": "chart/条形图/百分比堆叠条形图/index.jpg",
+            "category": "条形图",
+            "isAlpha": false,
+            "url": "chart/条形图/百分比堆叠条形图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bar-percent"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "a05079fc451b8a8980c9d45f4d242439",
+            "alias": "区间条形图",
+            "image": "chart/条形图/区间条形图/index.jpg",
+            "category": "条形图",
+            "isAlpha": false,
+            "url": "chart/条形图/区间条形图",
+            "version": 2,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.interval-graph"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "柱状图",
+        "type": "柱状图",
+        "image": "",
+        "children": [
+          {
+            "id": "cc401fcc1d50a3396dbe1d58bad41ea2",
+            "alias": "T型分组柱状图",
+            "image": "chart/柱状图/T型分组柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/T型分组柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.column"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "1afd35af01c6dd5aa4236f9969bd3d0a",
+            "alias": "分组柱状图",
+            "image": "chart/柱状图/分组柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/分组柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.column"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "2d01e9d3dd6174130897ccc06b47ed31",
+            "alias": "堆叠柱状图",
+            "image": "chart/柱状图/堆叠柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/堆叠柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.column-stack"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "6ec6f37e0ad0cd83678d73c3a48fa47a",
+            "alias": "百分比堆叠柱状图",
+            "image": "chart/柱状图/百分比堆叠柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/百分比堆叠柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.column-percent"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "03e1fd773109f9906ff9de4beb06c5f1",
+            "alias": "区间柱状图",
+            "image": "chart/柱状图/区间柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/区间柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.interval-histogram"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "ad315130c80f624f87b9cf3df6173c28",
+            "alias": "瀑布图",
+            "image": "chart/柱状图/瀑布图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/瀑布图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.waterfall"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "fad05ee58ffc078937ac541c3716cfa5",
+            "alias": "直方图",
+            "image": "chart/柱状图/直方图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/直方图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.histogram"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "0fb7a8d025ea3b0b542f84bebae25d66",
+            "alias": "极坐标柱状图",
+            "image": "chart/柱状图/极坐标柱状图/index.jpg",
+            "category": "柱状图",
+            "isAlpha": false,
+            "url": "chart/柱状图/极坐标柱状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.polar-bar"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "折线图",
+        "type": "折线图",
+        "image": "",
+        "children": [
+          {
+            "id": "60c35670ed47e5bdc394f2ab68549c82",
+            "alias": "折线图",
+            "image": "chart/折线图/折线图/index.jpg",
+            "category": "折线图",
+            "isAlpha": false,
+            "url": "chart/折线图/折线图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.line"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "ef219a86c01ae9ecc0093780c3608aec",
+            "alias": "平滑折线图",
+            "image": "chart/折线图/平滑折线图/index.jpg",
+            "category": "折线图",
+            "isAlpha": false,
+            "url": "chart/折线图/平滑折线图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.line"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "面积图",
+        "type": "面积图",
+        "image": "",
+        "children": [
+          {
+            "id": "8e895845de2f7c64ecf6f9eb0651d5f7",
+            "alias": "折线面积图",
+            "image": "chart/面积图/折线面积图/index.jpg",
+            "category": "面积图",
+            "isAlpha": false,
+            "url": "chart/面积图/折线面积图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.area"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "fc8e9be23eeb22141eca94f251aff022",
+            "alias": "平滑面积图",
+            "image": "chart/面积图/平滑面积图/index.jpg",
+            "category": "面积图",
+            "isAlpha": false,
+            "url": "chart/面积图/平滑面积图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.area"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "59ba4a81d9b896d0561aca76ec829d9b",
+            "alias": "区间面积图",
+            "image": "chart/面积图/区间面积图/index.jpg",
+            "category": "面积图",
+            "isAlpha": false,
+            "url": "chart/面积图/区间面积图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.area-interval"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "d156b532c4397bdf8232d9bf5c43b59c",
+            "alias": "折线堆叠面积图",
+            "image": "chart/面积图/折线堆叠面积图/index.jpg",
+            "category": "面积图",
+            "isAlpha": false,
+            "url": "chart/面积图/折线堆叠面积图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.area-stack"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "49dcddebfb466b4f4004110ca4f974aa",
+            "alias": "平滑堆叠面积图",
+            "image": "chart/面积图/平滑堆叠面积图/index.jpg",
+            "category": "面积图",
+            "isAlpha": false,
+            "url": "chart/面积图/平滑堆叠面积图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.area-stack"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "双轴图",
+        "type": "双轴图",
+        "image": "",
+        "children": [
+          {
+            "id": "6210306162fbc1c334a492b6c0265d04",
+            "alias": "堆叠双轴图",
+            "image": "chart/双轴图/堆叠双轴图/index.jpg",
+            "category": "双轴图",
+            "isAlpha": false,
+            "url": "chart/双轴图/堆叠双轴图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.biaxial-stack"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "3cc824644d08b94ed06bcb838942648c",
+            "alias": "分组双轴图",
+            "image": "chart/双轴图/分组双轴图/index.jpg",
+            "category": "双轴图",
+            "isAlpha": false,
+            "url": "chart/双轴图/分组双轴图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.biaxial"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "e775290390376537bd16b5bea46ac0db",
+            "alias": "柱形雨量图",
+            "image": "chart/双轴图/柱形雨量图/index.jpg",
+            "category": "双轴图",
+            "isAlpha": false,
+            "url": "chart/双轴图/柱形雨量图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.biaxial-reverse"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "百分比图",
+        "type": "百分比图",
+        "image": "",
+        "children": [
+          {
+            "id": "8258547cfa3ff9c6195f4c97ad7c3f53",
+            "alias": "百分比图",
+            "image": "chart/百分比图/百分比图/index.jpg",
+            "category": "百分比图",
+            "isAlpha": false,
+            "url": "chart/百分比图/百分比图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.progress-v2"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "雷达图",
+        "type": "雷达图",
+        "image": "",
+        "children": [
+          {
+            "id": "0673fd0b41cceacddbd2bb59e2a4cafd",
+            "alias": "雷达图",
+            "image": "chart/雷达图/雷达图/index.jpg",
+            "category": "雷达图",
+            "isAlpha": false,
+            "url": "chart/雷达图/雷达图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.radar"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "饼图",
+        "type": "饼图",
+        "image": "",
+        "children": [
+          {
+            "id": "b628caacce69027d408f8d03fc705b19",
+            "alias": "饼状图",
+            "image": "chart/饼图/饼状图/index.jpg",
+            "category": "饼图",
+            "isAlpha": false,
+            "url": "chart/饼图/饼状图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.pie"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "a8049bc619f25a5dc2e4a954f42c6ded",
+            "alias": "环形图",
+            "image": "chart/饼图/环形图/index.jpg",
+            "category": "饼图",
+            "isAlpha": false,
+            "url": "chart/饼图/环形图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.donut"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "f02ef739cec708a30f1d9aae19b270c6",
+            "alias": "玫瑰图",
+            "image": "chart/饼图/玫瑰图/index.jpg",
+            "category": "饼图",
+            "isAlpha": false,
+            "url": "chart/饼图/玫瑰图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.rose"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "5df2beb7b7e72c15e2610350d4109e3e",
+            "alias": "玫瑰环图",
+            "image": "chart/饼图/玫瑰环图/index.jpg",
+            "category": "饼图",
+            "isAlpha": false,
+            "url": "chart/饼图/玫瑰环图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.rose-donut"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "散点图",
+        "type": "散点图",
+        "image": "",
+        "children": [
+          {
+            "id": "6478c30cda58353b6124d0c504d3c588",
+            "alias": "散点图",
+            "image": "chart/散点图/散点图/index.jpg",
+            "category": "散点图",
+            "isAlpha": false,
+            "url": "chart/散点图/散点图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.scatter"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "e8b430ded77e925440c5b2e080de22cd",
+            "alias": "时间序列气泡图",
+            "image": "chart/散点图/时间序列气泡图/index.jpg",
+            "category": "散点图",
+            "isAlpha": false,
+            "url": "chart/散点图/时间序列气泡图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.punch"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "7576ad27720426eeda118a2da04ecf0f",
+            "alias": "带线气泡图",
+            "image": "chart/散点图/带线气泡图/index.jpg",
+            "category": "散点图",
+            "isAlpha": false,
+            "url": "chart/散点图/带线气泡图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bubble-shape"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "仪表盘",
+        "type": "仪表盘",
+        "image": "",
+        "children": [
+          {
+            "id": "74eb9855a6b57689ed89f5f1a763ecd2",
+            "alias": "仪表盘",
+            "image": "chart/仪表盘/仪表盘/index.jpg",
+            "category": "仪表盘",
+            "isAlpha": false,
+            "url": "chart/仪表盘/仪表盘",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.gauge"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "水球图",
+        "type": "水球图",
+        "image": "",
+        "children": [
+          {
+            "id": "58283ec5fcdededac2ec95a9a90b1792",
+            "alias": "水球图",
+            "image": "chart/水球图/水球图/index.jpg",
+            "category": "水球图",
+            "isAlpha": false,
+            "url": "chart/水球图/水球图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.liquid"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "漏斗图",
+        "type": "漏斗图",
+        "image": "",
+        "children": [
+          {
+            "id": "429b624ab916d15cf8da2f87e00d10df",
+            "alias": "漏斗图",
+            "image": "chart/漏斗图/漏斗图/index.jpg",
+            "category": "漏斗图",
+            "isAlpha": false,
+            "url": "chart/漏斗图/漏斗图",
+            "version": 4,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.funnel"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "57b86b06d7314858459b0dc5be8b3b92",
+            "alias": "对比漏斗图",
+            "image": "chart/漏斗图/对比漏斗图/index.jpg",
+            "category": "漏斗图",
+            "isAlpha": false,
+            "url": "chart/漏斗图/对比漏斗图",
+            "version": 4,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.funnel-contrast"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "36a15ea175906efea09f895b7530b75e",
+            "alias": "对称漏斗图",
+            "image": "chart/漏斗图/对称漏斗图/index.jpg",
+            "category": "漏斗图",
+            "isAlpha": false,
+            "url": "chart/漏斗图/对称漏斗图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.funnel-symmetric"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "热力图",
+        "type": "热力图",
+        "image": "",
+        "children": [
+          {
+            "id": "7b2ec972ae3880b14575f4403527e77d",
+            "alias": "日历热力图",
+            "image": "chart/热力图/日历热力图/index.jpg",
+            "category": "热力图",
+            "isAlpha": false,
+            "url": "chart/热力图/日历热力图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.calendar-heatmap"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "色块图",
+        "type": "色块图",
+        "image": "",
+        "children": [
+          {
+            "id": "f74ab77d06466af32a47f92df512ccc2",
+            "alias": "华夫图",
+            "image": "chart/色块图/华夫图/index.jpg",
+            "category": "色块图",
+            "isAlpha": false,
+            "url": "chart/色块图/华夫图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.waffle"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "f5a38df5e81195388b54f29240e706f5",
+            "alias": "环状色块图",
+            "image": "chart/色块图/环状色块图/index.jpg",
+            "category": "色块图",
+            "isAlpha": false,
+            "url": "chart/色块图/环状色块图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.polar-heatmap"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "d19bf4babab2e1e9855be3e13e639c6d",
+            "alias": "矩形色块图",
+            "image": "chart/色块图/矩形色块图/index.jpg",
+            "category": "色块图",
+            "isAlpha": false,
+            "url": "chart/色块图/矩形色块图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.color-lump"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "其他",
+        "type": "其他",
+        "image": "",
+        "children": [
+          {
+            "id": "366aa3c2bc5d4c68ff4dd47192079b35",
+            "alias": "河流图",
+            "image": "chart/其他/河流图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/河流图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.river"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "97d78513762f925adfe628d844efff99",
+            "alias": "桑基图",
+            "image": "chart/其他/桑基图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/桑基图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.sankey-v2"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "08d5c4232ccbc5cae29703bf73ea5486",
+            "alias": "甘特图",
+            "image": "chart/其他/甘特图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/甘特图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.gantt"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "093780b07a60ba02f4b8ae8a0a8b38b3",
+            "alias": "路径图",
+            "image": "chart/其他/路径图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/路径图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.roadmap"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "bf4b2d3cbcdbf20e54038871f11cc153",
+            "alias": "箱型图",
+            "image": "chart/其他/箱型图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/箱型图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.box-diagram"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "7125815a3bb914c853279519f332027a",
+            "alias": "子弹图",
+            "image": "chart/其他/子弹图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/子弹图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.bullet"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "a984ada3f8f8ca0334684eed4c362433",
+            "alias": "玉珏图",
+            "image": "chart/其他/玉珏图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/玉珏图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.radial"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "15b13343a6fef29e1bf34d5408d8f6a0",
+            "alias": "披萨图",
+            "image": "chart/其他/披萨图/index.jpg",
+            "category": "其他",
+            "isAlpha": false,
+            "url": "chart/其他/披萨图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.pizza"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      }
+    ]
+  },
+  "text": {
+    "type": "text",
+    "label": "文本",
+    "series": "",
+    "children": [
+      {
+        "label": "指标卡",
+        "type": "指标卡",
+        "image": "",
+        "children": [
+          {
+            "id": "633150de8861aa28a79f3a9b66999226",
+            "alias": "指标卡",
+            "image": "text/指标卡/指标卡/index.jpg",
+            "category": "指标卡",
+            "isAlpha": false,
+            "url": "text/指标卡/指标卡",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.card-v2"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "数据变化",
+        "type": "数据变化",
+        "image": "",
+        "children": [
+          {
+            "id": "c13b7e27e9ac4ceb0bbf05f6d9a51b78",
+            "alias": "数据变化",
+            "image": "text/数据变化/数据变化/index.jpg",
+            "category": "数据变化",
+            "isAlpha": false,
+            "url": "text/数据变化/数据变化",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.trend"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "单行文本",
+        "type": "单行文本",
+        "image": null,
+        "children": [
+          {
+            "id": "068b092caf44986afdcb6c55b06e489d",
+            "alias": "单行文本",
+            "image": "text/单行文本/单行文本/index.png",
+            "category": "单行文本",
+            "isAlpha": false,
+            "url": "text/单行文本/单行文本",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.text"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "词云",
+        "type": "词云",
+        "image": "",
+        "children": [
+          {
+            "id": "9d24d0f03728e82b84dde0a938bc2069",
+            "alias": "词云",
+            "image": "text/词云/词云/index.jpg",
+            "category": "词云",
+            "isAlpha": false,
+            "url": "text/词云/词云",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.echarts.wordle"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      },
+      {
+        "label": "多行文本",
+        "type": "多行文本",
+        "image": "",
+        "children": [
+          {
+            "id": "e2a58554c2e977f41fa73a52fcb8b0b1",
+            "alias": "多行文本",
+            "image": "text/多行文本/多行文本/index.jpg",
+            "category": "多行文本",
+            "isAlpha": false,
+            "url": "text/多行文本/多行文本",
+            "version": 4,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.paragraph"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      }
+    ]
+  },
+  "media": {
+    "type": "media",
+    "label": "媒体",
+    "series": "",
+    "children": [
+      {
+        "label": "默认媒体",
+        "type": "默认媒体",
+        "image": "",
+        "children": [
+          {
+            "id": "1cfe85bda007f23e180d38b359ae491b",
+            "alias": "图片",
+            "image": "media/默认媒体/图片/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/图片",
+            "version": 2,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.image"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "33b3821140f69238a587b6b67c278a39",
+            "alias": "视频",
+            "image": "media/默认媒体/视频/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/视频",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.video"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "b5b8a7c8d0ea6fef60b271179052e376",
+            "alias": "轮播图",
+            "image": "media/默认媒体/轮播图/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/轮播图",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.carousel"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "f02594ce3a924b7146df4bca2706cce5",
+            "alias": "轮播视频",
+            "image": "media/默认媒体/轮播视频/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/轮播视频",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.videos"
+                }
+              ]
+            },
+            "minPlan": null
+          },
+          {
+            "id": "d26d7c3f7a875053b76f755f06b6295a",
+            "alias": "PDF文件",
+            "image": "media/默认媒体/PDF文件/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/PDF文件",
+            "version": 3,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.pdf"
+                }
+              ]
+            },
+            "minPlan": null
+          },
+          {
+            "id": "7f93a760b9eabf1e96162bf9992e9749",
+            "alias": "音频",
+            "image": "media/默认媒体/音频/index.png",
+            "category": "默认媒体",
+            "isAlpha": false,
+            "url": "media/默认媒体/音频",
+            "version": 2,
+            "rank": 0,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.audio"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      }
+    ]
+  },
+  "control": {
+    "type": "control",
+    "label": "控件",
+    "series": "",
+    "children": [
+      {
+        "label": "默认控件",
+        "type": "默认控件",
+        "image": "",
+        "children": [
+          {
+            "id": "10c251320a87ab12d44c5bb5bfb4a24c",
+            "alias": "筛选按钮",
+            "image": "control/默认控件/筛选按钮/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/筛选按钮",
+            "version": 1,
+            "rank": 22,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.filter-button"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "21c772f8b8cfc10a71e666ed68db1ac8",
+            "alias": "下拉筛选",
+            "image": "control/默认控件/下拉筛选/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/下拉筛选",
+            "version": 1,
+            "rank": 21,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.filter"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "7a254fed00bdae2c786078c3c30db93e",
+            "alias": "输入框筛选",
+            "image": "control/默认控件/输入框筛选/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/输入框筛选",
+            "version": 1,
+            "rank": 20,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.filter-input"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "62bd8edfdc3e004d90121d4ce7fb7b37",
+            "alias": "按钮快捷筛选",
+            "image": "control/默认控件/按钮快捷筛选/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/按钮快捷筛选",
+            "version": 7,
+            "rank": 19,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.horizontal-filter-menu"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "161342d822b3addfb483b0e3851d5b93",
+            "alias": "下拉快捷筛选",
+            "image": "control/默认控件/下拉快捷筛选/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/下拉快捷筛选",
+            "version": 1,
+            "rank": 18,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.filter-menu"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "750c3ffdaf3d300aa16860c99afc0a1a",
+            "alias": "选项卡",
+            "image": "control/默认控件/选项卡/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/选项卡",
+            "version": 4,
+            "rank": 16,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.group.panel-tab"
+                },
+                {
+                  "type": "widget.group.panel"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "05fead8165e982a230aa1ab53ccc9410",
+            "alias": "分组面板",
+            "image": "control/默认控件/分组面板/index.png",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/分组面板",
+            "version": 3,
+            "rank": 15,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.group.panel"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "3bf745f02e05232c9e1c7ae65dfc8f67",
+            "alias": "时间",
+            "image": "control/默认控件/时间/index.jpg",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/时间",
+            "version": 6,
+            "rank": 14,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.timer-v2"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          },
+          {
+            "id": "093a01f142279074820c6e03aa51d633",
+            "alias": "iframe",
+            "image": "control/默认控件/iframe/index.png",
+            "category": "默认控件",
+            "isAlpha": false,
+            "url": "control/默认控件/iframe",
+            "version": 3,
+            "rank": 12,
+            "tags": [],
+            "categoryTags": [],
+            "meta": {
+              "widgets": [
+                {
+                  "type": "widget.basic.iframe"
+                }
+              ]
+            },
+            "minPlan": "FREE"
+          }
+        ]
+      }
+    ]
+  }
+}

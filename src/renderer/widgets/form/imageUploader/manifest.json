@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.image-uploader",
+    "displayName":  "上传图片",
+    "version":  "0.0.1",
+    "super":  "widget.form.uploader",
+    "icon":  "widget-form-image-uploader-icon.svg",
+    "show":  true
+}

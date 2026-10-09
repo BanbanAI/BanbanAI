@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.biaxial-stack",
+    "displayName":  "堆叠双轴图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.biaxial",
+    "icon":  "widget-echarts-biaxial-stack-icon.svg",
+    "show":  true
+}

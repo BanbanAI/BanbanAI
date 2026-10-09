@@ -1,0 +1,38 @@
+{
+  "zh-CN": {
+    "defaultName": "轮播视频",
+    "videoAddress": "视频地址",
+    "noEvents": "鼠标穿透",
+    "playSetting": "播放设置",
+    "autoplay": "自动播放",
+    "muted": "静音",
+    "noControls": "隐藏控制条"
+  },
+  "en": {
+    "defaultName": "Video Carousel",
+    "videoAddress": "Video address",
+    "noEvents": "Mouse pass-through",
+    "playSetting": "Play Settings",
+    "autoplay": "Autoplay",
+    "muted": "Muted",
+    "noControls": "Hide control bar"
+  },
+  "ja": {
+    "defaultName": "轮播视频",
+    "videoAddress": "ビデオのアドレス",
+    "noEvents": "マウススルー",
+    "playSetting": "再生設定",
+    "autoplay": "自動再生",
+    "muted": "ミュート",
+    "noControls": "コントロールバー"
+  },
+  "zh-TW": {
+    "defaultName": "輪播視頻",
+    "videoAddress": "視頻地址",
+    "noEvents": "鼠標穿透",
+    "playSetting": "播放設置",
+    "autoplay": "自動播放",
+    "muted": "靜音",
+    "noControls": "隱藏控制條"
+  }
+}

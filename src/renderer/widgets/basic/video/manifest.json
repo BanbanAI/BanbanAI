@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.video",
+    "displayName":  "视频",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-basic-video-icon.svg",
+    "show":  true
+}

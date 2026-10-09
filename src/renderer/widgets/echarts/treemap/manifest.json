@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.treemap",
+    "displayName":  "矩形图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-treemap-icon.svg",
+    "show":  true
+}

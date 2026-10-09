@@ -1,0 +1,70 @@
+{
+  "skeletons": [
+    {
+      "key": "inventory",
+      "name": "进销存",
+      "path": "inventory.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "crm",
+      "name": "客户管理",
+      "path": "crm.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "hrm",
+      "name": "员工人事管理",
+      "path": "hrm.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "administrative-operations",
+      "name": "行政运营管理",
+      "path": "administrative-operations.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "financial-operations",
+      "name": "财务协同",
+      "path": "financial-operations.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "expense-control",
+      "name": "费控报销",
+      "path": "expense-control.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "project-management",
+      "name": "项目管理",
+      "path": "project-management.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "engineering-project-management",
+      "name": "工程项目管理",
+      "path": "engineering-project-management.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "work-order-management",
+      "name": "工单管理",
+      "path": "work-order-management.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "ehs-safety",
+      "name": "EHS安全管理",
+      "path": "ehs-safety.json",
+      "version": "0.1.0"
+    },
+    {
+      "key": "equipment-maintenance-management",
+      "name": "设备运维管理",
+      "path": "equipment-maintenance-management.json",
+      "version": "0.1.0"
+    }
+  ]
+}

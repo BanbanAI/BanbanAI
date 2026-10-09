@@ -1,0 +1,1 @@
+export { TabPanel as TheWidget } from "./tabPanel";

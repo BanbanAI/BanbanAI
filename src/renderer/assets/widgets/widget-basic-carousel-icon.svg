@@ -1,0 +1,13 @@
+<svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M23.0946 21.5618C23.2941 21.2853 23.7059 21.2853 23.9054 21.5618L33.7533 35.2074C33.992 35.5381 33.7557 36 33.3479 36H13.6521C13.2443 36 13.008 35.5381 13.2467 35.2074L23.0946 21.5618Z" fill="#00B2FF"/>
+<path d="M38.1064 26.5023C38.3066 26.2468 38.6934 26.2468 38.8936 26.5023L46.0938 35.6916C46.351 36.0198 46.1172 36.5 45.7003 36.5H31.2997C30.8828 36.5 30.649 36.0198 30.9062 35.6916L38.1064 26.5023Z" fill="#00B2FF"/>
+<line x1="15" y1="36" x2="47" y2="36" stroke="#8277FF" stroke-width="2"/>
+<line x1="17" y1="40" x2="23" y2="40" stroke="#8277FF" stroke-width="2" stroke-linecap="round"/>
+<line x1="27" y1="40" x2="33" y2="40" stroke="#8277FF" stroke-width="2" stroke-linecap="round"/>
+<line x1="37" y1="40" x2="43" y2="40" stroke="#8277FF" stroke-width="2" stroke-linecap="round"/>
+<mask id="path-7-inside-1_214_4311" fill="white">
+<rect x="13" y="15" width="34" height="30" rx="1"/>
+</mask>
+<rect x="13" y="15" width="34" height="30" rx="1" stroke="#00B2FF" stroke-width="4" mask="url(#path-7-inside-1_214_4311)"/>
+<circle cx="39.5" cy="22.5" r="2.5" fill="#8277FF"/>
+</svg>

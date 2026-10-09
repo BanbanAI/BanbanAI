@@ -1,0 +1,9 @@
+{
+    "name":  "widget.form.viewtable",
+    "displayName":  "数据明细表",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-viewtable-icon.svg",
+    "show":  true,
+    "cover":  "widget-form-viewtable-cover.png"
+}

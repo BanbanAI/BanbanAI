@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.column",
+    "displayName":  "分组柱状图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-column-icon.svg",
+    "show":  true
+}

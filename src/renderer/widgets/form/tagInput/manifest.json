@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.tagInput",
+    "displayName":  "标签文本",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-tagInput-icon.svg",
+    "show":  true
+}

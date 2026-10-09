@@ -1,0 +1,64 @@
+diff --git a/node_modules/app-builder-lib/templates/nsis/include/extractAppPackage.nsh b/node_modules/app-builder-lib/templates/nsis/include/extractAppPackage.nsh
+index f5470bf..6caa485 100644
+--- a/node_modules/app-builder-lib/templates/nsis/include/extractAppPackage.nsh
++++ b/node_modules/app-builder-lib/templates/nsis/include/extractAppPackage.nsh
+@@ -80,59 +80,11 @@
+ !macro decompress
+   !ifdef ZIP_COMPRESSION
+     nsisunz::Unzip "$PLUGINSDIR\app-$packageArch.zip" "$INSTDIR"
+-    Pop $R0
+-    StrCmp $R0 "success" +3
+-      MessageBox MB_OK|MB_ICONEXCLAMATION "$(decompressionFailed)$\n$R0"
+-      Quit
+   !else
+     !insertmacro extractUsing7za "$PLUGINSDIR\app-$packageArch.7z"
+   !endif
+ !macroend
+ 
+ !macro extractUsing7za FILE
+-  Push $OUTDIR
+-  CreateDirectory "$PLUGINSDIR\7z-out"
+-  ClearErrors
+-  SetOutPath "$PLUGINSDIR\7z-out"
+-  Nsis7z::Extract "${FILE}"
+-  Pop $R0
+-  SetOutPath $R0
+-
+-  # Retry counter
+-  StrCpy $R1 0
+-
+-  LoopExtract7za:
+-    IntOp $R1 $R1 + 1
+-
+-    # Attempt to copy files in atomic way
+-    CopyFiles /SILENT "$PLUGINSDIR\7z-out\*" $OUTDIR
+-    IfErrors 0 DoneExtract7za
+-
+-    DetailPrint `Can't modify "${PRODUCT_NAME}"'s files.`
+-    ${if} $R1 < 5
+-      # Try copying a few times before asking for a user action.
+-      Goto RetryExtract7za
+-    ${else}
+-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDRETRY IDCANCEL AbortExtract7za
+-    ${endIf}
+-
+-    # As an absolutely last resort after a few automatic attempts and user
+-    # intervention - we will just overwrite everything with `Nsis7z::Extract`
+-    # even though it is not atomic and will ignore errors.
+-
+-    # Clear the temporary folder first to make sure we don't use twice as
+-    # much disk space.
+-    RMDir /r "$PLUGINSDIR\7z-out"
+-
+     Nsis7z::Extract "${FILE}"
+-    Goto DoneExtract7za
+-
+-  AbortExtract7za:
+-    Quit
+-
+-  RetryExtract7za:
+-    Sleep 1000
+-    Goto LoopExtract7za
+-
+-  DoneExtract7za:
+ !macroend

@@ -1,0 +1,62 @@
+{
+  "zh-CN": {
+    "fields": "字段设置",
+    "axisX": "X轴字段",
+    "axisY": "Y轴字段",
+    "axisInterval": "区间字段",
+    "seriesColorGroup": "颜色",
+    "seriesColorCluster": "数据颜色",
+    "intervalColor": "区间颜色",
+    "seriesShape": "图形形状",
+    "seriesShapeStyle": "显示样式",
+    "shapeColumnWidth": "柱形宽度(px)",
+    "shapeColumnNumber": "折线点数量",
+    "tooltipLeftAxisFormatCluster": "全局",
+    "axisGroup": "系列字段"
+  },
+  "en": {
+    "fields": "Field Settings",
+    "axisX": "X-axis Field",
+    "axisY": "Y-axis Field",
+    "axisInterval": "Interval Field",
+    "seriesColorGroup": "Color",
+    "seriesColorCluster": "Field Color",
+    "intervalColor": "Interval Color",
+    "seriesShape": "Graphic Shape",
+    "seriesShapeStyle": "Display Style",
+    "shapeColumnWidth": "Column Width(px)",
+    "shapeColumnNumber": "Points",
+    "tooltipLeftAxisFormatCluster": "Overall Situation",
+    "axisGroup": "Series field"
+  },
+  "ja": {
+    "fields": "フィールドの設定",
+    "axisX": "X軸フィールド",
+    "axisY": "Y軸フィールド",
+    "axisInterval": "間隔フィールド",
+    "seriesColorGroup": "色",
+    "seriesColorCluster": "データの色",
+    "intervalColor": "間隔の色",
+    "seriesShape": "グラフィック形状",
+    "seriesShapeStyle": "スタイルを表示",
+    "shapeColumnWidth": "柱形の幅(px)",
+    "shapeColumnNumber": "折れ線点の数",
+    "tooltipLeftAxisFormatCluster": "全体",
+    "axisGroup": "シリーズフィールド"
+  },
+  "zh-TW": {
+    "fields": "字段設置",
+    "axisX": "X軸字段",
+    "axisY": "Y軸字段",
+    "axisInterval": "區間字段",
+    "seriesColorGroup": "顏色",
+    "seriesColorCluster": "數據顏色",
+    "intervalColor": "區間顏色",
+    "seriesShape": "圖形形狀",
+    "seriesShapeStyle": "顯示樣式",
+    "shapeColumnWidth": "柱形寬度(px)",
+    "shapeColumnNumber": "折線點數量",
+    "tooltipLeftAxisFormatCluster": "全局",
+    "axisGroup": "系列字段"
+  }
+}

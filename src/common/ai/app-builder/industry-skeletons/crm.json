@@ -1,0 +1,762 @@
+{
+  "key": "crm",
+  "name": "客户管理",
+  "version": "0.1.0",
+  "aliases": [
+    "CRM",
+    "客户关系管理",
+    "客户管理CRM",
+    "销售管理",
+    "销售管理系统",
+    "销售订单管理",
+    "订单型CRM",
+    "门店销售管理",
+    "商机管理",
+    "销售线索管理",
+    "客户商机管理",
+    "销售合同管理",
+    "合同回款管理",
+    "CRM Pro",
+    "极简CRM",
+    "库存CRM",
+    "生产CRM",
+    "制造业CRM",
+    "软高科CRM"
+  ],
+  "beginnerSummary": "适合管理潜在客户、正式客户、联系人、跟进记录、销售机会、报价、订单或合同，以及常见开票和收款流程；如果你要做订单驱动销售管理、门店合同回款、库存协同或生产履约，也可以在这个骨架上继续裁剪扩展。",
+  "intentExamples": [
+    "帮我搭一个CRM系统",
+    "做一个客户和商机管理系统",
+    "我要一个带跟进记录和销售订单的销售管理应用",
+    "做一个客户、商机、合同和回款的一体化CRM",
+    "做一个极简CRM，只管客户、订单和收款",
+    "做一个带销售出库的库存CRM",
+    "做一个订单后接生产工单的生产型CRM",
+    "做一个销售管理极简版，不要商机和报价，只要订单、开票和回款",
+    "做一个门店销售管理，要公海客户、合同回款和售后处理"
+  ],
+  "modules": [
+    {
+      "key": "product",
+      "name": "产品管理",
+      "purpose": "维护销售中会被报价、商机和订单复用的产品基础资料。"
+    },
+    {
+      "key": "lead",
+      "name": "获客与线索",
+      "purpose": "承接市场活动、活动管理话术下的潜在客户线索，以及后续转化。"
+    },
+    {
+      "key": "customer",
+      "name": "客户管理",
+      "purpose": "维护客户、联系人与销售跟进记录。"
+    },
+    {
+      "key": "sales",
+      "name": "商机与订单",
+      "purpose": "推进销售机会、报价与正式成交单据；在部分 CRM 中，成交单据也可能以销售合同命名。"
+    },
+    {
+      "key": "finance",
+      "name": "开票与收款",
+      "purpose": "承接订单或合同的回款计划、开票需求和真实收付款记录。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "product-info",
+      "name": "产品信息",
+      "moduleKey": "product",
+      "purpose": "维护销售产品的基础资料。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "产品名称",
+          "semanticRole": "product_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "产品编码",
+          "semanticRole": "product_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "产品分类",
+          "semanticRole": "product_category",
+          "suggestedWidget": "relation-or-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "规格型号",
+          "semanticRole": "product_model",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "market-activity",
+      "name": "市场活动",
+      "moduleKey": "lead",
+      "purpose": "记录获客活动来源。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "活动名称",
+          "semanticRole": "activity_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "活动类型",
+          "semanticRole": "activity_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "活动日期",
+          "semanticRole": "activity_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "活动负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "lead-pool",
+      "name": "潜在客户线索",
+      "moduleKey": "lead",
+      "purpose": "沉淀潜在客户线索，供后续转化。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "线索名称",
+          "semanticRole": "lead_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "线索来源",
+          "semanticRole": "lead_source",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "线索状态",
+          "semanticRole": "lead_status",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "来源活动",
+          "targetFormKey": "market-activity",
+          "targetFieldName": "活动名称",
+          "reason": "部分 CRM 会从市场活动转入线索。"
+        }
+      ]
+    },
+    {
+      "key": "customer",
+      "name": "客户",
+      "moduleKey": "customer",
+      "purpose": "维护正式客户主档。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "客户名称",
+          "semanticRole": "customer_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "客户编号",
+          "semanticRole": "customer_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "客户分层",
+          "semanticRole": "customer_tier",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "销售负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "contact",
+      "name": "联系人",
+      "moduleKey": "customer",
+      "purpose": "维护客户联系人资料。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "联系人姓名",
+          "semanticRole": "contact_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "手机",
+          "semanticRole": "contact_phone",
+          "suggestedWidget": "phone",
+          "requiredByDefault": false
+        },
+        {
+          "name": "职位",
+          "semanticRole": "job_title",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "所属客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "联系人必须挂在客户主档下。"
+        }
+      ]
+    },
+    {
+      "key": "follow-up-record",
+      "name": "跟进记录",
+      "moduleKey": "customer",
+      "purpose": "记录与客户或商机的销售跟进过程。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "跟进时间",
+          "semanticRole": "follow_up_time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "跟进方式",
+          "semanticRole": "follow_up_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "跟进内容",
+          "semanticRole": "follow_up_note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "销售负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "客户跟进需要能直接回看客户档案。"
+        },
+        {
+          "fieldName": "关联商机",
+          "targetFormKey": "opportunity",
+          "targetFieldName": "商机名称",
+          "reason": "商机推进也需要沉淀跟进记录。"
+        }
+      ]
+    },
+    {
+      "key": "opportunity",
+      "name": "商机",
+      "moduleKey": "sales",
+      "purpose": "推进销售机会并跟踪预计成交。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "商机名称",
+          "semanticRole": "opportunity_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "商机阶段",
+          "semanticRole": "opportunity_stage",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预计金额",
+          "semanticRole": "forecast_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "预计成交时间",
+          "semanticRole": "expected_close_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "商机归属于具体客户。"
+        }
+      ]
+    },
+    {
+      "key": "quote",
+      "name": "报价单",
+      "moduleKey": "sales",
+      "purpose": "在正式下单前给客户输出报价。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "报价单编号",
+          "semanticRole": "quote_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报价日期",
+          "semanticRole": "quote_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报价明细",
+          "semanticRole": "quote_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "报价针对具体客户。"
+        }
+      ]
+    },
+    {
+      "key": "sales-order",
+      "name": "销售订单",
+      "moduleKey": "sales",
+      "purpose": "记录正式成交订单；在合同型 CRM 中也可用作销售合同台账。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "订单编号",
+          "semanticRole": "order_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false,
+          "notes": "如果用户更习惯合同口径，可改名为合同编号。"
+        },
+        {
+          "name": "订单名称",
+          "semanticRole": "order_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "签约日期",
+          "semanticRole": "signed_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "订单金额",
+          "semanticRole": "order_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": false,
+          "notes": "如果是合同型 CRM，也可改成合同金额。"
+        },
+        {
+          "name": "销售产品明细",
+          "semanticRole": "order_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "销售订单必须归属客户。"
+        },
+        {
+          "fieldName": "来源商机",
+          "targetFormKey": "opportunity",
+          "targetFieldName": "商机名称",
+          "reason": "标准 CRM 常见商机转订单。"
+        },
+        {
+          "fieldName": "销售产品明细.产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品名称",
+          "reason": "订单产品明细来自产品资料。"
+        }
+      ]
+    },
+    {
+      "key": "payment-plan",
+      "name": "收款计划",
+      "moduleKey": "finance",
+      "purpose": "记录订单的计划收款节点。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划收款日期",
+          "semanticRole": "expected_payment_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划收款金额",
+          "semanticRole": "expected_payment_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "订单编号",
+          "reason": "收款计划通常挂在订单下。"
+        }
+      ]
+    },
+    {
+      "key": "invoice-request",
+      "name": "开票申请",
+      "moduleKey": "finance",
+      "purpose": "记录订单的开票需求。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发票抬头",
+          "semanticRole": "invoice_title",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "税号",
+          "semanticRole": "tax_number",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "request_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "订单编号",
+          "reason": "开票需求通常来源于订单。"
+        }
+      ]
+    },
+    {
+      "key": "receipt",
+      "name": "回款单",
+      "moduleKey": "finance",
+      "purpose": "登记客户实际回款。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "回款金额",
+          "semanticRole": "receipt_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "回款时间",
+          "semanticRole": "receipt_time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "订单编号",
+          "reason": "回款通常对应订单。"
+        },
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "回款主体是客户。"
+        }
+      ]
+    },
+    {
+      "key": "sales-outbound",
+      "name": "销售出库",
+      "moduleKey": "finance",
+      "purpose": "在库存型 CRM 中承接订单发货。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库日期",
+          "semanticRole": "outbound_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库明细",
+          "semanticRole": "outbound_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "订单编号",
+          "reason": "库存型 CRM 需要从订单走向发货履约。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "market-activity",
+      "to": "lead-pool",
+      "label": "市场活动可以沉淀潜在客户线索"
+    },
+    {
+      "from": "lead-pool",
+      "to": "customer",
+      "label": "潜在客户线索可转化为正式客户"
+    },
+    {
+      "from": "customer",
+      "to": "contact",
+      "label": "客户拥有联系人"
+    },
+    {
+      "from": "customer",
+      "to": "follow-up-record",
+      "label": "客户会产生跟进记录"
+    },
+    {
+      "from": "customer",
+      "to": "opportunity",
+      "label": "客户可发展出销售机会"
+    },
+    {
+      "from": "opportunity",
+      "to": "quote",
+      "label": "销售机会可进入报价阶段"
+    },
+    {
+      "from": "opportunity",
+      "to": "sales-order",
+      "label": "商机成交后形成销售订单"
+    },
+    {
+      "from": "product-info",
+      "to": "quote",
+      "label": "报价引用产品资料"
+    },
+    {
+      "from": "product-info",
+      "to": "sales-order",
+      "label": "订单明细引用产品资料"
+    },
+    {
+      "from": "sales-order",
+      "to": "payment-plan",
+      "label": "订单可生成收款计划"
+    },
+    {
+      "from": "sales-order",
+      "to": "invoice-request",
+      "label": "订单可发起开票申请"
+    },
+    {
+      "from": "sales-order",
+      "to": "receipt",
+      "label": "订单可登记回款"
+    },
+    {
+      "from": "sales-order",
+      "to": "sales-outbound",
+      "label": "库存型 CRM 中订单可进入销售出库"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "库存联动",
+      "reason": "版本 3/4/6 证明库存是常见增强方向，但不应默认进入所有 CRM。"
+    },
+    {
+      "name": "生产工单与生产计划",
+      "reason": "只在生产版明确出现，适合作为后续扩展。"
+    },
+    {
+      "name": "销售目标管理",
+      "reason": "伙伴云完整 CRM 将季度销售目标和达成监控并入模板，但这更像经营/绩效扩展，不应默认进入所有 CRM。"
+    },
+    {
+      "name": "售后服务工单",
+      "reason": "阿里宜搭与伙伴云外部样本都明显出现，更适合作为后续扩展或未来独立售后骨架。"
+    },
+    {
+      "name": "薪酬绩效管理",
+      "reason": "仅标准版明显强调，通用性不足，且容易把 CRM 扩大成绩效系统。"
+    },
+    {
+      "name": "复杂经营看板与趋势分析",
+      "reason": "展示层依赖具体口径，不适合在首轮骨架中固化。"
+    },
+    {
+      "name": "自动分配、自动转客户、自动统计",
+      "reason": "属于规则和自动化能力，不是基础骨架本体。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我搭一个标准CRM，要有线索、客户、商机、报价、订单和回款。",
+      "expectedBehavior": "触发 crm 标准切片，生成获客、客户、商机、订单和轻财务主链，不默认加库存和生产。"
+    },
+    {
+      "userPrompt": "做一个极简CRM，只要产品、客户、销售订单和收款。",
+      "expectedBehavior": "触发 crm 极简切片，只生成产品、客户、联系人、销售订单和回款单，不默认生成线索、商机和绩效模块。"
+    },
+    {
+      "userPrompt": "做一个库存CRM，订单要能出库发货。",
+      "expectedBehavior": "触发 crm + 库存增强切片，保留标准 CRM 主链，并额外生成销售出库，不默认生成库存盘点和采购全链。"
+    },
+    {
+      "userPrompt": "做一个合同回款型CRM，要有客户、商机、合同和回款。",
+      "expectedBehavior": "触发 crm 的合同型成交切片，沿用客户、商机、成交与收款主链，但把订单相关命名偏向合同，不自动补售后和大报表。"
+    },
+    {
+      "userPrompt": "做一个客户管理CRM，要有活动跟进、订单、收款和售后工单。",
+      "expectedBehavior": "触发 crm + 售后扩展切片，保留活动、客户、成交和回款主链，并补售后工单，不默认补目标管理和复杂报表。"
+    },
+    {
+      "userPrompt": "做一个销售团队CRM，要能按季度追踪目标达成。",
+      "expectedBehavior": "触发 crm + 目标管理扩展，保留标准 CRM 主链，并补销售目标管理，不自动扩展为完整绩效或 BI 系统。"
+    },
+    {
+      "userPrompt": "做一个订单后接生产工单的生产型CRM。",
+      "expectedBehavior": "触发 crm + 生产扩展切片，保留客户、商机、订单主链，并补生产工单，不自动扩展为完整 MES。"
+    },
+    {
+      "userPrompt": "做一个销售管理系统，要客户、联系人、销售订单和回款。",
+      "expectedBehavior": "触发 crm 的订单驱动销售切片，生成客户、联系人、跟进记录、销售订单和回款主链，不默认补全线索和市场活动。"
+    },
+    {
+      "userPrompt": "做一个销售管理极简版，不要商机和报价，只要订单、开票和回款。",
+      "expectedBehavior": "触发 crm 的极简销售切片，保留客户、联系人、跟进记录、销售订单、开票申请和回款单，不默认生成商机、报价、仓库和生产。"
+    },
+    {
+      "userPrompt": "做一个销售管理库存版，要客户、订单、仓库和销售出库。",
+      "expectedBehavior": "触发 crm + inventory slice，保留客户和销售订单主链，再补仓库与销售出库，不扩展完整进销存采购链。"
+    },
+    {
+      "userPrompt": "做一个门店销售管理，要公海客户、合同回款和售后处理。",
+      "expectedBehavior": "触发 crm + contract / after-sales slice，优先补客户、公海流转、合同成交、合同回款和售后处理，不解释成零售/POS或完整库存系统。"
+    },
+    {
+      "userPrompt": "我已经有客户表了，给我补商机、报价单和销售订单。",
+      "expectedBehavior": "复用现有客户上下文，只补 crm 的销售切片，不重建整套客户体系。"
+    },
+    {
+      "userPrompt": "在现有销售订单里加一个计划回款日期字段。",
+      "expectedBehavior": "视为局部编辑，只修改现有订单表单，不重新触发完整 crm 骨架。"
+    }
+  ]
+}

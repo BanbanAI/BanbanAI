@@ -1,0 +1,12 @@
+<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="&#229;&#133;&#182;&#228;&#187;&#150;">
+<path id="Subtract" d="M2 1C0.895386 1 0 1.89551 0 3V15C0 16.1045 0.895386 17 2 17H12C13.1046 17 14 16.1045 14 15H4C2.89539 15 2 14.1045 2 13V5C2 3.89551 2.89539 3 4 3H14C14 1.89551 13.1046 1 12 1H2Z" fill="white" fill-opacity="0.8"/>
+<rect id="Rectangle 160" x="2" y="3" width="16" height="12" rx="2" fill="white" fill-opacity="0.6"/>
+<rect id="Rectangle 161" x="7" y="5" width="9" height="2" rx="1" fill="white"/>
+<rect id="Rectangle 162" x="7" y="8" width="9" height="2" rx="1" fill="white"/>
+<rect id="Rectangle 163" x="7" y="11" width="9" height="2" rx="1" fill="white"/>
+<circle id="Ellipse 133" cx="5" cy="6" r="1" fill="white"/>
+<circle id="Ellipse 134" cx="5" cy="9" r="1" fill="white"/>
+<circle id="Ellipse 135" cx="5" cy="12" r="1" fill="white"/>
+</g>
+</svg>

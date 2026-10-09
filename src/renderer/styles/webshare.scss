@@ -1,0 +1,13 @@
+html{
+  color-scheme: none !important;
+}
+html, body{
+  border: none !important;
+  background-color: transparent !important;
+  .layers.webshare{
+    background-color: transparent !important;
+    .project-sheet .board{
+      background-color: transparent !important;
+    }
+  }
+}

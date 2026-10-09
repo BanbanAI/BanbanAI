@@ -1,0 +1,618 @@
+{
+  "key": "ehs-safety",
+  "name": "EHS安全管理",
+  "version": "0.1.0",
+  "aliases": [
+    "EHS",
+    "EHS管理",
+    "EHS系统",
+    "EHS安全管理",
+    "健康安全环境管理",
+    "安全管理",
+    "安全管理系统",
+    "隐患管理",
+    "隐患排查",
+    "风险管理",
+    "事故管理",
+    "危废品管理",
+    "危险废物管理",
+    "劳保用品管理",
+    "职业健康管理"
+  ],
+  "beginnerSummary": "适合管理企业里的风险辨识、隐患排查整改、事故留档、安全培训、危废合规、劳保发放和职业健康档案，并按需补充安全场景下的设备点检切片。",
+  "intentExamples": [
+    "帮我做一个EHS系统，要管隐患、风险、事故、危废和职业健康",
+    "做一个安全管理平台，要有隐患排查和整改闭环",
+    "做一个危废品管理系统，要记录台账和转运去向",
+    "做一个劳保用品管理系统，要管发放领用和库存预警",
+    "我要扫码做设备安全点检，并把异常转成隐患"
+  ],
+  "modules": [
+    {
+      "key": "risk-management",
+      "name": "风险管理",
+      "purpose": "识别风险点、维护风险分级并为后续排查与整改提供基础。"
+    },
+    {
+      "key": "hazard-governance",
+      "name": "隐患治理",
+      "purpose": "承接隐患排查任务、整改责任和复查闭环。"
+    },
+    {
+      "key": "incident-management",
+      "name": "事故管理",
+      "purpose": "记录事故事件、原因、处置结果和复盘追踪。"
+    },
+    {
+      "key": "safety-training",
+      "name": "安全培训",
+      "purpose": "管理安全培训计划、参训留痕和培训结果。"
+    },
+    {
+      "key": "occupational-health",
+      "name": "职业健康",
+      "purpose": "沉淀职业健康档案、体检记录和暴露岗位信息。"
+    },
+    {
+      "key": "ehs-extension",
+      "name": "EHS扩展",
+      "purpose": "承接危废、劳保和安全点检等常见 EHS 增强切片。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "risk-assessment",
+      "name": "风险评估",
+      "moduleKey": "risk-management",
+      "purpose": "维护风险点、风险等级和评估结果。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "风险点名称",
+          "semanticRole": "risk-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "所属区域",
+          "semanticRole": "risk-area",
+          "suggestedWidget": "relation-or-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "风险等级",
+          "semanticRole": "risk-level",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "风险描述",
+          "semanticRole": "risk-description",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "hazard-inspection-task",
+      "name": "隐患排查任务",
+      "moduleKey": "hazard-governance",
+      "purpose": "下发排查任务并明确检查区域、责任人与时限。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "任务名称",
+          "semanticRole": "task-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "排查区域",
+          "semanticRole": "inspection-area",
+          "suggestedWidget": "relation-or-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "责任人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "截止时间",
+          "semanticRole": "deadline",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联风险点",
+          "targetFormKey": "risk-assessment",
+          "targetFieldName": "风险点名称",
+          "reason": "排查任务通常来自某个风险点或重点区域。"
+        }
+      ]
+    },
+    {
+      "key": "hazard-rectification",
+      "name": "隐患整改记录",
+      "moduleKey": "hazard-governance",
+      "purpose": "记录隐患问题、整改责任和复查结果。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "隐患编号",
+          "semanticRole": "hazard-code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联排查任务",
+          "semanticRole": "hazard-task-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "隐患描述",
+          "semanticRole": "hazard-description",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "整改责任人",
+          "semanticRole": "rectify-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "整改期限",
+          "semanticRole": "rectify-deadline",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联排查任务",
+          "targetFormKey": "hazard-inspection-task",
+          "targetFieldName": "任务名称",
+          "reason": "隐患问题通常来源于某次排查任务。"
+        }
+      ]
+    },
+    {
+      "key": "incident-record",
+      "name": "事故事件",
+      "moduleKey": "incident-management",
+      "purpose": "沉淀事故事件、原因分析和处理结论。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "事故名称",
+          "semanticRole": "incident-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发生时间",
+          "semanticRole": "occurred-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "事故等级",
+          "semanticRole": "incident-level",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "事故经过",
+          "semanticRole": "incident-summary",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理结果",
+          "semanticRole": "incident-resolution",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联风险点",
+          "targetFormKey": "risk-assessment",
+          "targetFieldName": "风险点名称",
+          "reason": "事故复盘时通常需要回看对应的风险源。"
+        },
+        {
+          "fieldName": "关联隐患",
+          "targetFormKey": "hazard-rectification",
+          "targetFieldName": "隐患编号",
+          "reason": "事故处理后经常需要追溯或补录关联隐患。"
+        }
+      ]
+    },
+    {
+      "key": "safety-training-record",
+      "name": "安全培训",
+      "moduleKey": "safety-training",
+      "purpose": "记录安全培训计划、参训人员和培训结果。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "培训主题",
+          "semanticRole": "training-topic",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "培训类型",
+          "semanticRole": "training-type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "培训时间",
+          "semanticRole": "training-time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "参训人员明细",
+          "semanticRole": "participant-items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "occupational-health-record",
+      "name": "职业健康档案",
+      "moduleKey": "occupational-health",
+      "purpose": "沉淀员工职业健康、体检和暴露岗位信息。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "员工姓名",
+          "semanticRole": "employee-name",
+          "suggestedWidget": "member-or-text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "岗位",
+          "semanticRole": "job-title",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "接触危害因素",
+          "semanticRole": "exposure-factor",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        },
+        {
+          "name": "体检日期",
+          "semanticRole": "exam-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "体检结果",
+          "semanticRole": "exam-result",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联培训记录",
+          "targetFormKey": "safety-training-record",
+          "targetFieldName": "培训主题",
+          "reason": "特殊岗位健康档案通常需要关联对应的安全培训留痕。"
+        }
+      ]
+    },
+    {
+      "key": "hazardous-waste-ledger",
+      "name": "危废品台账",
+      "moduleKey": "ehs-extension",
+      "purpose": "统一管理危废类别、暂存位置和当前存量。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "危废名称",
+          "semanticRole": "waste-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "危废类别",
+          "semanticRole": "waste-category",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "暂存位置",
+          "semanticRole": "storage-location",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "当前数量",
+          "semanticRole": "current-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "责任人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "hazardous-waste-transfer",
+      "name": "危废转运记录",
+      "moduleKey": "ehs-extension",
+      "purpose": "记录危废转运、去向和经办留痕。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联危废",
+          "semanticRole": "waste-ledger-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "转运日期",
+          "semanticRole": "transfer-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "转运数量",
+          "semanticRole": "transfer-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "去向单位",
+          "semanticRole": "destination",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "经办人",
+          "semanticRole": "handler",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联危废",
+          "targetFormKey": "hazardous-waste-ledger",
+          "targetFieldName": "危废名称",
+          "reason": "危废转运需要回写到对应的危废台账。"
+        }
+      ]
+    },
+    {
+      "key": "ppe-ledger",
+      "name": "劳保用品台账",
+      "moduleKey": "ehs-extension",
+      "purpose": "管理劳保用品主数据、规格和当前库存。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "用品名称",
+          "semanticRole": "ppe-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用品类别",
+          "semanticRole": "ppe-category",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "当前库存",
+          "semanticRole": "current-stock",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "预警阈值",
+          "semanticRole": "warning-threshold",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "ppe-issue-record",
+      "name": "劳保领用记录",
+      "moduleKey": "ehs-extension",
+      "purpose": "记录劳保用品发放、领用对象和数量。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联用品",
+          "semanticRole": "ppe-ledger-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "领用数量",
+          "semanticRole": "issue-quantity",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "领用人",
+          "semanticRole": "receiver",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "领用日期",
+          "semanticRole": "issue-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联用品",
+          "targetFormKey": "ppe-ledger",
+          "targetFieldName": "用品名称",
+          "reason": "领用记录需要绑定对应的劳保用品台账。"
+        }
+      ]
+    },
+    {
+      "key": "equipment-safety-check",
+      "name": "设备安全点检",
+      "moduleKey": "ehs-extension",
+      "purpose": "记录安全场景下的设备点检结果，并支持异常转隐患。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "设备名称",
+          "semanticRole": "equipment-name",
+          "suggestedWidget": "text-or-relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "设备编号",
+          "semanticRole": "equipment-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "点检时间",
+          "semanticRole": "inspection-time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "点检结果",
+          "semanticRole": "inspection-result",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "异常说明",
+          "semanticRole": "abnormal-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "异常转隐患",
+          "targetFormKey": "hazard-rectification",
+          "targetFieldName": "隐患编号",
+          "reason": "安全点检发现异常后通常需要转成隐患整改记录。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "risk-assessment",
+      "to": "hazard-inspection-task",
+      "label": "风险点可触发隐患排查任务"
+    },
+    {
+      "from": "hazard-inspection-task",
+      "to": "hazard-rectification",
+      "label": "排查发现问题后进入整改闭环"
+    },
+    {
+      "from": "incident-record",
+      "to": "hazard-rectification",
+      "label": "事故复盘可补录整改事项"
+    },
+    {
+      "from": "safety-training-record",
+      "to": "occupational-health-record",
+      "label": "特殊岗位培训可关联职业健康档案"
+    },
+    {
+      "from": "hazardous-waste-ledger",
+      "to": "hazardous-waste-transfer",
+      "label": "危废台账可继续记录转运去向"
+    },
+    {
+      "from": "ppe-ledger",
+      "to": "ppe-issue-record",
+      "label": "劳保用品台账可继续记录发放领用"
+    },
+    {
+      "from": "equipment-safety-check",
+      "to": "hazard-rectification",
+      "label": "安全点检异常可转隐患整改"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "安全绩效考核与评分看板",
+      "reason": "依赖企业自定义口径和评分规则，不适合作为首轮默认能力。"
+    },
+    {
+      "name": "行业化巡更路线与电子点位打卡",
+      "reason": "当前证据更适合作为模板参考样本，尚不足以固化成通用一级骨架默认切片。"
+    },
+    {
+      "name": "设备全生命周期与维修保养",
+      "reason": "设备申购、维修、保养和报废应继续归设备运维家族处理，EHS 仅保留安全点检切片。"
+    },
+    {
+      "name": "环保排放监测与政府报送",
+      "reason": "需要更完整的环保合规证据和口径，当前不应默认展开。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个EHS系统，要管隐患、风险、事故、危废和职业健康",
+      "expectedBehavior": "触发 ehs-safety 主骨架，生成风险、隐患、事故、危废、职业健康和培训切片，不自动补全设备全生命周期。"
+    },
+    {
+      "userPrompt": "做一个安全管理平台，要有隐患排查和整改闭环",
+      "expectedBehavior": "优先生成隐患排查任务、隐患整改记录和风险评估，不误路由到设备运维或工单管理。"
+    },
+    {
+      "userPrompt": "做一个隐患管理系统，支持排查任务、整改责任人和复查",
+      "expectedBehavior": "作为 ehs-safety 的隐患治理切片处理，保留排查到整改的闭环主线。"
+    },
+    {
+      "userPrompt": "做一个危废品管理系统，要记录台账、暂存和转运去向",
+      "expectedBehavior": "生成危废台账和危废转运记录切片，不误并入进销存。"
+    },
+    {
+      "userPrompt": "做一个劳保用品管理系统，要管发放领用和库存预警",
+      "expectedBehavior": "生成劳保用品台账和劳保领用记录切片，不误并入行政运营或进销存。"
+    },
+    {
+      "userPrompt": "我要扫码做设备安全点检，并把异常转成隐患",
+      "expectedBehavior": "生成设备安全点检增强切片并关联隐患整改，不自动扩成设备申购、维修、保养或报废主链。"
+    },
+    {
+      "userPrompt": "给我做职业健康档案和安全培训台账",
+      "expectedBehavior": "生成职业健康档案和安全培训切片，不误路由到完整 HRM 主档。"
+    },
+    {
+      "userPrompt": "在现有隐患整改记录表里加一个复查照片字段",
+      "expectedBehavior": "识别为局部编辑，不重建整套 EHS 骨架。"
+    }
+  ]
+}

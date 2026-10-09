@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.funnel",
+    "displayName":  "漏斗图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-funnel-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.autoCompute",
+    "displayName":  "实时计算",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-autoCompute-icon.svg",
+    "show":  true
+}

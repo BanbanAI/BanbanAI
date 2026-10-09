@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.phoneInput",
+    "displayName":  "手机",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-phoneInput-icon.svg",
+    "show":  true
+}

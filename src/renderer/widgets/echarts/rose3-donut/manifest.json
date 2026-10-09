@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.rose3-donut",
+    "displayName":  "3D玫瑰环图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.pie3",
+    "icon":  "widget-echarts-rose3-donut-icon.svg",
+    "show":  true
+}

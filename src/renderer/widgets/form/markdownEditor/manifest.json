@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.markdownEditor",
+    "displayName":  "Markdown",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-markdownEditor-icon.svg",
+    "show":  true
+}

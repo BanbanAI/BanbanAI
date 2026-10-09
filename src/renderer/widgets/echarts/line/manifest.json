@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.line",
+    "displayName":  "折线图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-line-icon.svg",
+    "show":  true
+}

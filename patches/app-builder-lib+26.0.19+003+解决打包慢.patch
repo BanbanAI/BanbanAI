@@ -1,0 +1,60 @@
+diff --git a/node_modules/app-builder-lib/out/asar/asarUtil.js b/node_modules/app-builder-lib/out/asar/asarUtil.js
+index bea8a3b..2a266ef 100644
+--- a/node_modules/app-builder-lib/out/asar/asarUtil.js
++++ b/node_modules/app-builder-lib/out/asar/asarUtil.js
+@@ -47,6 +47,7 @@ class AsarPackager {
+             }
+         }
+         const results = [];
++        const resultSet = new Set();
+         for (const fileSet of fileSets) {
+             // Don't use Promise.all, we need to retain order of execution/iteration through the already-ordered fileset
+             for (const [index, file] of fileSet.files.entries()) {
+@@ -61,7 +62,7 @@ class AsarPackager {
+                     const isFileUnpacked = (_c = (_b = (_a = this.config).unpackPattern) === null || _b === void 0 ? void 0 : _b.call(_a, file, stat)) !== null && _c !== void 0 ? _c : false;
+                     return isChild || isFileUnpacked;
+                 };
+-                this.processParentDirectories(isUnpacked, destination, results);
++                this.processParentDirectories(isUnpacked, destination, results, resultSet);
+                 const result = await this.processFileOrSymlink({
+                     file,
+                     destination,
+@@ -72,12 +73,13 @@ class AsarPackager {
+                 });
+                 if (result != null) {
+                     results.push(result);
++                    resultSet.add(result.path);
+                 }
+             }
+         }
+         return results;
+     }
+-    processParentDirectories(isUnpacked, destination, results) {
++    processParentDirectories(isUnpacked, destination, results, resultSet) {
+         // process parent directories
+         let superDir = path.dirname(path.normalize(destination));
+         while (superDir !== ".") {
+@@ -87,8 +89,9 @@ class AsarPackager {
+                 unpacked: isUnpacked(superDir),
+             };
+             // add to results if not already present
+-            if (!results.some(r => r.path === dir.path)) {
++            if (!resultSet.has(dir.path)) {
+                 results.push(dir);
++                resultSet.add(dir.path);
+             }
+             superDir = path.dirname(superDir);
+         }
+diff --git a/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js b/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
+index 6a16029..58fd8fa 100644
+--- a/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
++++ b/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
+@@ -23,7 +23,7 @@ class NodeModulesCollector {
+         const realTree = this.getTreeFromWorkspaces(tree);
+         this.collectAllDependencies(realTree);
+         this.extractProductionDependencyGraph(realTree, "." /*root project name*/);
+-        const hoisterResult = (0, hoist_1.hoist)(this.transToHoisterTree(this.productionGraph), { check: true });
++        const hoisterResult = (0, hoist_1.hoist)(this.transToHoisterTree(this.productionGraph), { check: false });
+         this._getNodeModules(hoisterResult.dependencies, this.nodeModules);
+         return this.nodeModules;
+     }

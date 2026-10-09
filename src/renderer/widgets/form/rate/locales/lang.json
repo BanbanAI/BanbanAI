@@ -1,0 +1,26 @@
+{
+  "zh-CN": {
+    "defaultName": "评分",
+    "maxRate": "评分总数",
+    "rateColor": "评分颜色",
+    "allowHalf": "半星评分"
+  },
+  "en": {
+    "defaultName": "Rating",
+    "maxRate": "Total Ratings",
+    "rateColor": "Rating Color",
+    "allowHalf": "Half-Star Rating"
+  },
+  "ja": {
+    "defaultName": "入力ボックス",
+    "allowHalf": "半星評価",
+    "maxRate": "評価の総数",
+    "rateColor": "評価の色"
+  },
+  "zh-TW": {
+    "defaultName": "評分",
+    "maxRate": "評分總數",
+    "rateColor": "評分顏色",
+    "allowHalf": "半星評分"
+  }
+}

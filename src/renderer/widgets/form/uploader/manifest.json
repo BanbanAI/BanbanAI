@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.uploader",
+    "displayName":  "表单上传组件",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-uploader-icon.svg",
+    "show":  true
+}

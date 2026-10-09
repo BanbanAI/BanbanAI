@@ -1,0 +1,500 @@
+{
+  "key": "project-management",
+  "name": "项目管理",
+  "version": "0.1.0",
+  "aliases": [
+    "项目管理",
+    "项目管理系统",
+    "任务项目管理",
+    "IT 项目管理",
+    "客户项目管理",
+    "项目交付管理",
+    "轻量项目管理",
+    "新项目管理",
+    "小团队项目管理",
+    "项目任务管理"
+  ],
+  "beginnerSummary": "适合把项目从立项、计划、任务推进到结项统一搬到线上管理；如果有客户、合同或项目收支，也可以按需要补上增强模块。",
+  "intentExamples": [
+    "帮我做一个项目管理系统，要立项、计划、任务和结项",
+    "做一个 IT 项目管理，要客户、合同、任务和回款",
+    "我已经有客户表了，补一个项目计划和任务跟踪",
+    "给现有项目表加预算和截止日期",
+    "帮我做一个轻量项目管理系统，要项目立项、计划、任务和工时记录",
+    "做一个客户项目管理，客户提需求后立项，再跟踪任务和项目收支",
+    "我只想做项目任务跟踪，要负责人、截止日期、执行结果和工时",
+    "给现有任务表加一个工时字段"
+  ],
+  "modules": [
+    {
+      "key": "project-initiation",
+      "name": "项目立项",
+      "purpose": "创建项目主档、目标、负责人和时间边界。"
+    },
+    {
+      "key": "project-planning",
+      "name": "项目计划",
+      "purpose": "安排阶段计划、里程碑和时间节点。"
+    },
+    {
+      "key": "project-execution",
+      "name": "任务执行",
+      "purpose": "分派任务、跟踪状态、登记执行结果和工时。"
+    },
+    {
+      "key": "project-closure",
+      "name": "项目结项",
+      "purpose": "管理项目完成、结项总结和成果归档。"
+    },
+    {
+      "key": "business-support",
+      "name": "商务协同",
+      "purpose": "按需要补充客户、合同和项目收支记录。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "project-record",
+      "name": "项目立项",
+      "moduleKey": "project-initiation",
+      "purpose": "创建项目主档并记录目标、负责人和起止日期。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "项目名称",
+          "semanticRole": "project-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目目标",
+          "semanticRole": "project-goal",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目负责人",
+          "semanticRole": "project-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划开始日期",
+          "semanticRole": "planned-start-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划结束日期",
+          "semanticRole": "planned-end-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预算金额",
+          "semanticRole": "project-budget",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联客户",
+          "semanticRole": "customer-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联客户",
+          "targetFormKey": "customer",
+          "reason": "外部项目可以从客户资料带入项目背景。"
+        }
+      ]
+    },
+    {
+      "key": "project-plan",
+      "name": "项目计划",
+      "moduleKey": "project-planning",
+      "purpose": "为项目安排阶段计划和里程碑。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "所属项目",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划名称",
+          "semanticRole": "plan-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划开始日期",
+          "semanticRole": "plan-start-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划结束日期",
+          "semanticRole": "plan-end-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "里程碑清单",
+          "semanticRole": "milestone-list",
+          "suggestedWidget": "subform",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属项目",
+          "targetFormKey": "project-record",
+          "reason": "计划必须依附项目主档。"
+        }
+      ]
+    },
+    {
+      "key": "project-task",
+      "name": "项目任务",
+      "moduleKey": "project-execution",
+      "purpose": "管理任务分派、状态、执行结果和工时。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "所属项目",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "所属计划",
+          "semanticRole": "plan-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "任务名称",
+          "semanticRole": "task-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "负责人",
+          "semanticRole": "task-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "开始日期",
+          "semanticRole": "task-start-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "截止日期",
+          "semanticRole": "task-due-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "优先级",
+          "semanticRole": "task-priority",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "任务状态",
+          "semanticRole": "task-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "执行结果",
+          "semanticRole": "task-result",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        },
+        {
+          "name": "工时",
+          "semanticRole": "task-hours",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属项目",
+          "targetFormKey": "project-record",
+          "reason": "任务归属于项目。"
+        },
+        {
+          "fieldName": "所属计划",
+          "targetFormKey": "project-plan",
+          "reason": "任务可以从阶段计划中拆解。"
+        }
+      ]
+    },
+    {
+      "key": "project-closure-form",
+      "name": "项目结项",
+      "moduleKey": "project-closure",
+      "purpose": "记录项目完成、结项总结和成果归档。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "所属项目",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "实际完成日期",
+          "semanticRole": "actual-end-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "结项总结",
+          "semanticRole": "closure-summary",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目成果附件",
+          "semanticRole": "deliverable-files",
+          "suggestedWidget": "upload",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属项目",
+          "targetFormKey": "project-record",
+          "reason": "结项必须绑定项目。"
+        }
+      ]
+    },
+    {
+      "key": "customer",
+      "name": "客户管理",
+      "moduleKey": "business-support",
+      "purpose": "记录外部项目的客户基础资料。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "客户名称",
+          "semanticRole": "customer-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "联系人",
+          "semanticRole": "customer-contact",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "联系方式",
+          "semanticRole": "customer-phone",
+          "suggestedWidget": "phone",
+          "requiredByDefault": false
+        },
+        {
+          "name": "需求摘要",
+          "semanticRole": "customer-need-summary",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "project-contract",
+      "name": "合同管理",
+      "moduleKey": "business-support",
+      "purpose": "管理与项目关联的合同信息。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "所属项目",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同编号",
+          "semanticRole": "contract-number",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同金额",
+          "semanticRole": "contract-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "合同状态",
+          "semanticRole": "contract-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "合同附件",
+          "semanticRole": "contract-file",
+          "suggestedWidget": "upload",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属项目",
+          "targetFormKey": "project-record",
+          "reason": "合同围绕项目协同。"
+        }
+      ]
+    },
+    {
+      "key": "project-finance-record",
+      "name": "项目收支记录",
+      "moduleKey": "business-support",
+      "purpose": "记录项目收入、支出、回款、付款等轻量财务信息。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "所属项目",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "收支类型",
+          "semanticRole": "finance-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "金额",
+          "semanticRole": "finance-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发生日期",
+          "semanticRole": "finance-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "说明",
+          "semanticRole": "finance-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属项目",
+          "targetFormKey": "project-record",
+          "reason": "每笔收支围绕项目汇总。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "customer",
+      "to": "project-record",
+      "label": "外部项目可从客户需求发起项目立项。"
+    },
+    {
+      "from": "project-record",
+      "to": "project-plan",
+      "label": "项目立项后进入项目计划阶段。"
+    },
+    {
+      "from": "project-plan",
+      "to": "project-task",
+      "label": "项目计划拆解为执行任务。"
+    },
+    {
+      "from": "project-task",
+      "to": "project-closure-form",
+      "label": "任务完成后进入结项归档。"
+    },
+    {
+      "from": "project-record",
+      "to": "project-contract",
+      "label": "项目可关联合同信息。"
+    },
+    {
+      "from": "project-record",
+      "to": "project-finance-record",
+      "label": "项目可沉淀收支记录。"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "项目看板",
+      "reason": "属于展示层能力，不适合首轮默认生成。"
+    },
+    {
+      "name": "WBS 自动编号",
+      "reason": "属于自动规则增强，不适合直接承诺。"
+    },
+    {
+      "name": "任务临期提醒",
+      "reason": "属于自动化增强能力。"
+    },
+    {
+      "name": "合同审批流",
+      "reason": "属于流程增强，不应替代通用表单骨架。"
+    },
+    {
+      "name": "回款/开票/付款细分审批流",
+      "reason": "当前更适合作为项目收支的后续扩展。"
+    },
+    {
+      "name": "多项目组合管理",
+      "reason": "超出当前通用轻量项目骨架范围。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个项目管理系统，要有项目立项、项目计划、任务分配、进度跟踪和结项",
+      "expectedBehavior": "命中 project-management 主骨架，生成项目立项、项目计划、项目任务和项目结项，不默认补 CRM 和库存链。"
+    },
+    {
+      "userPrompt": "做一个 IT 项目管理，要客户、合同、项目任务和回款",
+      "expectedBehavior": "命中 project-management + 商务协同增强，补客户、合同和项目收支记录，不自动补商机、采购和库存。"
+    },
+    {
+      "userPrompt": "我已经有客户表了，补一个项目计划和任务协作流程",
+      "expectedBehavior": "命中 project-management 局部切片，复用现有客户表，不重建整套客户管理。"
+    },
+    {
+      "userPrompt": "给现有项目表加预算和截止日期",
+      "expectedBehavior": "识别为局部编辑，不重建整套 project-management skeleton。"
+    },
+    {
+      "userPrompt": "帮我做一个轻量项目管理系统，要项目立项、计划、任务和工时记录",
+      "expectedBehavior": "命中 project-management 轻量切片，生成项目立项、项目计划和项目任务，任务里带工时字段。"
+    },
+    {
+      "userPrompt": "做一个客户项目管理，客户提需求后立项，再跟踪任务和项目收支",
+      "expectedBehavior": "命中 project-management + 客户/收支增强，不自动补 CRM 线索和合同审批大流程。"
+    },
+    {
+      "userPrompt": "我只想做项目任务跟踪，要负责人、截止日期、执行结果和工时",
+      "expectedBehavior": "命中 project-management 的轻量任务切片，不自动生成看板和复杂收支体系。"
+    },
+    {
+      "userPrompt": "给现有任务表加一个工时字段",
+      "expectedBehavior": "识别为局部编辑，不重建整套 project-management skeleton。"
+    }
+  ]
+}

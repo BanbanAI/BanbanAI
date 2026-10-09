@@ -1,0 +1,46 @@
+{
+  "zh-CN": {
+    "label": "图形文本",
+    "labelPosition": "文本位置",
+    "inside": "内部",
+    "outside": "外部",
+    "seriesShapeShadowColor": "阴影颜色",
+    "seriesShapeShadowBlur": "阴影模糊程度",
+    "topAlign": "顶部对齐",
+    "value": "数值",
+    "percent": "百分比"
+  },
+  "en": {
+    "label": "Graphic Text",
+    "labelPosition": "Text Position",
+    "inside": "Inside",
+    "outside": "Outside",
+    "seriesShapeShadowColor": "Shadow color",
+    "seriesShapeShadowBlur": "Shadow Blur",
+    "topAlign": "Top",
+    "value": "Value",
+    "percent": "Percent"
+  },
+  "ja": {
+    "label": "グラフィックテキスト",
+    "labelPosition": "テキスト位置",
+    "inside": "内部",
+    "outside": "外部",
+    "seriesShapeShadowColor": "陰影の色",
+    "seriesShapeShadowBlur": "陰影ファジィ度",
+    "topAlign": "上揃え",
+    "value": "数値",
+    "percent": "パーセント"
+  },
+  "zh-TW": {
+    "label": "圖形文本",
+    "labelPosition": "文本位置",
+    "inside": "內部",
+    "outside": "外部",
+    "seriesShapeShadowColor": "陰影顏色",
+    "seriesShapeShadowBlur": "陰影模糊程度",
+    "topAlign": "頂部對齊",
+    "value": "數值",
+    "percent": "百分比"
+  }
+}

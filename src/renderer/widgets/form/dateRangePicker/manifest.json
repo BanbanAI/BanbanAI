@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.dateRangePicker",
+    "displayName":  "时间范围",
+    "version":  "0.1.1",
+    "super":  "widget.form.datePicker",
+    "icon":  "widget-form-dateRangePicker-icon.svg",
+    "show":  true
+}

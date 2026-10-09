@@ -1,0 +1,8 @@
+{
+    "name":  "widget.group.panel",
+    "displayName":  "分组面板",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-group-panel-icon.svg",
+    "show":  true
+}

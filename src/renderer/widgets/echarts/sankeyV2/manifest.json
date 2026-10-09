@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.sankey-v2",
+    "displayName":  "桑基图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-sankey-v2-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.audio",
+    "displayName":  "音频",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-basic-audio-icon.svg",
+    "show":  true
+}

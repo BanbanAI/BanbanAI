@@ -1,0 +1,26 @@
+{
+  "zh-CN": {
+    "yPolylineDisplay": "Y轴",
+    "yDisplay": "右侧Y轴",
+    "yAxisEnable": "启用Y轴",
+    "fieldsSetting": "字段设置"
+  },
+  "en": {
+    "yPolylineDisplay": "Y-axis",
+    "yDisplay": "Right Y-axis",
+    "yAxisEnable": "Enable Y-axis",
+    "fieldsSetting": "Field Settings"
+  },
+  "ja": {
+    "yPolylineDisplay": "Y軸",
+    "yDisplay": "折れ線の右軸",
+    "yAxisEnable": "Y軸有効",
+    "fieldsSetting": "フィールドの設定"
+  },
+  "zh-TW": {
+    "yPolylineDisplay": "Y軸",
+    "yDisplay": "右側Y軸",
+    "yAxisEnable": "啟用Y軸",
+    "fieldsSetting": "字段設置"
+  }
+}

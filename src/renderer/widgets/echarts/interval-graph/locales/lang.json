@@ -1,0 +1,30 @@
+{
+  "zh-CN": {
+    "animationAppear": "入场动画",
+    "animationDisappear": "离场动画",
+    "all": "全部",
+    "custom": "自定义",
+    "seriesShapeStyle": "显示样式"
+  },
+  "en": {
+    "animationAppear": "Entrance animation",
+    "animationDisappear": "Exit animation",
+    "all": "All",
+    "custom": "Custom",
+    "seriesShapeStyle": "Display Style"
+  },
+  "ja": {
+    "animationAppear": "入場動画",
+    "animationDisappear": "離れる動画",
+    "all": "全部",
+    "custom": "カスタム",
+    "seriesShapeStyle": "スタイルを表示"
+  },
+  "zh-TW": {
+    "animationAppear": "入場動畫",
+    "animationDisappear": "離場動畫",
+    "all": "全部",
+    "custom": "自定義",
+    "seriesShapeStyle": "顯示樣式"
+  }
+}

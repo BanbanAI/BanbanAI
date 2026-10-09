@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.bullet",
+    "displayName":  "子弹图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-bullet-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.area",
+    "displayName":  "面积图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.line",
+    "icon":  "widget-echarts-area-icon.svg",
+    "show":  true
+}

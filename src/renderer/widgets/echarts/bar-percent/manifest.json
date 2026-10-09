@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.bar-percent",
+    "displayName":  "百分比堆叠条形图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.column-percent",
+    "icon":  "widget-echarts-bar-percent-icon.svg",
+    "show":  true
+}

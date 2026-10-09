@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.filter-button",
+    "displayName":  "筛选按钮",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-basic-filter-button-icon.svg",
+    "show":  true
+}

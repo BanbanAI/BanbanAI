@@ -1,0 +1,364 @@
+{
+  "key": "expense-control",
+  "name": "费控报销",
+  "version": "0.1.0",
+  "aliases": [
+    "费控",
+    "费控报销",
+    "预算报销",
+    "预算费用报销管理",
+    "借款冲抵报销",
+    "发票识别报销",
+    "发票识别和验真"
+  ],
+  "beginnerSummary": "适合管理预算控制、费用申请、借款冲抵、报销审批和票据留档，但不默认承诺 OCR 验真、银企直联和自动核销。",
+  "intentExamples": [
+    "做一个预算报销系统，要有预算控制、借款冲抵和报销审批",
+    "做一个费控报销系统，要管预算占用、借款核销和报销审批",
+    "做一个预算费用报销管理系统，要有费用申请、报销单和对公付款申请",
+    "做一个费用报销管理系统，要支持发票识别",
+    "做一个费用报销管理系统，要支持发票识别和验真"
+  ],
+  "modules": [
+    {
+      "key": "budget-control",
+      "name": "预算控制",
+      "purpose": "管理预算台账与费用申请的预算占用。"
+    },
+    {
+      "key": "expense-reimbursement",
+      "name": "报销与借款",
+      "purpose": "管理费用申请、借款记录和报销审批主链。"
+    },
+    {
+      "key": "payment-invoice",
+      "name": "付款与票据",
+      "purpose": "管理对公付款申请与发票留档等轻量增强对象。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "budget-ledger",
+      "name": "预算台账",
+      "moduleKey": "budget-control",
+      "purpose": "登记部门或项目预算额度与执行口径。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "预算编码",
+          "semanticRole": "budget-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预算主体",
+          "semanticRole": "budget-owner",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预算金额",
+          "semanticRole": "budget-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预算期间",
+          "semanticRole": "budget-period",
+          "suggestedWidget": "date-range",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "expense-request-form",
+      "name": "费用申请单",
+      "moduleKey": "budget-control",
+      "purpose": "在报销前登记预算占用与费用用途。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "申请人",
+          "semanticRole": "applicant",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "预算台账",
+          "semanticRole": "budget-link",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请金额",
+          "semanticRole": "request-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "request-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "预算台账",
+          "targetFormKey": "budget-ledger",
+          "reason": "费用申请通常需要校验预算余额。"
+        }
+      ]
+    },
+    {
+      "key": "loan-advance-record",
+      "name": "借款记录",
+      "moduleKey": "expense-reimbursement",
+      "purpose": "登记员工借款、冲抵与待核销余额。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "借款人",
+          "semanticRole": "borrower",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联费用申请",
+          "semanticRole": "source-request",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "借款金额",
+          "semanticRole": "loan-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "借款日期",
+          "semanticRole": "loan-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联费用申请",
+          "targetFormKey": "expense-request-form",
+          "reason": "借款通常来源于已批准的费用申请。"
+        }
+      ]
+    },
+    {
+      "key": "expense-claim",
+      "name": "报销单",
+      "moduleKey": "expense-reimbursement",
+      "purpose": "登记报销申请、冲抵借款与票据留档。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "报销人",
+          "semanticRole": "claimant",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联费用申请",
+          "semanticRole": "source-request",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报销金额",
+          "semanticRole": "claim-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报销日期",
+          "semanticRole": "claim-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联费用申请",
+          "targetFormKey": "expense-request-form",
+          "reason": "报销单通常承接前置费用申请。"
+        },
+        {
+          "fieldName": "冲抵借款",
+          "targetFormKey": "loan-advance-record",
+          "reason": "报销单可能需要冲抵既有借款。"
+        },
+        {
+          "fieldName": "关联发票",
+          "targetFormKey": "invoice-record",
+          "reason": "报销单通常需要留档发票信息。"
+        }
+      ]
+    },
+    {
+      "key": "public-payment-request",
+      "name": "对公付款申请",
+      "moduleKey": "payment-invoice",
+      "purpose": "登记供应商或服务商相关的对公付款申请。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "付款对象",
+          "semanticRole": "counterparty",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款用途",
+          "semanticRole": "purpose",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "request-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "来源报销单",
+          "targetFormKey": "expense-claim",
+          "reason": "对公付款常由报销审批通过后触发。"
+        }
+      ]
+    },
+    {
+      "key": "invoice-record",
+      "name": "发票记录",
+      "moduleKey": "payment-invoice",
+      "purpose": "留档报销相关发票信息与验真状态。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "发票号码",
+          "semanticRole": "invoice-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发票金额",
+          "semanticRole": "invoice-amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "开票日期",
+          "semanticRole": "issued-at",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联报销单",
+          "semanticRole": "claim-link",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联报销单",
+          "targetFormKey": "expense-claim",
+          "reason": "发票留档通常归属于具体报销单。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "budget-ledger",
+      "to": "expense-request-form",
+      "label": "预算台账约束费用申请"
+    },
+    {
+      "from": "expense-request-form",
+      "to": "loan-advance-record",
+      "label": "费用申请驱动借款登记"
+    },
+    {
+      "from": "expense-request-form",
+      "to": "expense-claim",
+      "label": "费用申请转入报销单"
+    },
+    {
+      "from": "loan-advance-record",
+      "to": "expense-claim",
+      "label": "借款记录支持报销冲抵"
+    },
+    {
+      "from": "expense-claim",
+      "to": "public-payment-request",
+      "label": "报销审批通过后触发对公付款申请"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "发票 OCR 与验真",
+      "reason": "属于高阶票据能力，首轮正式骨架只保留留档入口，不默认承诺自动识别与验真。"
+    },
+    {
+      "name": "银企直联",
+      "reason": "涉及支付集成与账户权限，不属于首轮默认生成对象。"
+    },
+    {
+      "name": "自动核销",
+      "reason": "依赖更细的借款与报销对账规则，首轮只保留人工冲抵链路。"
+    },
+    {
+      "name": "复杂费用分摊",
+      "reason": "跨部门或项目分摊需要额外台账与规则配置，暂不纳入首轮正式对象集。"
+    },
+    {
+      "name": "自动凭证",
+      "reason": "属于财务记账自动化能力，不在本轮最小正式落库范围内。"
+    },
+    {
+      "name": "自动出表",
+      "reason": "属于报表自动化与汇总分析能力，不在首轮默认交付范围内。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "做一个预算报销系统，要有预算控制、借款冲抵和报销审批",
+      "expectedBehavior": "优先命中 expense-control 主链，不要退回 generic reimbursement。"
+    },
+    {
+      "userPrompt": "做一个费控报销系统，要支持预算占用、借款核销和发票留档",
+      "expectedBehavior": "优先命中 expense-control 主链，保留预算控制、借款冲抵和票据留档对象。"
+    },
+    {
+      "userPrompt": "做一个费用报销管理系统，要支持发票识别和验真",
+      "expectedBehavior": "因为明确强调发票识别与验真，优先走 expense-control，而不是只按 generic reimbursement 处理。"
+    },
+    {
+      "userPrompt": "做一个财务报销系统，要有员工报销和票据留档",
+      "expectedBehavior": "这是泛称报销需求，优先走 administrative-operations，不要把 expense-control 变成所有报销入口。"
+    },
+    {
+      "userPrompt": "做一个财务付款管理系统，要有合同付款和对公付款协同",
+      "expectedBehavior": "这是 financial-operations 主链，优先走 financial-operations，不要被 expense-control 吸收。"
+    },
+    {
+      "userPrompt": "做一个报销系统，要自动验真、银企直联和自动出表",
+      "expectedBehavior": "可以命中 expense-control，但要明确 OCR 验真、银企直联与自动出表仍作为 deferred capability，不能默认承诺已正式落库。"
+    }
+  ]
+}

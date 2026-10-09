@@ -1,0 +1,38 @@
+{
+  "zh-CN": {
+    "fields": "字段设置",
+    "axis-category": "分类字段",
+    "axis-value": "取值字段",
+    "series-shape": "图形形状",
+    "waffle-size": "图形大小",
+    "waffle-itemgap": "图形间隔",
+    "waffle-images": "图形替换图片"
+  },
+  "en": {
+    "fields": "Field settings",
+    "axis-category": "Category field",
+    "axis-value": "Value field",
+    "series-shape": "Graphic shape",
+    "waffle-size": "Size",
+    "waffle-itemgap": "Spacing",
+    "waffle-images": "Graphic replacement image"
+  },
+  "ja": {
+    "fields": "フィールドの設定",
+    "axis-category": "分類フィールド",
+    "axis-value": "値フィールド",
+    "series-shape": "グラフィック形状",
+    "waffle-size": "サイズ",
+    "waffle-itemgap": "間隔",
+    "waffle-images": "グラフィック置換画像"
+  },
+  "zh-TW": {
+    "fields": "字段設置",
+    "axis-category": "分類字段",
+    "axis-value": "取值字段",
+    "series-shape": "圖形形狀",
+    "waffle-size": "圖形大小",
+    "waffle-itemgap": "圖形間隔",
+    "waffle-images": "圖形替換圖片"
+  }
+}

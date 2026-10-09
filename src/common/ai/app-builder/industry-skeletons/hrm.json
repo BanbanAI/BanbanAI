@@ -1,0 +1,255 @@
+{
+  "key": "hrm",
+  "name": "员工人事管理",
+  "version": "0.1.0",
+  "aliases": [
+    "HRM",
+    "人事管理",
+    "员工管理系统",
+    "人力资源管理",
+    "员工管理",
+    "招聘管理",
+    "招聘管理（含编制）",
+    "考勤管理",
+    "排班考勤",
+    "绩效管理",
+    "绩效管理（KPI）",
+    "绩效管理（OKR）",
+    "薪酬管理",
+    "HR服务中心",
+    "HR综合管理系统"
+  ],
+  "beginnerSummary": "适合管理员工档案、组织基础、入职转正调动离职，以及按需扩展招聘、考勤、绩效和薪酬。",
+  "intentExamples": [
+    "帮我做一个员工管理系统",
+    "做一套 HRM",
+    "搭一套人事管理系统",
+    "做一个招聘管理系统",
+    "做一个考勤管理系统",
+    "做一个绩效管理系统",
+    "做一个薪酬管理系统",
+    "做一个HR服务中心"
+  ],
+  "modules": [
+    {
+      "key": "employee-core",
+      "name": "员工主档",
+      "purpose": "管理员工档案、组织基础和人事异动"
+    },
+    {
+      "key": "recruitment",
+      "name": "招聘与编制",
+      "purpose": "管理编制、招聘需求、简历、面试和录用"
+    },
+    {
+      "key": "attendance",
+      "name": "考勤管理",
+      "purpose": "管理打卡、请假、补卡、加班和考勤确认"
+    },
+    {
+      "key": "performance",
+      "name": "绩效管理",
+      "purpose": "管理 KPI/OKR 计划、结果与辅导"
+    },
+    {
+      "key": "payroll",
+      "name": "薪酬管理",
+      "purpose": "管理薪资档案、规则和工资条"
+    }
+  ],
+  "forms": [
+    {
+      "key": "employee-profile",
+      "name": "员工档案",
+      "moduleKey": "employee-core",
+      "purpose": "记录员工主档",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "工号",
+          "semanticRole": "employee-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "姓名",
+          "semanticRole": "employee-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "部门",
+          "semanticRole": "department",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "岗位",
+          "semanticRole": "position",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "员工状态",
+          "semanticRole": "employment-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "部门",
+          "targetFormKey": "department-position",
+          "reason": "员工归属部门与岗位来自基础配置"
+        }
+      ]
+    },
+    {
+      "key": "department-position",
+      "name": "部门岗位基础表",
+      "moduleKey": "employee-core",
+      "purpose": "管理组织与岗位基础数据",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "部门名称",
+          "semanticRole": "department-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "岗位名称",
+          "semanticRole": "position-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "employee-change",
+      "name": "入转调离流程",
+      "moduleKey": "employee-core",
+      "purpose": "处理员工异动审批",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "异动类型",
+          "semanticRole": "change-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "员工",
+          "semanticRole": "employee-ref",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "生效日期",
+          "semanticRole": "effective-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "员工",
+          "targetFormKey": "employee-profile",
+          "reason": "异动流程回写员工主档状态"
+        }
+      ]
+    },
+    {
+      "key": "hr-proof",
+      "name": "人事证明申请",
+      "moduleKey": "employee-core",
+      "purpose": "处理员工证明申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "申请日期",
+          "semanticRole": "request-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请员工",
+          "semanticRole": "employee-ref",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "证明类型",
+          "semanticRole": "proof-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "申请员工",
+          "targetFormKey": "employee-profile",
+          "reason": "回填身份证号、部门、岗位"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "department-position",
+      "to": "employee-profile",
+      "label": "组织基础驱动员工建档"
+    },
+    {
+      "from": "employee-profile",
+      "to": "employee-change",
+      "label": "员工进入入转调离流程"
+    },
+    {
+      "from": "employee-profile",
+      "to": "hr-proof",
+      "label": "员工发起证明申请"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "招聘与编制切片",
+      "reason": "不是所有 HRM 首轮都需要招聘模块"
+    },
+    {
+      "name": "标准考勤与排班考勤",
+      "reason": "属于高频扩展，但不宜在轻量主骨架里默认全部生成"
+    },
+    {
+      "name": "绩效 KPI/OKR 模式",
+      "reason": "企业差异大，适合按需启用"
+    },
+    {
+      "name": "复杂薪酬计算与看板",
+      "reason": "公式、税率和数据流复杂度较高"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个员工管理系统，要有员工档案和入转调离",
+      "expectedBehavior": "命中 hrm 主骨架，只生成员工主档、组织基础和异动流程"
+    },
+    {
+      "userPrompt": "做一套 HRM，后面还要接招聘和考勤",
+      "expectedBehavior": "先命中 hrm 主骨架，再提示招聘和考勤切片可扩展"
+    },
+    {
+      "userPrompt": "做一个考勤管理系统，要有员工档案、请假、补卡和加班",
+      "expectedBehavior": "命中 hrm，并提示这是在人事主骨架上追加考勤切片，不单独新建 attendance skeleton。"
+    },
+    {
+      "userPrompt": "做一个薪酬管理系统，后面还要和员工档案打通",
+      "expectedBehavior": "命中 hrm，并提示薪酬是建立在员工主档上的扩展切片，不单独新建 payroll skeleton。"
+    },
+    {
+      "userPrompt": "做一个绩效管理，支持 KPI 和 OKR",
+      "expectedBehavior": "命中 hrm 的绩效切片，说明 KPI 和 OKR 是同一绩效骨架下的两种模式，不拆成两个一级 skeleton。"
+    }
+  ]
+}

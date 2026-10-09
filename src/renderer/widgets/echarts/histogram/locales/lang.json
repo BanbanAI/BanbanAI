@@ -1,0 +1,50 @@
+{
+  "zh-CN": {
+    "animationAppear": "入场动画",
+    "animationDisappear": "离场动画",
+    "fieldsSetting": "字段设置",
+    "basicSetting": "基本设置",
+    "classInterval": "间距跨度",
+    "classIntervalSquareRoot": "默认",
+    "classIntervalScott": "平均跨度",
+    "classIntervalFreedmanDiaconis": "细分跨度",
+    "classIntervalSturges": "大值跨度",
+    "tooltipUnitSetName": "单位名称设置"
+  },
+  "en": {
+    "animationAppear": "Entrance animation",
+    "animationDisappear": "Exit animation",
+    "fieldsSetting": "Field Settings",
+    "basicSetting": "Basic Settings",
+    "classInterval": "Spacing Span",
+    "classIntervalSquareRoot": "Default",
+    "classIntervalScott": "Average Span",
+    "classIntervalFreedmanDiaconis": "Segment Span",
+    "classIntervalSturges": "Large Value Span",
+    "tooltipUnitSetName": "Unit name settings"
+  },
+  "ja": {
+    "animationAppear": "入場動画",
+    "animationDisappear": "離れる動画",
+    "fieldsSetting": "フィールドの設定",
+    "basicSetting": "基本設定",
+    "classInterval": "スパン間隔",
+    "classIntervalSquareRoot": "デフォルト",
+    "classIntervalScott": "平均スパン",
+    "classIntervalFreedmanDiaconis": "セグメントスパン",
+    "classIntervalSturges": "大値スパン",
+    "tooltipUnitSetName": "単位名の設定"
+  },
+  "zh-TW": {
+    "animationAppear": "入場動畫",
+    "animationDisappear": "離場動畫",
+    "fieldsSetting": "字段設置",
+    "basicSetting": "基本設置",
+    "classInterval": "間距跨度",
+    "classIntervalSquareRoot": "默認",
+    "classIntervalScott": "平均跨度",
+    "classIntervalFreedmanDiaconis": "細分跨度",
+    "classIntervalSturges": "大值跨度",
+    "tooltipUnitSetName": "單位名稱設置"
+  }
+}

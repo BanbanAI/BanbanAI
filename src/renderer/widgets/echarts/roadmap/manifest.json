@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.roadmap",
+    "displayName":  "路径图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.line",
+    "icon":  "widget-echarts-roadmap-icon.svg",
+    "show":  true
+}

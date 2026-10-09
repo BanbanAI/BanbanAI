@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.funnel-contrast",
+    "displayName":  "对比漏斗图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.funnel",
+    "icon":  "widget-echarts-funnel-contrast-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.videos",
+    "displayName":  "轮播视频",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-basic-videos-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,301 @@
+{
+  "key": "financial-operations",
+  "name": "财务协同",
+  "version": "0.1.0",
+  "aliases": [
+    "财务管理",
+    "财务协同",
+    "收支管理",
+    "应收应付管理",
+    "财务付款管理",
+    "项目合同管理",
+    "对公付款管理"
+  ],
+  "beginnerSummary": "适合管理合同台账、应收应付、收付款登记和对公付款协同，但不默认覆盖总账、自动凭证和报表自动化。",
+  "intentExamples": [
+    "做一个财务管理系统，要有合同台账、应收应付、收付款和付款提醒",
+    "做一个收支管理系统，要有应收应付和收付款台账",
+    "做一个财务付款管理系统，要有应付合同和对公付款",
+    "做一个项目合同管理系统，要按项目看回款和付款记录"
+  ],
+  "modules": [
+    {
+      "key": "contract-ledger",
+      "name": "合同台账",
+      "purpose": "管理应收应付合同主档。"
+    },
+    {
+      "key": "payment-execution",
+      "name": "收付款执行",
+      "purpose": "登记收款、付款和对公付款执行。"
+    },
+    {
+      "key": "finance-coordination",
+      "name": "财务协同增强",
+      "purpose": "承接发票留档和资金账户等轻量增强对象。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "receivable-contract",
+      "name": "应收合同",
+      "moduleKey": "contract-ledger",
+      "purpose": "登记待收款合同。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "合同编号",
+          "semanticRole": "contract-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "客户主体",
+          "semanticRole": "counterparty",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "签订日期",
+          "semanticRole": "sign-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "payable-contract",
+      "name": "应付合同",
+      "moduleKey": "contract-ledger",
+      "purpose": "登记待付款合同。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "合同编号",
+          "semanticRole": "contract-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "供应商主体",
+          "semanticRole": "counterparty",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "签订日期",
+          "semanticRole": "sign-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "payment-record",
+      "name": "收付款登记",
+      "moduleKey": "payment-execution",
+      "purpose": "登记合同相关的实际收付款记录。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联合同",
+          "semanticRole": "contract-link",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "收付款类型",
+          "semanticRole": "payment-direction",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发生日期",
+          "semanticRole": "occurred-at",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "public-payment",
+      "name": "对公付款申请",
+      "moduleKey": "payment-execution",
+      "purpose": "登记企业对外付款申请。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "付款对象",
+          "semanticRole": "counterparty",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款用途",
+          "semanticRole": "purpose",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "request-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "invoice-record",
+      "name": "发票记录",
+      "moduleKey": "finance-coordination",
+      "purpose": "留档合同与付款相关发票信息。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "发票号码",
+          "semanticRole": "invoice-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发票金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联业务单据",
+          "semanticRole": "source-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "fund-account",
+      "name": "资金账户",
+      "moduleKey": "finance-coordination",
+      "purpose": "登记轻量资金账户台账。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "账户名称",
+          "semanticRole": "account-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "账户类型",
+          "semanticRole": "account-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "账户状态",
+          "semanticRole": "account-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    }
+  ],
+  "flows": [
+    {
+      "from": "receivable-contract",
+      "to": "payment-record",
+      "label": "应收合同驱动收款登记"
+    },
+    {
+      "from": "payable-contract",
+      "to": "payment-record",
+      "label": "应付合同驱动付款登记"
+    },
+    {
+      "from": "fund-account",
+      "to": "public-payment",
+      "label": "资金账户支撑对公付款执行"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "发票 OCR 与验真",
+      "reason": "属于高级能力，不应在首轮正式骨架默认承诺。"
+    },
+    {
+      "name": "银企直联",
+      "reason": "属于支付集成能力，不是首轮默认生成对象。"
+    },
+    {
+      "name": "自动核销",
+      "reason": "依赖更深的财务规则与自动化。"
+    },
+    {
+      "name": "自动凭证",
+      "reason": "属于高阶会计能力，不在首轮正式对象范围内。"
+    },
+    {
+      "name": "自动出表",
+      "reason": "属于高阶会计能力，不在首轮正式对象范围内。"
+    },
+    {
+      "name": "电子合同生成",
+      "reason": "属于高阶能力外延，不应直接下沉进首轮骨架。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "做一个财务管理系统，要有合同台账、应收应付、收付款和付款提醒",
+      "expectedBehavior": "命中完整 financial-operations 主链，不生成总账和报表。"
+    },
+    {
+      "userPrompt": "做一个收支管理系统，要有应收应付、收付款和发票留档",
+      "expectedBehavior": "命中合同台账和收付款执行主链，发票只作为轻量增强对象。"
+    },
+    {
+      "userPrompt": "做一个财务付款管理系统，要有应付合同、对公付款和付款台账",
+      "expectedBehavior": "命中 payment-execution 切片，不扩成采购库存主链。"
+    },
+    {
+      "userPrompt": "做一个项目合同管理系统，要按项目看回款和付款记录",
+      "expectedBehavior": "命中 financial-operations 的项目维度合同收支切片，不改走 project-management。"
+    },
+    {
+      "userPrompt": "做一个合同管理系统，要有合同、回款、付款和发票记录",
+      "expectedBehavior": "命中财务协同里的合同收支主链，不改走 crm 销售主链。"
+    },
+    {
+      "userPrompt": "做一个财务报销系统，要有员工报销和票据留档",
+      "expectedBehavior": "当前正式仍应优先走 administrative-operations，而不是 financial-operations。"
+    }
+  ]
+}

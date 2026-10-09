@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.switch",
+    "displayName":  "开关",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-switch-icon.svg",
+    "show":  true
+}

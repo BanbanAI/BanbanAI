@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.rate",
+    "displayName":  "评分",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-rate-icon.svg",
+    "show":  true
+}

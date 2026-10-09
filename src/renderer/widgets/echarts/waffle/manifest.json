@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.waffle",
+    "displayName":  "华夫图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-waffle-icon.svg",
+    "show":  true
+}

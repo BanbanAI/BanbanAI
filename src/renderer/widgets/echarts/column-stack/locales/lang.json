@@ -1,0 +1,50 @@
+{
+  "zh-CN": {
+    "shapeShadowColor": "阴影颜色",
+    "shapeShadowBlur": "阴影模糊程度",
+    "seriesShape": "图形形状",
+    "barShape": "填充形状",
+    "barShapeBar": "普通",
+    "barShapeRect": "分片",
+    "topShape": "顶部图形",
+    "labelPosition": "文本位置",
+    "labelPositionInside": "内部",
+    "labelPositionTop": "外部"
+  },
+  "en": {
+    "shapeShadowColor": "Shadow Color",
+    "shapeShadowBlur": "Shadow Blur",
+    "seriesShape": "Graphic Shape",
+    "barShape": "Filled Shape",
+    "barShapeBar": "Normal",
+    "barShapeRect": "Slice",
+    "topShape": "Top Shape",
+    "labelPosition": "Text Position",
+    "labelPositionInside": "Inside",
+    "labelPositionTop": "Outside"
+  },
+  "ja": {
+    "shapeShadowColor": "影の色",
+    "shapeShadowBlur": "影ファジィ度",
+    "seriesShape": "グラフィック形状",
+    "barShape": "充填形状",
+    "barShapeBar": "普通",
+    "barShapeRect": "スライス",
+    "topShape": "上部グラフィック",
+    "labelPosition": "テキスト位置",
+    "labelPositionInside": "内部",
+    "labelPositionTop": "外部"
+  },
+  "zh-TW": {
+    "shapeShadowColor": "陰影顏色",
+    "shapeShadowBlur": "陰影模糊程度",
+    "seriesShape": "圖形形狀",
+    "barShape": "填充形狀",
+    "barShapeBar": "普通",
+    "barShapeRect": "分片",
+    "topShape": "頂部圖形",
+    "labelPosition": "文本位置",
+    "labelPositionInside": "內部",
+    "labelPositionTop": "外部"
+  }
+}

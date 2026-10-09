@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.relatedData",
+    "displayName":  "关联数据",
+    "version":  "0.1.1",
+    "super":  "widget.form.selectData",
+    "icon":  "widget-form-relatedData-icon.svg",
+    "show":  true
+}

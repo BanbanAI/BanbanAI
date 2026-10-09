@@ -1,0 +1,9 @@
+{
+    "name":  "widget.form.submitform",
+    "displayName":  "填报表单",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-submitform-icon.svg",
+    "show":  true,
+    "cover":  "widget-form-submitform-cover.png"
+}

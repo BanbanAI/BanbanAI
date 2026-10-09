@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.pie",
+    "displayName":  "饼状图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-pie-icon.svg",
+    "show":  true
+}

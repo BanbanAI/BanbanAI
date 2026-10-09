@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.dynamic-bar",
+    "displayName":  "动态条形图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-dynamic-bar-icon.svg",
+    "show":  true
+}

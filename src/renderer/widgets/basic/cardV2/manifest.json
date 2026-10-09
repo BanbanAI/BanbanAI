@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.card-v2",
+    "displayName":  "指标卡",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-basic-card-v2-icon.svg",
+    "show":  true
+}

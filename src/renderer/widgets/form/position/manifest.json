@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.position",
+    "displayName":  "定位",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-position-icon.svg",
+    "show":  true
+}

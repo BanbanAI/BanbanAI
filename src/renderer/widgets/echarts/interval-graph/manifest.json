@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.interval-graph",
+    "displayName":  "区间条形图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.interval-histogram",
+    "icon":  "widget-echarts-interval-graph-icon.svg",
+    "show":  true
+}
