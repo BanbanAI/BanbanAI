@@ -26,7 +26,7 @@
   </tr>
   <tr>
     <td><strong>一站式业务能力</strong><br />表单、流程、看板、权限与数据管理统一在一个工作台中完成。</td>
-    <td><strong>开放连接能力</strong><br />提供 API，并支持钉钉、企业微信等企业系统集成。</td>
+    <td><strong>开放连接能力</strong><br />提供 API，支持外部数据库对接。</td>
   </tr>
 </table>
 
@@ -36,7 +36,7 @@
 - **数据存储**：支持内置数据库、MongoDB 及私有化环境，满足数据自主可控要求。
 - **表单与流程**：覆盖多种字段、条件校验、自动提交、审批、分支和跨表数据处理。
 - **看板与分析**：提供图表、指标卡、透视表、数据联动和可视化报告能力。
-- **权限与集成**：支持应用、页面、字段和数据权限，以及 API、钉钉、企业微信和单点登录。
+- **权限与集成**：支持应用、页面、字段和数据权限。
 
 ## 产品界面
 
@@ -65,10 +65,6 @@
     <td align="center" width="50%">
       <img src="./assets/show4.png" alt="权限与组织管理" width="100%" />
       <br /><sub><strong>权限与组织管理</strong></sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="./assets/show5.png" alt="多端适配与协同" width="100%" />
-      <br /><sub><strong>多端适配与协同</strong></sub>
     </td>
   </tr>
 </table>
