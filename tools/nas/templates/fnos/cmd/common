@@ -1,0 +1,345 @@
+#!/bin/bash
+
+# 重定向 HOME 目录到飞牛分配的应用变量/可写目录，防止 sqlite 数据库在 ~/.config 初始化时因权限不足而崩溃
+if [ -n "${TRIM_PKGVAR}" ]; then
+  export HOME="${TRIM_PKGVAR}"
+fi
+
+PACKAGE_ROOT="${TRIM_APPDEST:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+if [ -d "${PACKAGE_ROOT}/app" ]; then
+  APP_ROOT="${PACKAGE_ROOT}/app"
+else
+  APP_ROOT="${PACKAGE_ROOT}"
+fi
+RUNTIME_DIR="${TRIM_PKGVAR:-${PACKAGE_ROOT}/var}"
+APP_NAME="${TRIM_APPNAME:-$(basename "${PACKAGE_ROOT}")}"
+PID_FILE="${RUNTIME_DIR}/${APP_NAME}.pid"
+LOG_FILE="${RUNTIME_DIR}/${APP_NAME}.log"
+CONFIG_FILE="${APP_ROOT}/config.json"
+UI_DIR="${APP_ROOT}/ui"
+UI_RUNTIME_ENV_FILE="${UI_DIR}/runtime-config.env"
+INDEX_CGI_FILE="${UI_DIR}/index.cgi"
+BANBAN_DEFAULT_PORT="16666"
+
+ensure_runtime_dir() {
+  mkdir -p "${RUNTIME_DIR}"
+}
+
+trim_value() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+normalize_protocol() {
+  case "$(trim_value "$1")" in
+    https)
+      printf '%s' "https"
+      ;;
+    *)
+      printf '%s' "http"
+      ;;
+  esac
+}
+
+resolve_protocol_from_base_url() {
+  case "$(trim_value "$1")" in
+    https://*)
+      printf '%s' "https"
+      ;;
+    *)
+      printf '%s' "http"
+      ;;
+  esac
+}
+
+normalize_host() {
+  local raw_host
+  raw_host="$(trim_value "$1")"
+  raw_host="${raw_host%%,*}"
+  raw_host="${raw_host%%:*}"
+  case "${raw_host}" in
+    ""|localhost|127.0.0.1|::1)
+      printf '%s' ""
+      return 0
+      ;;
+    *)
+      printf '%s' "${raw_host}"
+      return 0
+      ;;
+  esac
+}
+
+normalize_port() {
+  local raw_port
+  raw_port="$(trim_value "$1")"
+  if [ -z "${raw_port}" ]; then
+    printf '%s' "${BANBAN_DEFAULT_PORT}"
+    return 0
+  fi
+  case "${raw_port}" in
+    *[!0-9]*)
+      return 1
+      ;;
+  esac
+  if [ "${raw_port}" -lt 1 ] || [ "${raw_port}" -gt 65535 ]; then
+    return 1
+  fi
+  printf '%s' "${raw_port}"
+}
+
+normalize_base_url() {
+  local raw_url
+  raw_url="$(trim_value "$1")"
+  if [ -z "${raw_url}" ]; then
+    printf '%s' ""
+    return 0
+  fi
+  case "${raw_url}" in
+    http://*|https://*)
+      printf '%s' "${raw_url%/}"
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+load_existing_runtime_values() {
+  EXISTING_PORT=""
+  EXISTING_PROTOCOL=""
+  EXISTING_BASE_URL=""
+  EXISTING_HOST=""
+
+  if [ -f "${CONFIG_FILE}" ]; then
+    EXISTING_PORT="$(sed -n '/"listen"[[:space:]]*:/ { s/.*"listen"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p; q; }' "${CONFIG_FILE}")"
+    EXISTING_BASE_URL="$(sed -n '/"baseURL"[[:space:]]*:/ { s/.*"baseURL"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p; q; }' "${CONFIG_FILE}")"
+  fi
+
+  if [ -f "${UI_RUNTIME_ENV_FILE}" ]; then
+    BANBAN_OPEN_PORT=""
+    BANBAN_OPEN_PROTOCOL=""
+    BANBAN_OPEN_BASE_URL=""
+    BANBAN_OPEN_HOST=""
+    . "${UI_RUNTIME_ENV_FILE}"
+    if [ -z "${EXISTING_PORT}" ]; then
+      EXISTING_PORT="${BANBAN_OPEN_PORT:-}"
+    fi
+    if [ -z "${EXISTING_PROTOCOL}" ]; then
+      EXISTING_PROTOCOL="${BANBAN_OPEN_PROTOCOL:-}"
+    fi
+    if [ -z "${EXISTING_BASE_URL}" ]; then
+      EXISTING_BASE_URL="${BANBAN_OPEN_BASE_URL:-}"
+    fi
+    if [ -z "${EXISTING_HOST}" ]; then
+      EXISTING_HOST="${BANBAN_OPEN_HOST:-}"
+    fi
+  fi
+
+  if [ -z "${EXISTING_PROTOCOL}" ]; then
+    EXISTING_PROTOCOL="$(resolve_protocol_from_base_url "${EXISTING_BASE_URL}")"
+  fi
+}
+
+resolve_runtime_host() {
+  local configured_host
+  configured_host="$(normalize_host "${EXISTING_HOST:-}")"
+  if [ -n "${configured_host}" ]; then
+    printf '%s' "${configured_host}"
+    return 0
+  fi
+
+  if [ -n "${EXISTING_BASE_URL}" ]; then
+    configured_host="$(normalize_host "$(printf '%s' "${EXISTING_BASE_URL}" | sed -n 's#^[a-zA-Z][a-zA-Z0-9+.-]*://\([^/:?]*\).*$#\1#p')")"
+    if [ -n "${configured_host}" ]; then
+      printf '%s' "${configured_host}"
+      return 0
+    fi
+  fi
+
+  if command -v hostname >/dev/null 2>&1; then
+    configured_host="$(normalize_host "$(hostname -I 2>/dev/null | awk '{print $1}')")"
+    if [ -n "${configured_host}" ]; then
+      printf '%s' "${configured_host}"
+      return 0
+    fi
+  fi
+
+  if command -v ip >/dev/null 2>&1; then
+    configured_host="$(normalize_host "$(ip route get 1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == \"src\") { print $(i + 1); exit }}')")"
+    if [ -n "${configured_host}" ]; then
+      printf '%s' "${configured_host}"
+      return 0
+    fi
+  fi
+
+  printf '%s' ""
+}
+
+write_ui_runtime_env() {
+  if [ ! -d "${UI_DIR}" ]; then
+    return 0
+  fi
+
+  load_existing_runtime_values
+
+  local runtime_port
+  local runtime_protocol
+  local runtime_base_url
+  local runtime_host
+  local escaped_base_url
+
+  runtime_port="$(normalize_port "${EXISTING_PORT:-${BANBAN_DEFAULT_PORT}}")" || runtime_port="${BANBAN_DEFAULT_PORT}"
+  runtime_base_url="$(normalize_base_url "${EXISTING_BASE_URL:-}")" || runtime_base_url=""
+  runtime_host="$(resolve_runtime_host)"
+  if [ -n "${runtime_base_url}" ]; then
+    runtime_protocol="$(resolve_protocol_from_base_url "${runtime_base_url}")"
+  else
+    runtime_protocol="$(normalize_protocol "${EXISTING_PROTOCOL:-http}")"
+  fi
+  escaped_base_url="$(printf '%s' "${runtime_base_url}" | sed "s/'/'\\\\''/g")"
+
+  cat > "${UI_RUNTIME_ENV_FILE}" <<EOF
+BANBAN_OPEN_PORT='${runtime_port}'
+BANBAN_OPEN_PROTOCOL='${runtime_protocol}'
+BANBAN_OPEN_BASE_URL='${escaped_base_url}'
+BANBAN_OPEN_HOST='${runtime_host}'
+EOF
+
+  if [ -f "${INDEX_CGI_FILE}" ]; then
+    chmod 755 "${INDEX_CGI_FILE}" 2>/dev/null || true
+  fi
+}
+
+find_server_executable() {
+  for candidate in "${APP_ROOT}"/banban "${APP_ROOT}"/banban-*; do
+    if [ -f "${candidate}" ]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_server_entry() {
+  local serverEntry="${APP_ROOT}/server/server.js"
+  if [ -f "${serverEntry}" ]; then
+    echo "${serverEntry}"
+    return 0
+  fi
+  return 1
+}
+
+read_pid() {
+  if [ ! -f "${PID_FILE}" ]; then
+    return 1
+  fi
+
+  local pid
+  pid="$(cat "${PID_FILE}" 2>/dev/null)"
+  if [ -z "${pid}" ]; then
+    return 1
+  fi
+
+  echo "${pid}"
+}
+
+find_running_pid() {
+  local pid
+  pid="$(read_pid)" || return 1
+  if kill -0 "${pid}" 2>/dev/null; then
+    echo "${pid}"
+    return 0
+  fi
+  return 1
+}
+
+is_running() {
+  find_running_pid >/dev/null 2>&1
+}
+
+start_service() {
+  ensure_runtime_dir
+  if is_running; then
+    return 0
+  fi
+
+  # 写入启动前的诊断日志
+  echo "=== banban startup diagnostics ===" >> "${LOG_FILE}"
+  echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "${LOG_FILE}"
+  echo "Current User: $(whoami 2>/dev/null || echo 'unknown')" >> "${LOG_FILE}"
+  echo "HOME Directory: ${HOME}" >> "${LOG_FILE}"
+  echo "PATH: ${PATH}" >> "${LOG_FILE}"
+  echo "APP_ROOT: ${APP_ROOT}" >> "${LOG_FILE}"
+  echo "RUNTIME_DIR: ${RUNTIME_DIR}" >> "${LOG_FILE}"
+
+  write_ui_runtime_env
+
+  local serverExecutable
+  local serverEntry
+  serverExecutable="$(find_server_executable || true)"
+  serverEntry="$(find_server_entry || true)"
+
+  if [ -n "${serverExecutable}" ]; then
+    echo "Starting via executable: ${serverExecutable}" >> "${LOG_FILE}"
+    chmod 755 "${serverExecutable}" 2>/dev/null || true
+    (
+      cd "${APP_ROOT}" || exit 1
+      nohup "${serverExecutable}" >>"${LOG_FILE}" 2>&1 &
+      echo $! > "${PID_FILE}"
+    )
+  elif [ -n "${serverEntry}" ] && command -v node >/dev/null 2>&1; then
+    echo "Starting via node entry: ${serverEntry}" >> "${LOG_FILE}"
+    (
+      cd "${APP_ROOT}" || exit 1
+      nohup node "${serverEntry}" >>"${LOG_FILE}" 2>&1 &
+      echo $! > "${PID_FILE}"
+    )
+  else
+    echo "banban runtime not found (neither binary nor node environment is available)" >> "${LOG_FILE}"
+    echo "banban runtime not found" >&2
+    return 1
+  fi
+
+  sleep 2
+  if is_running; then
+    echo "Service started successfully. PID: $(cat "${PID_FILE}")" >> "${LOG_FILE}"
+    return 0
+  fi
+
+  echo "Service failed to start." >> "${LOG_FILE}"
+  rm -f "${PID_FILE}"
+  return 1
+}
+
+stop_service() {
+  local pid
+  pid="$(find_running_pid || true)"
+  if [ -z "${pid}" ]; then
+    rm -f "${PID_FILE}"
+    return 0
+  fi
+
+  kill "${pid}" 2>/dev/null || true
+
+  local waitCount=0
+  while kill -0 "${pid}" 2>/dev/null; do
+    waitCount=$((waitCount + 1))
+    if [ "${waitCount}" -ge 10 ]; then
+      kill -9 "${pid}" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+  done
+
+  rm -f "${PID_FILE}"
+  return 0
+}
+
+status_service() {
+  if is_running; then
+    return 0
+  fi
+
+  rm -f "${PID_FILE}"
+  return 3
+}

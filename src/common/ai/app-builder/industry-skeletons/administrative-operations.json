@@ -1,0 +1,1148 @@
+{
+  "key": "administrative-operations",
+  "name": "行政运营管理",
+  "version": "0.1.0",
+  "aliases": [
+    "行政OA",
+    "行政管理",
+    "综合行政管理",
+    "后勤管理",
+    "内部事务管理",
+    "财务报销系统",
+    "费用报销系统",
+    "费用报销管理",
+    "报销管理",
+    "行政OA管理",
+    "行政资产管理",
+    "办公用品管理",
+    "固定资产管理",
+    "易耗品管理",
+    "会议管理",
+    "访客管理",
+    "车辆管理",
+    "用印管理",
+    "法务管理"
+  ],
+  "beginnerSummary": "适合管理企业内部常见行政事务，比如合同收支协同、费用报销、办公用品、用印、用车、固定资产、会议和访客接待。",
+  "intentExamples": [
+    "帮我搭一个行政OA系统",
+    "做一套综合行政管理，包含报销、用印、用车和办公用品",
+    "做一个财务报销系统，要有员工报销和票据留档",
+    "做一个内部事务管理系统，能管合同回款付款和行政申请",
+    "做一个固定资产管理系统，要有资产台账、申购、入库和报修",
+    "做一个会议管理和访客预约系统",
+    "做一个法务合同审批和用印管理系统"
+  ],
+  "modules": [
+    {
+      "key": "contract-settlement",
+      "name": "合同收支协同",
+      "purpose": "管理应收应付合同及相关收付款、开票、发票记录"
+    },
+    {
+      "key": "expense-reimbursement",
+      "name": "费用报销",
+      "purpose": "管理内部费用报销申请与记录"
+    },
+    {
+      "key": "office-supplies",
+      "name": "办公用品",
+      "purpose": "管理办公用品台账与申购、领用、归还、处置"
+    },
+    {
+      "key": "seal-management",
+      "name": "用印管理",
+      "purpose": "管理印章台账与用印申请"
+    },
+    {
+      "key": "vehicle-management",
+      "name": "车辆管理",
+      "purpose": "管理车辆资料、用车申请和车务处理"
+    },
+    {
+      "key": "fixed-assets",
+      "name": "固定资产",
+      "purpose": "管理固定资产台账、申购、入库和维修借用等行政资产流程"
+    },
+    {
+      "key": "meeting-management",
+      "name": "会议管理",
+      "purpose": "管理会议室基础资料、会议预约、纪要与会后任务"
+    },
+    {
+      "key": "visitor-management",
+      "name": "访客管理",
+      "purpose": "管理访客预约与内部接待协同"
+    },
+    {
+      "key": "legal-collaboration",
+      "name": "法务协同",
+      "purpose": "管理合同审批、合同归档和法务用印协同"
+    }
+  ],
+  "forms": [
+    {
+      "key": "supplier",
+      "name": "供应商信息",
+      "moduleKey": "contract-settlement",
+      "purpose": "管理应付合同相关的供应商资料",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "供应商名称",
+          "semanticRole": "供应商识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "联系人",
+          "semanticRole": "对接人",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "联系方式",
+          "semanticRole": "联系信息",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "payable-contract",
+      "name": "应付合同",
+      "moduleKey": "contract-settlement",
+      "purpose": "登记企业对外付款合同",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "合同编号",
+          "semanticRole": "合同唯一识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "供应商",
+          "semanticRole": "付款对手方",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同金额",
+          "semanticRole": "合同金额",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "签订日期",
+          "semanticRole": "合同生效时间",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "供应商",
+          "targetFormKey": "supplier",
+          "reason": "应付合同通常关联供应商主数据"
+        }
+      ]
+    },
+    {
+      "key": "payment-record",
+      "name": "付款单",
+      "moduleKey": "contract-settlement",
+      "purpose": "登记合同付款记录",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联合同",
+          "semanticRole": "来源合同",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款金额",
+          "semanticRole": "实际付款金额",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款日期",
+          "semanticRole": "实际付款时间",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "支付方式",
+          "semanticRole": "付款方式",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联合同",
+          "targetFormKey": "payable-contract",
+          "reason": "付款记录通常归属于一份应付合同"
+        }
+      ]
+    },
+    {
+      "key": "customer-counterparty",
+      "name": "客户",
+      "moduleKey": "contract-settlement",
+      "purpose": "管理应收合同相关的客户资料",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "客户名称",
+          "semanticRole": "客户识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "联系人",
+          "semanticRole": "对接人",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "联系方式",
+          "semanticRole": "联系信息",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "receivable-contract",
+      "name": "应收合同",
+      "moduleKey": "contract-settlement",
+      "purpose": "登记企业对外收款合同",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "合同编号",
+          "semanticRole": "合同唯一识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "客户",
+          "semanticRole": "收款对手方",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同金额",
+          "semanticRole": "合同金额",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "签订日期",
+          "semanticRole": "合同生效时间",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "客户",
+          "targetFormKey": "customer-counterparty",
+          "reason": "应收合同通常关联客户对象"
+        }
+      ]
+    },
+    {
+      "key": "receipt-record",
+      "name": "回款单",
+      "moduleKey": "contract-settlement",
+      "purpose": "登记合同回款记录",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联合同",
+          "semanticRole": "来源合同",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "回款金额",
+          "semanticRole": "实际回款金额",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "回款日期",
+          "semanticRole": "实际回款时间",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联合同",
+          "targetFormKey": "receivable-contract",
+          "reason": "回款记录通常归属于一份应收合同"
+        }
+      ]
+    },
+    {
+      "key": "expense-reimbursement-form",
+      "name": "费用报销单",
+      "moduleKey": "expense-reimbursement",
+      "purpose": "登记内部费用报销申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "报销人",
+          "semanticRole": "申请人",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报销金额",
+          "semanticRole": "报销金额",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报销日期",
+          "semanticRole": "报销时间",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报销说明",
+          "semanticRole": "报销原因说明",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "office-supply-ledger",
+      "name": "办公用品台账",
+      "moduleKey": "office-supplies",
+      "purpose": "管理办公用品基础资料和数量状态",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "用品名称",
+          "semanticRole": "用品识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用品分类",
+          "semanticRole": "用品分类",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "当前数量",
+          "semanticRole": "台账数量",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "状态",
+          "semanticRole": "可用状态",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "office-supply-request",
+      "name": "办公用品申购",
+      "moduleKey": "office-supplies",
+      "purpose": "登记办公用品采购申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "用品名称",
+          "semanticRole": "申请用品",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请数量",
+          "semanticRole": "申请数量",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请人",
+          "semanticRole": "申请人",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "office-supply-usage",
+      "name": "办公用品领用申请",
+      "moduleKey": "office-supplies",
+      "purpose": "登记办公用品领用申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联用品",
+          "semanticRole": "领用品项",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "领用数量",
+          "semanticRole": "领用数量",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "领用人",
+          "semanticRole": "领用申请人",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联用品",
+          "targetFormKey": "office-supply-ledger",
+          "reason": "领用申请通常引用已有办公用品台账"
+        }
+      ]
+    },
+    {
+      "key": "seal-usage-request",
+      "name": "用印申请",
+      "moduleKey": "seal-management",
+      "purpose": "登记用印申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "印章",
+          "semanticRole": "申请使用的印章",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请人",
+          "semanticRole": "申请人",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用途说明",
+          "semanticRole": "使用场景说明",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "印章",
+          "targetFormKey": "seal-ledger",
+          "reason": "用印申请通常关联具体印章"
+        }
+      ]
+    },
+    {
+      "key": "seal-ledger",
+      "name": "印章信息",
+      "moduleKey": "seal-management",
+      "purpose": "管理印章基础台账",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "印章名称",
+          "semanticRole": "印章识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "印章类型",
+          "semanticRole": "印章分类",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "保管人",
+          "semanticRole": "保管责任人",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "vehicle-ledger",
+      "name": "车辆信息",
+      "moduleKey": "vehicle-management",
+      "purpose": "管理车辆基础台账",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "车牌号",
+          "semanticRole": "车辆识别",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "车型",
+          "semanticRole": "车辆类型",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "状态",
+          "semanticRole": "可用状态",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "vehicle-request",
+      "name": "用车申请",
+      "moduleKey": "vehicle-management",
+      "purpose": "登记用车申请",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "车辆",
+          "semanticRole": "申请车辆",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "申请人",
+          "semanticRole": "申请人",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用车时间",
+          "semanticRole": "出行时间",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用车事由",
+          "semanticRole": "申请原因",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "车辆",
+          "targetFormKey": "vehicle-ledger",
+          "reason": "用车申请通常关联车辆台账"
+        }
+      ]
+    },
+    {
+      "key": "fixed-asset-ledger",
+      "name": "固定资产台账",
+      "moduleKey": "fixed-assets",
+      "purpose": "维护固定资产台账和位置状态",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "固定资产编号",
+          "semanticRole": "asset-id",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "固定资产名称",
+          "semanticRole": "asset-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "资产状态",
+          "semanticRole": "asset-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "所在位置",
+          "semanticRole": "asset-location",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "fixed-asset-purchase-request",
+      "name": "固定资产申购",
+      "moduleKey": "fixed-assets",
+      "purpose": "发起固定资产采购申请",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "申购日期",
+          "semanticRole": "request-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申购人",
+          "semanticRole": "requester",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "固定资产名称",
+          "semanticRole": "asset-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "需求数量",
+          "semanticRole": "requested-quantity",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "fixed-asset-inbound",
+      "name": "固定资产入库",
+      "moduleKey": "fixed-assets",
+      "purpose": "记录固定资产入库和使用位置",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "固定资产入库编号",
+          "semanticRole": "inbound-id",
+          "suggestedWidget": "serial",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库日期",
+          "semanticRole": "inbound-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "固定资产名称",
+          "semanticRole": "asset-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "使用位置",
+          "semanticRole": "asset-location",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "fixed-asset-repair",
+      "name": "固定资产报修",
+      "moduleKey": "fixed-assets",
+      "purpose": "登记固定资产故障与报修",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "固定资产编号",
+          "semanticRole": "asset-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "故障简述",
+          "semanticRole": "fault-summary",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报修时间",
+          "semanticRole": "repair-time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "固定资产编号",
+          "targetFormKey": "fixed-asset-ledger",
+          "reason": "报修记录需要关联固定资产台账"
+        }
+      ]
+    },
+    {
+      "key": "contract-approval",
+      "name": "合同审批",
+      "moduleKey": "legal-collaboration",
+      "purpose": "发起和处理合同审批",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "合同分类",
+          "semanticRole": "contract-category",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同类型",
+          "semanticRole": "contract-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同名称",
+          "semanticRole": "contract-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同编号",
+          "semanticRole": "contract-id",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "对方公司名称",
+          "semanticRole": "counterparty-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "contract-archive",
+      "name": "合同档案",
+      "moduleKey": "legal-collaboration",
+      "purpose": "沉淀审批后的合同档案",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "合同审批单编号",
+          "semanticRole": "approval-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "合同状态",
+          "semanticRole": "contract-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "归档人",
+          "semanticRole": "archiver",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "合同审批单编号",
+          "targetFormKey": "contract-approval",
+          "reason": "合同档案通常由审批单沉淀而来"
+        }
+      ]
+    },
+    {
+      "key": "legal-seal-request",
+      "name": "法务用印申请",
+      "moduleKey": "legal-collaboration",
+      "purpose": "在合同或文件场景中发起法务用印申请",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "文件名称",
+          "semanticRole": "document-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "印章名称",
+          "semanticRole": "seal-name",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用印方式",
+          "semanticRole": "seal-mode",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "用印事由",
+          "semanticRole": "seal-reason",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "印章名称",
+          "targetFormKey": "seal-ledger",
+          "reason": "法务场景的用印申请需要复用印章台账"
+        }
+      ]
+    },
+    {
+      "key": "meeting-room",
+      "name": "会议室基础表",
+      "moduleKey": "meeting-management",
+      "purpose": "维护会议室基础资料",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "会议室名称",
+          "semanticRole": "room-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "会议室编号",
+          "semanticRole": "room-id",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "最大容纳人数",
+          "semanticRole": "capacity",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "meeting-booking",
+      "name": "会议预约",
+      "moduleKey": "meeting-management",
+      "purpose": "登记会议室预约",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "会议主题",
+          "semanticRole": "meeting-topic",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "会议开始时间",
+          "semanticRole": "start-time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "会议结束时间",
+          "semanticRole": "end-time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "会议室名称",
+          "semanticRole": "room-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "会议室名称",
+          "targetFormKey": "meeting-room",
+          "reason": "预约需要关联会议室基础表"
+        }
+      ]
+    },
+    {
+      "key": "meeting-minutes",
+      "name": "会议纪要",
+      "moduleKey": "meeting-management",
+      "purpose": "沉淀会议内容和任务项",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "会议预约编号",
+          "semanticRole": "booking-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "会议记录人",
+          "semanticRole": "recorder",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        },
+        {
+          "name": "会议内容",
+          "semanticRole": "meeting-content",
+          "suggestedWidget": "rich-text",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "会议预约编号",
+          "targetFormKey": "meeting-booking",
+          "reason": "会议纪要通常归属一条预约记录"
+        }
+      ]
+    },
+    {
+      "key": "meeting-task",
+      "name": "待办事项",
+      "moduleKey": "meeting-management",
+      "purpose": "登记会议派生待办",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "会议主题",
+          "semanticRole": "meeting-topic",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "任务描述",
+          "semanticRole": "task-desc",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "截止日期",
+          "semanticRole": "due-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "会议主题",
+          "targetFormKey": "meeting-booking",
+          "reason": "待办事项可能来源于某次会议"
+        }
+      ]
+    },
+    {
+      "key": "host-directory",
+      "name": "接待人员信息",
+      "moduleKey": "visitor-management",
+      "purpose": "维护接待人员基础资料",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "人员姓名",
+          "semanticRole": "host-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "归属部门",
+          "semanticRole": "host-department",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "手机号码",
+          "semanticRole": "host-phone",
+          "suggestedWidget": "phone",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "visitor-booking",
+      "name": "访客预约",
+      "moduleKey": "visitor-management",
+      "purpose": "登记访客到访预约",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "访客姓名",
+          "semanticRole": "visitor-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "手机号码",
+          "semanticRole": "visitor-phone",
+          "suggestedWidget": "phone",
+          "requiredByDefault": true
+        },
+        {
+          "name": "来访目的",
+          "semanticRole": "visit-purpose",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "到访时间",
+          "semanticRole": "visit-start",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "接待人员姓名",
+          "semanticRole": "host-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "接待人员姓名",
+          "targetFormKey": "host-directory",
+          "reason": "访客预约需要关联接待人员主数据"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "payable-contract",
+      "to": "payment-record",
+      "label": "应付合同产生付款登记"
+    },
+    {
+      "from": "receivable-contract",
+      "to": "receipt-record",
+      "label": "应收合同产生回款登记"
+    },
+    {
+      "from": "office-supply-ledger",
+      "to": "office-supply-usage",
+      "label": "办公用品台账支持领用申请"
+    },
+    {
+      "from": "seal-ledger",
+      "to": "seal-usage-request",
+      "label": "印章台账支持用印申请"
+    },
+    {
+      "from": "vehicle-ledger",
+      "to": "vehicle-request",
+      "label": "车辆台账支持用车申请"
+    },
+    {
+      "from": "fixed-asset-purchase-request",
+      "to": "fixed-asset-inbound",
+      "label": "申购通过后进入资产入库"
+    },
+    {
+      "from": "fixed-asset-ledger",
+      "to": "fixed-asset-repair",
+      "label": "台账资产可以发起报修"
+    },
+    {
+      "from": "contract-approval",
+      "to": "contract-archive",
+      "label": "审批通过的合同沉淀为档案"
+    },
+    {
+      "from": "contract-approval",
+      "to": "legal-seal-request",
+      "label": "合同处理过程中可能触发用印申请"
+    },
+    {
+      "from": "meeting-room",
+      "to": "meeting-booking",
+      "label": "会议室基础表支撑预约"
+    },
+    {
+      "from": "meeting-booking",
+      "to": "meeting-minutes",
+      "label": "会议结束后可沉淀纪要"
+    },
+    {
+      "from": "meeting-minutes",
+      "to": "meeting-task",
+      "label": "纪要可派生待办事项"
+    },
+    {
+      "from": "host-directory",
+      "to": "visitor-booking",
+      "label": "接待人员主数据支撑访客预约"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "数据看板",
+      "reason": "当前只看到模块入口，缺少稳定统计口径，不应首轮默认生成"
+    },
+    {
+      "name": "复杂审批流",
+      "reason": "当前未获得审批节点与规则证据，宜后续扩展"
+    },
+    {
+      "name": "完整财务体系",
+      "reason": "当前只适合保留轻量收付与发票协同，不应扩展为总账级系统"
+    },
+    {
+      "name": "完整固定资产全生命周期",
+      "reason": "当前先覆盖行政高频资产台账、申购、入库和维修，折旧、调拨、盘点和处置仍适合后续扩展"
+    },
+    {
+      "name": "完整法务案件管理",
+      "reason": "当前公开证据主要稳定在合同审批、归档与用印协同，不应放大成完整法务案件域"
+    },
+    {
+      "name": "复杂会议室排期与访客联动",
+      "reason": "当前先覆盖会议预约、纪要与访客预约，复杂排期规则和跨模块自动联动适合后续扩展"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个行政OA，主要管报销、办公用品、用印和用车",
+      "expectedBehavior": "命中 administrative-operations，优先生成行政申请和台账切片，不补 CRM、HRM、库存主链"
+    },
+    {
+      "userPrompt": "做一套内部合同收支协同系统，要有应收合同、应付合同、回款和付款",
+      "expectedBehavior": "命中 administrative-operations 的合同收支切片，不自动补线索商机或商品仓库"
+    },
+    {
+      "userPrompt": "我已经有办公用品台账了，再给我补一个领用申请",
+      "expectedBehavior": "只复用办公用品切片做局部补充，不重建整套行政系统"
+    },
+    {
+      "userPrompt": "在现有用印申请里加一个附件字段",
+      "expectedBehavior": "识别为局部编辑需求，不触发整套 skeleton"
+    },
+    {
+      "userPrompt": "做一个固定资产管理系统，要有资产台账、申购、入库和报修",
+      "expectedBehavior": "命中 administrative-operations 的固定资产切片，不扩展成跨财务和采购的大资产平台。"
+    },
+    {
+      "userPrompt": "做一个会议管理系统，要有会议室、会议预约、会议纪要和会后任务",
+      "expectedBehavior": "命中 administrative-operations 的会议管理切片，不误解成通用项目协作系统。"
+    },
+    {
+      "userPrompt": "做一个访客管理系统，要能预约来访并关联内部接待人",
+      "expectedBehavior": "命中 administrative-operations 的访客切片，不扩展成人事、门禁或 CRM 访客营销系统。"
+    },
+    {
+      "userPrompt": "做一个法务合同审批和用印管理系统",
+      "expectedBehavior": "命中 administrative-operations 的法务协同切片，优先补合同审批、归档和用印，不单独新建 legal-affairs skeleton。"
+    }
+  ]
+}

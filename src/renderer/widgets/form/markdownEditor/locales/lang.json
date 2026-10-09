@@ -1,0 +1,38 @@
+{
+  "zh-CN": {
+    "defaultName": "Markdown",
+    "editorHeight": "编辑器高度",
+    "storageFormat": "存储格式",
+    "markdownFormat": "Markdown 格式",
+    "htmlFormat": "HTML 格式",
+    "clickToEdit": "点击编辑",
+    "cancel": "取消",
+    "confirm": "确定",
+    "noContent": "暂无内容",
+    "uploadFailed": "有 {{count}} 张图片上传失败"
+  },
+  "en": {
+    "defaultName": "Markdown",
+    "editorHeight": "Editor Height",
+    "storageFormat": "Storage Format",
+    "markdownFormat": "Markdown",
+    "htmlFormat": "HTML",
+    "clickToEdit": "Click to edit",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "noContent": "No content",
+    "uploadFailed": "{{count}} image(s) failed to upload"
+  },
+  "zh-TW": {
+    "defaultName": "Markdown",
+    "editorHeight": "編輯器高度",
+    "storageFormat": "儲存格式",
+    "markdownFormat": "Markdown 格式",
+    "htmlFormat": "HTML 格式",
+    "clickToEdit": "點擊編輯",
+    "cancel": "取消",
+    "confirm": "確定",
+    "noContent": "暫無內容",
+    "uploadFailed": "有 {{count}} 張圖片上傳失敗"
+  }
+}

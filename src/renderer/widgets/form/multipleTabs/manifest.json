@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.multipleTabs",
+    "displayName":  "选项卡",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-multipleTabs-icon.svg",
+    "show":  true
+}

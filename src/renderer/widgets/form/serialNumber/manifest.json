@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.serialNumber",
+    "displayName":  "自动编号",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-serialNumber-icon.svg",
+    "show":  true
+}

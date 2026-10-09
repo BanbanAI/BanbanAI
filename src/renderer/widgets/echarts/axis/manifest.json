@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.axis",
+    "displayName":  "axis",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-axis-icon.svg",
+    "show":  false
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.treeMultipleSelect",
+    "displayName":  "下拉多选",
+    "version":  "0.1.1",
+    "super":  "widget.form.treeSelect",
+    "icon":  "widget-form-treeMultipleSelect-icon.svg",
+    "show":  true
+}

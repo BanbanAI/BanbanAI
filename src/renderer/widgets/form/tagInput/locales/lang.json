@@ -1,0 +1,20 @@
+{
+  "zh-CN": {
+    "defaultName": "标签文本",
+    "inputTagPlaceholder": "输入后回车生成标签",
+    "addTagPlaceholder": "请添加标签",
+    "noContent": "暂无内容"
+  },
+  "en": {
+    "defaultName": "Tag Text",
+    "inputTagPlaceholder": "Press Enter after typing to create a tag",
+    "addTagPlaceholder": "Please add tags",
+    "noContent": "No content"
+  },
+  "zh-TW": {
+    "defaultName": "標籤文字",
+    "inputTagPlaceholder": "輸入後回車生成標籤",
+    "addTagPlaceholder": "請添加標籤",
+    "noContent": "暫無內容"
+  }
+}

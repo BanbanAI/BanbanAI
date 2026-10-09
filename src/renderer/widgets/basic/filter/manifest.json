@@ -1,0 +1,8 @@
+{
+  "name": "widget.basic.filter",
+  "displayName": "下拉筛选",
+  "version": "0.0.1",
+  "super": "",
+  "icon": "widget-basic-filter-icon.svg",
+  "show": true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.area-rainfall",
+    "displayName":  "雨量关系图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.area",
+    "icon":  "widget-echarts-area-rainfall-icon.svg",
+    "show":  true
+}

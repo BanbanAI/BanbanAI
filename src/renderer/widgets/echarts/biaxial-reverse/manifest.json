@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.biaxial-reverse",
+    "displayName":  "柱形雨量图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.biaxial",
+    "icon":  "widget-echarts-biaxial-reverse-icon.svg",
+    "show":  true
+}

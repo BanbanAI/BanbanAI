@@ -1,0 +1,50 @@
+{
+  "zh-CN": {
+    "label": "图形文本",
+    "labelFont": "数值字体",
+    "xDisplay": "X轴",
+    "xLabelOffset": "距轴线位置",
+    "xFont": "字体",
+    "yDisplay": "Y轴",
+    "yLabelOffset": "距轴线位置",
+    "yFont": "字体",
+    "labelUnitValue": "单位",
+    "labelUnitFont": "单位字体"
+  },
+  "en": {
+    "label": "Graphic Text",
+    "labelFont": "Value Font",
+    "xDisplay": "X-axis",
+    "xLabelOffset": "Position from axis",
+    "xFont": "Font",
+    "yDisplay": "Y-axis",
+    "yLabelOffset": "Position from axis",
+    "labelUnitValue": "Unit",
+    "yFont": "Font",
+    "labelUnitFont": "Unit Font"
+  },
+  "ja": {
+    "label": "グラフィックテキスト",
+    "labelFont": "数値フォント",
+    "xDisplay": "X軸",
+    "xLabelOffset": "軸線からの位置",
+    "xFont": "フォント",
+    "labelUnitValue": "単位",
+    "yDisplay": "Y軸",
+    "yLabelOffset": "軸線からの位置",
+    "yFont": "フォント",
+    "labelUnitFont": "単位フォント"
+  },
+  "zh-TW": {
+    "label": "圖形文本",
+    "labelFont": "數值字體",
+    "xDisplay": "X軸",
+    "xLabelOffset": "距軸線位置",
+    "xFont": "字體",
+    "yDisplay": "Y軸",
+    "yLabelOffset": "距軸線位置",
+    "yFont": "字體",
+    "labelUnitValue": "單位",
+    "labelUnitFont": "單位字體"
+  }
+}

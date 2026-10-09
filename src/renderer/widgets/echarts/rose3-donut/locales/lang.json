@@ -1,0 +1,22 @@
+{
+  "zh-CN": {
+    "shape-internal-multiple": "图形倍数",
+    "shape-internal-proportion": "环形比例",
+    "unit_bei": "倍"
+  },
+  "en": {
+    "shape-internal-multiple": "Shape multiple",
+    "shape-internal-proportion": "Ring proportions",
+    "unit_bei": "Times"
+  },
+  "ja": {
+    "shape-internal-multiple": "グラフィック倍数",
+    "shape-internal-proportion": "リングスケール",
+    "unit_bei": "倍"
+  },
+  "zh-TW": {
+    "shape-internal-multiple": "圖形倍數",
+    "shape-internal-proportion": "環形比例",
+    "unit_bei": "倍"
+  }
+}

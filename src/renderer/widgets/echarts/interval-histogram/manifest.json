@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.interval-histogram",
+    "displayName":  "区间柱状图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-interval-histogram-icon.svg",
+    "show":  true
+}

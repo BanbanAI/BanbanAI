@@ -1,0 +1,26 @@
+{
+  "zh-CN": {
+    "columnLabel": "柱形",
+    "labelPosition": "文本位置",
+    "labelPositionInside": "内部",
+    "labelPositionTop": "外部"
+  },
+  "en": {
+    "columnLabel": "Columnar graphic text",
+    "labelPosition": "Text Position",
+    "labelPositionInside": "Inside",
+    "labelPositionTop": "Outside"
+  },
+  "ja": {
+    "columnLabel": "柱状グラフィックテキスト",
+    "labelPosition": "テキストの位置",
+    "labelPositionInside": "内部",
+    "labelPositionTop": "外部"
+  },
+  "zh-TW": {
+    "columnLabel": "柱形",
+    "labelPosition": "文本位置",
+    "labelPositionInside": "內部",
+    "labelPositionTop": "外部"
+  }
+}

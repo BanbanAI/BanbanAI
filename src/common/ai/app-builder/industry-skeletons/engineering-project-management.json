@@ -1,0 +1,895 @@
+{
+  "key": "engineering-project-management",
+  "name": "工程项目管理",
+  "version": "0.1.0",
+  "aliases": [
+    "工程项目管理",
+    "工程项目管理系统",
+    "项目管理（工程）",
+    "工程型项目管理",
+    "建筑工程管理",
+    "建筑工程项目管理",
+    "施工项目管理",
+    "工程进度管理",
+    "工程项目部管理"
+  ],
+  "beginnerSummary": "适合建筑施工、工程建设等项目型团队，把项目档案、立项、计划进度、验收维保、现场安全、资源协同和费用结算统一放到同一条工程项目主线上；材料、设备、劳务都仍然围绕项目执行，而不是拆成独立库存或人事系统。",
+  "intentExamples": [
+    "帮我做一个工程项目管理系统，要有立项、进度、现场、安全整改和结算",
+    "做一个建筑工程管理系统，要项目计划、进度、安全检查和技术交底",
+    "我要一套施工项目管理应用，材料、设备和劳务都要围绕项目来管",
+    "做一个工程进度管理系统，先把项目计划、进度填报和验收补起来",
+    "我已经有项目档案了，再补一个现场日志和安全检查整改",
+    "帮我做一个工程项目部管理系统，先按工程项目主线把现场和资料协同串起来",
+    "给现有进度记录表加一个偏差原因字段"
+  ],
+  "modules": [
+    {
+      "key": "project-core",
+      "name": "项目主线",
+      "purpose": "维护项目档案、立项申请和资料归档，作为全部工程事项的主关联中心。"
+    },
+    {
+      "key": "progress-control",
+      "name": "计划进度",
+      "purpose": "维护项目计划、实际进度、验收和维保节点，形成计划与执行对照。"
+    },
+    {
+      "key": "site-safety",
+      "name": "现场安全",
+      "purpose": "记录施工现场日志、安全检查整改和技术交底留痕。"
+    },
+    {
+      "key": "resource-collab",
+      "name": "资源协同",
+      "purpose": "围绕项目管理物资、设备和劳务等执行资源。"
+    },
+    {
+      "key": "commercial-settlement",
+      "name": "费用结算",
+      "purpose": "记录项目费用、结算和经营收口事项。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "project-archive",
+      "name": "项目档案",
+      "moduleKey": "project-core",
+      "purpose": "作为工程项目主档，统一关联计划、现场、安全、资源和结算数据。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "项目编号",
+          "semanticRole": "project-code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目名称",
+          "semanticRole": "project-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目负责人",
+          "semanticRole": "project-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目状态",
+          "semanticRole": "project-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "开始日期",
+          "semanticRole": "project-start-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "计划结束日期",
+          "semanticRole": "project-planned-end-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "project-initiation",
+      "name": "立项申请",
+      "moduleKey": "project-core",
+      "purpose": "承接工程项目正式启动与建档前审批。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "拟建项目名称",
+          "semanticRole": "draft-project-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "initiation-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请人",
+          "semanticRole": "initiator",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "项目负责人",
+          "semanticRole": "project-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "立项说明",
+          "semanticRole": "initiation-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "立项通过后需要沉淀为正式项目主档。"
+        }
+      ]
+    },
+    {
+      "key": "project-plan",
+      "name": "项目计划",
+      "moduleKey": "progress-control",
+      "purpose": "维护工程项目阶段计划、里程碑和节点目标。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "阶段名称",
+          "semanticRole": "stage-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "节点名称",
+          "semanticRole": "milestone-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "计划开始日期",
+          "semanticRole": "planned-start-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "计划结束日期",
+          "semanticRole": "planned-end-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "责任人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "计划必须依附具体工程项目。"
+        }
+      ]
+    },
+    {
+      "key": "progress-report",
+      "name": "进度记录",
+      "moduleKey": "progress-control",
+      "purpose": "记录项目实际进展并对照计划节点。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联计划节点",
+          "semanticRole": "plan-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "填报日期",
+          "semanticRole": "report-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "完成比例",
+          "semanticRole": "completion-rate",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "阶段状态",
+          "semanticRole": "progress-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "偏差说明",
+          "semanticRole": "variance-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "进度属于具体工程项目。"
+        },
+        {
+          "fieldName": "关联计划节点",
+          "targetFormKey": "project-plan",
+          "targetFieldName": "阶段名称",
+          "reason": "实际进度要和计划基线建立关联。"
+        }
+      ]
+    },
+    {
+      "key": "acceptance-record",
+      "name": "验收记录",
+      "moduleKey": "progress-control",
+      "purpose": "记录项目阶段验收、竣工验收和验收收口结果。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "验收阶段",
+          "semanticRole": "acceptance-stage",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "验收日期",
+          "semanticRole": "acceptance-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "验收结果",
+          "semanticRole": "acceptance-result",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "验收说明",
+          "semanticRole": "acceptance-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "验收属于项目后段收口，需要按项目归档。"
+        }
+      ]
+    },
+    {
+      "key": "site-log",
+      "name": "现场日志",
+      "moduleKey": "site-safety",
+      "purpose": "记录施工现场过程留痕和当天事项。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "日志日期",
+          "semanticRole": "log-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "现场事项类型",
+          "semanticRole": "site-event-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "现场内容",
+          "semanticRole": "site-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "附件",
+          "semanticRole": "attachments",
+          "suggestedWidget": "upload",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "现场留痕应沉淀到对应项目。"
+        }
+      ]
+    },
+    {
+      "key": "safety-rectification",
+      "name": "安全检查整改",
+      "moduleKey": "site-safety",
+      "purpose": "记录检查问题、整改过程和闭环结果。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "检查日期",
+          "semanticRole": "inspection-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "问题描述",
+          "semanticRole": "issue-description",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "整改状态",
+          "semanticRole": "rectification-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "整改说明",
+          "semanticRole": "rectification-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "安全问题闭环必须按项目归档。"
+        }
+      ]
+    },
+    {
+      "key": "technical-briefing",
+      "name": "技术交底",
+      "moduleKey": "site-safety",
+      "purpose": "记录施工前交底要求和执行留痕。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "交底主题",
+          "semanticRole": "briefing-title",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "交底内容",
+          "semanticRole": "briefing-detail",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "交底日期",
+          "semanticRole": "briefing-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "技术交底围绕具体工程项目执行。"
+        }
+      ]
+    },
+    {
+      "key": "material-record",
+      "name": "项目物资记录",
+      "moduleKey": "resource-collab",
+      "purpose": "跟踪项目材料和物资协同情况。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "物资名称",
+          "semanticRole": "material-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "规格",
+          "semanticRole": "material-spec",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "数量",
+          "semanticRole": "quantity",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "状态",
+          "semanticRole": "resource-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "物资记录服务项目执行，不单独形成经营库存主链。"
+        }
+      ]
+    },
+    {
+      "key": "equipment-record",
+      "name": "项目设备记录",
+      "moduleKey": "resource-collab",
+      "purpose": "跟踪项目设备进出场和使用情况。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "设备名称",
+          "semanticRole": "equipment-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "设备编号",
+          "semanticRole": "equipment-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "进场日期",
+          "semanticRole": "entry-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "设备状态",
+          "semanticRole": "equipment-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "设备协同依附项目执行，不单独形成设备台账主线。"
+        }
+      ]
+    },
+    {
+      "key": "labor-record",
+      "name": "项目劳务记录",
+      "moduleKey": "resource-collab",
+      "purpose": "记录劳务班组或项目劳务协同事项。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "班组 / 人员",
+          "semanticRole": "labor-subject",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "进场日期",
+          "semanticRole": "entry-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "离场日期",
+          "semanticRole": "leave-date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "备注",
+          "semanticRole": "note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "劳务协同依附项目执行，而不是独立员工主档。"
+        }
+      ]
+    },
+    {
+      "key": "project-expense-record",
+      "name": "项目费用",
+      "moduleKey": "commercial-settlement",
+      "purpose": "记录项目费用、报销和轻量经营支出事项。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "费用类型",
+          "semanticRole": "expense-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发生日期",
+          "semanticRole": "occurred-on",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "说明",
+          "semanticRole": "expense-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "工程类费用与报销要按项目归集。"
+        }
+      ]
+    },
+    {
+      "key": "project-settlement",
+      "name": "项目结算",
+      "moduleKey": "commercial-settlement",
+      "purpose": "记录项目结算和经营收口节点。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "结算类型",
+          "semanticRole": "settlement-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "金额",
+          "semanticRole": "amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "发生日期",
+          "semanticRole": "occurred-on",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        },
+        {
+          "name": "说明",
+          "semanticRole": "settlement-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "工程类费用和结算要按项目收口。"
+        }
+      ]
+    },
+    {
+      "key": "maintenance-record",
+      "name": "维保记录",
+      "moduleKey": "progress-control",
+      "purpose": "记录项目交付后的维保事项、处理过程和结果留痕。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "维保事项",
+          "semanticRole": "maintenance-item",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理日期",
+          "semanticRole": "handled-on",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理结果",
+          "semanticRole": "maintenance-result",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "备注",
+          "semanticRole": "note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "维保是项目交付后的持续跟踪，需要沿用项目主线。"
+        }
+      ]
+    },
+    {
+      "key": "project-document-library",
+      "name": "项目资料库",
+      "moduleKey": "project-core",
+      "purpose": "统一归档项目过程资料、附件和交付文档。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联项目档案",
+          "semanticRole": "project-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "资料名称",
+          "semanticRole": "document-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "资料类型",
+          "semanticRole": "document-type",
+          "suggestedWidget": "select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "附件",
+          "semanticRole": "attachments",
+          "suggestedWidget": "upload",
+          "requiredByDefault": true
+        },
+        {
+          "name": "备注",
+          "semanticRole": "note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联项目档案",
+          "targetFormKey": "project-archive",
+          "targetFieldName": "项目编号",
+          "reason": "资料归档围绕项目过程沉淀。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "project-initiation",
+      "to": "project-archive",
+      "label": "立项通过后进入正式项目主档。"
+    },
+    {
+      "from": "project-archive",
+      "to": "project-plan",
+      "label": "项目建立后开始拆分阶段计划。"
+    },
+    {
+      "from": "project-plan",
+      "to": "progress-report",
+      "label": "按计划节点持续填报实际进展。"
+    },
+    {
+      "from": "project-archive",
+      "to": "acceptance-record",
+      "label": "项目进入阶段或竣工验收收口。"
+    },
+    {
+      "from": "project-archive",
+      "to": "site-log",
+      "label": "现场日志围绕项目留痕。"
+    },
+    {
+      "from": "project-archive",
+      "to": "safety-rectification",
+      "label": "安全检查问题按项目闭环。"
+    },
+    {
+      "from": "project-archive",
+      "to": "technical-briefing",
+      "label": "技术交底围绕项目执行。"
+    },
+    {
+      "from": "project-archive",
+      "to": "material-record",
+      "label": "材料和物资事项服务项目执行。"
+    },
+    {
+      "from": "project-archive",
+      "to": "equipment-record",
+      "label": "设备事项服务项目执行。"
+    },
+    {
+      "from": "project-archive",
+      "to": "labor-record",
+      "label": "劳务协同事项服务项目执行。"
+    },
+    {
+      "from": "project-archive",
+      "to": "project-expense-record",
+      "label": "项目费用按项目归集。"
+    },
+    {
+      "from": "project-expense-record",
+      "to": "project-settlement",
+      "label": "费用事项最终进入项目结算收口。"
+    },
+    {
+      "from": "project-archive",
+      "to": "maintenance-record",
+      "label": "项目交付后继续进入维保跟踪。"
+    },
+    {
+      "from": "project-archive",
+      "to": "project-document-library",
+      "label": "项目资料围绕项目统一归档。"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "项目看板",
+      "reason": "属于展示层能力，不适合首轮默认生成。"
+    },
+    {
+      "name": "成本收入自动汇总",
+      "reason": "涉及经营统计口径和公式，不适合直接替用户默认决定。"
+    },
+    {
+      "name": "复杂审批与权限模型",
+      "reason": "强依赖企业组织结构和岗位分工。"
+    },
+    {
+      "name": "预警通知",
+      "reason": "属于自动化与协同增强能力。"
+    },
+    {
+      "name": "项目部协同看板 / 资源排程",
+      "reason": "属于更细的项目部协同和展示层扩展，不应首轮默认下沉。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个工程项目管理系统，要有立项、项目计划、进度跟踪、现场日志、安全整改和结算。",
+      "expectedBehavior": "命中 engineering-project-management 主骨架，生成项目档案、立项申请、项目计划、进度记录、现场日志和安全检查整改，不默认拆成 inventory、hrm 或行政 OA。"
+    },
+    {
+      "userPrompt": "做一个建筑工程管理系统，要项目进度、质量安全和技术交底。",
+      "expectedBehavior": "命中 engineering-project-management，并补充技术交底切片，不误路由到制造或生产管理。"
+    },
+    {
+      "userPrompt": "我要一套施工项目系统，材料、设备和劳务都要围绕项目来管。",
+      "expectedBehavior": "在工程项目主骨架上补资源协同切片，不误生成完整 inventory 或 hrm 主链。"
+    },
+    {
+      "userPrompt": "帮我做一个工程进度管理系统，先把项目计划、进度填报和验收补起来。",
+      "expectedBehavior": "命中 engineering-project-management 的进度强化切片，生成项目计划、进度记录、验收记录和维保记录，而不是新建独立平行骨架。"
+    },
+    {
+      "userPrompt": "帮我做一个工程项目部管理系统，先按工程项目主线把现场和资料协同串起来。",
+      "expectedBehavior": "命中 engineering-project-management 的项目部协同切片，而不是拆到 hrm 或行政 OA。"
+    },
+    {
+      "userPrompt": "我已经有项目档案了，再补一个现场日志和安全检查整改。",
+      "expectedBehavior": "局部复用 engineering-project-management 切片，只补现场执行相关表单和关系。"
+    },
+    {
+      "userPrompt": "给现有进度记录表加一个偏差原因字段。",
+      "expectedBehavior": "识别为局部编辑，不重建整套 engineering-project-management skeleton。"
+    }
+  ]
+}

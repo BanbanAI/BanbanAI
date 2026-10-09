@@ -1,0 +1,9 @@
+{
+    "name":  "widget.form.pivot-table",
+    "displayName":  "数据透视表",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-pivot-table-icon.svg",
+    "show":  true,
+    "cover":  "widget-form-pivot-table-cover.jpg"
+}

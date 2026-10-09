@@ -1,0 +1,8 @@
+{
+  "name": "widget.basic.paragraph",
+  "displayName": "多行文本",
+  "version": "0.1.0",
+  "super": "",
+  "icon": "widget-basic-paragraph-icon.svg",
+  "show": true
+}

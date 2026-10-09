@@ -1,0 +1,9 @@
+{
+  "extends": "../build/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../.tmp/nas-tools"
+  },
+  "include": [
+    "./**/*.ts"
+  ]
+}

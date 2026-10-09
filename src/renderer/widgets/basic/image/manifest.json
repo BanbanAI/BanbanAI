@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.image",
+    "displayName":  "图片",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-basic-image-icon.svg",
+    "show":  true
+}

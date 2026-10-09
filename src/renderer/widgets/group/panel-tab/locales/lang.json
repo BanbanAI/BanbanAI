@@ -1,0 +1,61 @@
+{
+  "zh-CN": {
+    "defaultName": "选项卡",
+    "panelNumber": "面板数量",
+    "linkageValues": "联动值",
+    "linkageField": "联动字段",
+    "panelItem": "子面板设置",
+    "noEventsTips": "开启后鼠标可以直接操作内部子组件或被该组件挡住的组件，但是编辑时当前组件只能通过左侧图层进行选中",
+    "panelButtonName": "按钮名称",
+    "buttonName": "按钮",
+    "triggerSelect": "选中",
+    "triggerSelectTip": "首次会触发交互，值改变也会触发",
+    "triggerSelectChanged": "选中变化时",
+    "triggerSelectChangedTip": "首次不会触发交互，值改变会触发",
+    "actionSelectType": "选择方式"
+  },
+  "en": {
+    "defaultName": "Switchable GroupPanel",
+    "panelNumber": "Panel Number",
+    "panelItem": "Panel Item Setting",
+    "linkageField": "Linkage field",
+    "linkageValues": "Linkage values",
+    "noEventsTips": "After turning it on, the mouse  can directly operate internal  subcomponents or components  blocked by this component, but the current component can only be selected through the left  layer when editing.",
+    "panelButtonName": "Button Name",
+    "buttonName": "button",
+    "triggerSelect": "Select item",
+    "triggerSelectChanged": "Select Changed",
+    "triggerSelectTip": "The first interaction will be triggered, and the value change will also be triggered",
+    "triggerSelectChangedTip": "The first interaction will not be triggered, but the value change will trigger",
+    "actionSelectType": "Select Type"
+  },
+  "ja": {
+    "defaultName": "选项卡",
+    "panelNumber": "パネルの数",
+    "linkageField": "リンケージフィールド",
+    "linkageValues": "リンケージ値",
+    "panelItem": "サブパネルの設定",
+    "noEventsTips": "これをオンにすると、マウスは内部サブコンポーネントまたはこのコンポーネントによってブロックされているコンポーネントを直接操作できるようになりますが、現在のコンポーネントは編集時に左側のレイヤーからのみ選択できます。",
+    "panelButtonName": "ボタン名",
+    "buttonName": "ボタン",
+    "triggerSelect": "クリック",
+    "triggerSelectChanged": "選択が変更されるとき",
+    "triggerSelectTip": "インタラクションは初めてトリガーされ、値が変更されたときにもトリガーされます。",
+    "triggerSelectChangedTip": "インタラクションは最初はトリガーされませんが、値が変更されたときにトリガーされます。"
+  },
+  "zh-TW": {
+    "defaultName": "選項卡",
+    "panelNumber": "面板數量",
+    "linkageValues": "聯動值",
+    "linkageField": "聯動字段",
+    "panelItem": "子面板設置",
+    "noEventsTips": "開啟後鼠標可以直接操作內部子組件或被該組件擋住的組件，但是編輯時當前組件只能通過左側圖層進行選中",
+    "panelButtonName": "按鈕名稱",
+    "buttonName": "按鈕",
+    "triggerSelect": "選中",
+    "triggerSelectTip": "首次會觸發交互，值改變也會觸發",
+    "triggerSelectChanged": "選中變化時",
+    "triggerSelectChangedTip": "首次不會觸發交互，值改變會觸發",
+    "actionSelectType": "選擇方式"
+  }
+}

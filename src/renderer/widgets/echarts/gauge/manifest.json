@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.gauge",
+    "displayName":  "仪表盘",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-gauge-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.filter-input",
+    "displayName":  "输入框筛选",
+    "version":  "0.0.1",
+    "super":  "widget.basic.filter",
+    "icon":  "widget-basic-filter-input-icon.svg",
+    "show":  true
+}

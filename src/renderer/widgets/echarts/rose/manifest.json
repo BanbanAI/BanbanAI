@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.rose",
+    "displayName":  "玫瑰图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.pie",
+    "icon":  "widget-echarts-rose-icon.svg",
+    "show":  true
+}

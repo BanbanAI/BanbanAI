@@ -1,0 +1,1371 @@
+{
+  "key": "inventory",
+  "name": "进销存",
+  "version": "0.1.0",
+  "aliases": [
+    "进销存系统",
+    "库存管理",
+    "采购销售库存",
+    "仓储进销存",
+    "无库存进销存",
+    "简化版进销存",
+    "极简版进销存",
+    "赊销进销存",
+    "现结进销存",
+    "极简版-现结"
+  ],
+  "beginnerSummary": "适合管理产品、客户、供应商、采购销售、库存变动，以及常见的收付款与对账；如果明确不做库存，或只想做订单直连收付款，也可裁剪成轻量交易管理。",
+  "intentExamples": [
+    "帮我搭一个进销存系统",
+    "做一个采购、销售、库存一体的管理应用",
+    "我想管理仓库、客户和供应商，还要能做入库出库",
+    "给我一个带销售订单和采购订单的库存系统",
+    "做一个无库存版进销存，只管采购、销售和收付款",
+    "做一个极简版现结进销存，保留仓库和出入库，但收付款直接挂订单"
+  ],
+  "modules": [
+    {
+      "key": "master-data",
+      "name": "基础资料",
+      "purpose": "维护产品、客户、供应商、仓库及价格体系等基础对象。"
+    },
+    {
+      "key": "sales",
+      "name": "销售管理",
+      "purpose": "管理销售前置报价、销售订单、出库和退货。"
+    },
+    {
+      "key": "procurement",
+      "name": "采购管理",
+      "purpose": "管理采购订单、采购入库和采购退货。"
+    },
+    {
+      "key": "inventory",
+      "name": "库存管理",
+      "purpose": "处理其他出入库、调拨、盘点等库存变动。"
+    },
+    {
+      "key": "finance",
+      "name": "财务增强",
+      "purpose": "承接订单直连收付款、对账、发票和可选资金账户。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "product-info",
+      "name": "产品信息",
+      "moduleKey": "master-data",
+      "purpose": "维护可被采购、销售和库存单据复用的产品主数据。某些模板会把它与库存余额合并展示为“库存表”，但落骨架时仍建议抽象为独立的产品基础资料。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "产品编码",
+          "semanticRole": "product_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "产品属性",
+          "semanticRole": "product_attribute",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "产品类型",
+          "semanticRole": "product_category",
+          "suggestedWidget": "relation-or-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "产品名称",
+          "semanticRole": "product_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "规格型号",
+          "semanticRole": "product_model",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "单位",
+          "semanticRole": "unit",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "成本单价/元",
+          "semanticRole": "cost_price",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "标准售价(含税)/元",
+          "semanticRole": "default_sale_price_tax_included",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "product-sales-price",
+      "name": "产品销售价格表",
+      "moduleKey": "master-data",
+      "purpose": "按价格等级维护产品销售单价和税率。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "选择产品",
+          "semanticRole": "product_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "价格等级",
+          "semanticRole": "price_level",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "销售单价(含税)/元",
+          "semanticRole": "sale_price_tax_included",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "增值税税率 %",
+          "semanticRole": "vat_rate",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品编码",
+          "reason": "价格表是产品主数据的扩展，而不是独立对象。"
+        }
+      ]
+    },
+    {
+      "key": "customer",
+      "name": "客户",
+      "moduleKey": "master-data",
+      "purpose": "维护销售对象、价格等级、结算期限和开票资料。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "客户编码",
+          "semanticRole": "customer_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "客户名称",
+          "semanticRole": "customer_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "客户分类",
+          "semanticRole": "customer_stage_or_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "客户来源",
+          "semanticRole": "customer_source",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "价格等级",
+          "semanticRole": "default_price_level",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "结算期限",
+          "semanticRole": "payment_term",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "销售负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "客户地址",
+          "semanticRole": "delivery_address",
+          "suggestedWidget": "address",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "supplier-info",
+      "name": "供应商信息",
+      "moduleKey": "master-data",
+      "purpose": "维护采购对象及其基础资料。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "供应商编码",
+          "semanticRole": "supplier_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "供应商名称",
+          "semanticRole": "supplier_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "联系人姓名",
+          "semanticRole": "supplier_contact_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "联系人手机",
+          "semanticRole": "supplier_contact_phone",
+          "suggestedWidget": "phone",
+          "requiredByDefault": false
+        },
+        {
+          "name": "结算期限",
+          "semanticRole": "payment_term",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "supplier-price",
+      "name": "供应商价格表",
+      "moduleKey": "master-data",
+      "purpose": "维护供应商报价和采购价格参考。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "选择供应商",
+          "semanticRole": "supplier_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "选择产品",
+          "semanticRole": "product_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "采购单价/元",
+          "semanticRole": "purchase_price",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择供应商",
+          "targetFormKey": "supplier-info",
+          "targetFieldName": "供应商名称",
+          "reason": "供应商价格是供应商与产品的交叉扩展。"
+        },
+        {
+          "fieldName": "选择产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品编码",
+          "reason": "供应商价格需要绑定具体产品。"
+        }
+      ]
+    },
+    {
+      "key": "warehouse-info",
+      "name": "仓库信息",
+      "moduleKey": "master-data",
+      "purpose": "定义库存归属仓库。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "仓库编码",
+          "semanticRole": "warehouse_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "仓库名称",
+          "semanticRole": "warehouse_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "仓库类型",
+          "semanticRole": "warehouse_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "仓库地址",
+          "semanticRole": "warehouse_address",
+          "suggestedWidget": "address",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "warehouse-location",
+      "name": "仓位信息",
+      "moduleKey": "master-data",
+      "purpose": "定义仓库内更细粒度的库位。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "仓位编码",
+          "semanticRole": "location_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "仓位名称",
+          "semanticRole": "location_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "所属仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "所属仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "仓位是仓库的下级空间。"
+        }
+      ]
+    },
+    {
+      "key": "quote",
+      "name": "报价单",
+      "moduleKey": "sales",
+      "purpose": "在正式销售订单之前维护报价信息。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "选择客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "报价单编号",
+          "semanticRole": "quote_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "报价产品明细",
+          "semanticRole": "quote_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "报价属于某个客户。"
+        }
+      ]
+    },
+    {
+      "key": "sales-order",
+      "name": "销售订单",
+      "moduleKey": "sales",
+      "purpose": "承接客户、价格、仓库和产品明细，形成销售履约主单据。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "选择客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "价格等级",
+          "semanticRole": "price_level",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "销售订单名称",
+          "semanticRole": "order_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "订单签订日期",
+          "semanticRole": "order_signed_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "订单交付日期",
+          "semanticRole": "order_delivery_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "销售负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        },
+        {
+          "name": "销售订单编号",
+          "semanticRole": "order_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "出库仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true,
+          "notes": "完整库存场景常见；如果用户明确要求无库存版，可在切片阶段省略。"
+        },
+        {
+          "name": "销售产品明细",
+          "semanticRole": "order_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true,
+          "notes": "子表包含产品、数量、税率、原价、实际售价等字段。"
+        },
+        {
+          "name": "销售订单金额(含税)/元",
+          "semanticRole": "order_amount_tax_included",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "送货计划",
+          "semanticRole": "delivery_plan",
+          "suggestedWidget": "subform",
+          "requiredByDefault": false
+        },
+        {
+          "name": "收款计划",
+          "semanticRole": "collection_plan",
+          "suggestedWidget": "subform",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "订单头必须绑定客户。"
+        },
+        {
+          "fieldName": "出库仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "销售履约要明确从哪个仓库出库。"
+        },
+        {
+          "fieldName": "选择报价单",
+          "targetFormKey": "quote",
+          "targetFieldName": "报价单编号",
+          "reason": "报价单是销售订单的前置参考。"
+        },
+        {
+          "fieldName": "销售产品明细.选择产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品编码",
+          "reason": "订单明细通过产品主数据带出名称、规格、品牌和价格。"
+        }
+      ]
+    },
+    {
+      "key": "sales-outbound",
+      "name": "销售出库",
+      "moduleKey": "sales",
+      "purpose": "执行销售订单发货并形成库存扣减。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联销售订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库日期",
+          "semanticRole": "outbound_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库明细",
+          "semanticRole": "outbound_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联销售订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "销售订单编号",
+          "reason": "销售出库通常来源于销售订单履约。"
+        }
+      ]
+    },
+    {
+      "key": "sales-return",
+      "name": "销售退货",
+      "moduleKey": "sales",
+      "purpose": "处理销售退货并回冲库存和应收基础。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联销售出库",
+          "semanticRole": "sales_outbound_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "退货日期",
+          "semanticRole": "return_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "退货明细",
+          "semanticRole": "return_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联销售出库",
+          "targetFormKey": "sales-outbound",
+          "targetFieldName": "出库单编号",
+          "reason": "销售退货通常基于已出库单据回冲。"
+        }
+      ]
+    },
+    {
+      "key": "procurement-demand",
+      "name": "采购需求池",
+      "moduleKey": "procurement",
+      "purpose": "承接销售或业务侧提出的采购需求，供采购订单选用。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "申请人",
+          "semanticRole": "request_owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": true
+        },
+        {
+          "name": "申请日期",
+          "semanticRole": "request_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "选择产品",
+          "semanticRole": "product_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "供应商",
+          "semanticRole": "supplier_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "采购需求数量",
+          "semanticRole": "requested_quantity",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "需求状态",
+          "semanticRole": "demand_status",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "采购状态",
+          "semanticRole": "purchase_status",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "付款状态",
+          "semanticRole": "payment_status",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品编码",
+          "reason": "采购需求需要绑定具体产品。"
+        },
+        {
+          "fieldName": "供应商",
+          "targetFormKey": "supplier-info",
+          "targetFieldName": "供应商名称",
+          "reason": "采购需求池可提前预选潜在供应商。"
+        }
+      ]
+    },
+    {
+      "key": "purchase-order",
+      "name": "采购订单",
+      "moduleKey": "procurement",
+      "purpose": "向供应商下单采购产品，也可以承接销售订单或采购需求池形成的需求。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联销售订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "选择供应商",
+          "semanticRole": "supplier_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "采购订单编号",
+          "semanticRole": "purchase_order_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "采购日期",
+          "semanticRole": "purchase_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "采购产品明细",
+          "semanticRole": "purchase_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "选择供应商",
+          "targetFormKey": "supplier-info",
+          "targetFieldName": "供应商名称",
+          "reason": "采购单据必须绑定供应商。"
+        },
+        {
+          "fieldName": "关联销售订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "销售订单编号",
+          "reason": "在无库存或以销定采场景下，采购订单可能直接承接销售订单需求。"
+        },
+        {
+          "fieldName": "采购产品明细.选择产品",
+          "targetFormKey": "product-info",
+          "targetFieldName": "产品编码",
+          "reason": "采购链与销售链共用产品主数据。"
+        }
+      ]
+    },
+    {
+      "key": "purchase-receipt",
+      "name": "采购入库",
+      "moduleKey": "procurement",
+      "purpose": "记录采购到货并形成库存增加。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联采购订单",
+          "semanticRole": "purchase_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库日期",
+          "semanticRole": "receipt_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库明细",
+          "semanticRole": "receipt_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联采购订单",
+          "targetFormKey": "purchase-order",
+          "targetFieldName": "采购订单编号",
+          "reason": "采购入库通常由采购订单转化。"
+        }
+      ]
+    },
+    {
+      "key": "purchase-return",
+      "name": "采购退货",
+      "moduleKey": "procurement",
+      "purpose": "处理采购退货并回冲库存和应付基础。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联采购入库",
+          "semanticRole": "purchase_receipt_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "退货日期",
+          "semanticRole": "return_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "退货明细",
+          "semanticRole": "return_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联采购入库",
+          "targetFormKey": "purchase-receipt",
+          "targetFieldName": "入库单编号",
+          "reason": "采购退货通常基于已入库单据回冲。"
+        }
+      ]
+    },
+    {
+      "key": "stock-transfer",
+      "name": "库存调拨",
+      "moduleKey": "inventory",
+      "purpose": "处理仓间或仓内库存转移。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "调出仓库",
+          "semanticRole": "from_warehouse",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "调入仓库",
+          "semanticRole": "to_warehouse",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "调拨日期",
+          "semanticRole": "transfer_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "调拨明细",
+          "semanticRole": "transfer_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "调出仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "库存调拨需要明确来源仓。"
+        },
+        {
+          "fieldName": "调入仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "库存调拨需要明确目标仓。"
+        }
+      ]
+    },
+    {
+      "key": "other-inbound",
+      "name": "其他入库单",
+      "moduleKey": "inventory",
+      "purpose": "记录非采购来源的库存增加。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "入库类型",
+          "semanticRole": "other_inbound_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库日期",
+          "semanticRole": "inbound_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "入库明细",
+          "semanticRole": "inbound_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "入库仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "其他入库也必须落到具体仓库。"
+        }
+      ]
+    },
+    {
+      "key": "other-outbound",
+      "name": "其他出库单",
+      "moduleKey": "inventory",
+      "purpose": "记录非销售来源的库存减少。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "出库类型",
+          "semanticRole": "other_outbound_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库日期",
+          "semanticRole": "outbound_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "出库明细",
+          "semanticRole": "outbound_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "出库仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "其他出库也必须落到具体仓库。"
+        }
+      ]
+    },
+    {
+      "key": "stock-count",
+      "name": "库存盘点",
+      "moduleKey": "inventory",
+      "purpose": "通过盘点差异修正库存。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "盘点仓库",
+          "semanticRole": "warehouse_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "盘点日期",
+          "semanticRole": "count_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "盘点明细",
+          "semanticRole": "count_items",
+          "suggestedWidget": "subform",
+          "requiredByDefault": true
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "盘点仓库",
+          "targetFormKey": "warehouse-info",
+          "targetFieldName": "仓库名称",
+          "reason": "盘点要限定发生在哪个仓库。"
+        }
+      ]
+    },
+    {
+      "key": "receivable-reconciliation",
+      "name": "应收账款-对账",
+      "moduleKey": "finance",
+      "purpose": "汇总销售形成的应收并承接开票、收款。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "客户",
+          "semanticRole": "customer_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联销售出库应收",
+          "semanticRole": "receivable_from_outbound",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联销售退货应收",
+          "semanticRole": "receivable_from_return",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "应收金额",
+          "semanticRole": "receivable_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "客户",
+          "targetFormKey": "customer",
+          "targetFieldName": "客户名称",
+          "reason": "应收对账按客户维度汇总。"
+        }
+      ]
+    },
+    {
+      "key": "payable-reconciliation",
+      "name": "应付账款-对账",
+      "moduleKey": "finance",
+      "purpose": "汇总采购形成的应付并承接收票、付款。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "供应商",
+          "semanticRole": "supplier_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联采购入库应付",
+          "semanticRole": "payable_from_receipt",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联采购退货应付",
+          "semanticRole": "payable_from_return",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "应付金额",
+          "semanticRole": "payable_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "供应商",
+          "targetFormKey": "supplier-info",
+          "targetFieldName": "供应商名称",
+          "reason": "应付对账按供应商维度汇总。"
+        }
+      ]
+    },
+    {
+      "key": "receipt",
+      "name": "收款单",
+      "moduleKey": "finance",
+      "purpose": "记录客户收款，可直接关联销售订单；也可在更完整的财务链中关联应收对账，并按需挂到资金账户。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联销售订单",
+          "semanticRole": "sales_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联应收账款-对账单",
+          "semanticRole": "receivable_reconciliation_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "发票金额/附件",
+          "semanticRole": "invoice_evidence",
+          "suggestedWidget": "upload-or-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联收款账户",
+          "semanticRole": "funds_account_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false,
+          "notes": "现结简化场景可不建资金账户，改用银行信息或回单附件。"
+        },
+        {
+          "name": "银行信息/回单附件",
+          "semanticRole": "bank_receipt_evidence",
+          "suggestedWidget": "upload-or-text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "本次收款金额/元",
+          "semanticRole": "receipt_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "收款时间",
+          "semanticRole": "receipt_time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联销售订单",
+          "targetFormKey": "sales-order",
+          "targetFieldName": "销售订单编号",
+          "reason": "轻量模式下，收款单可以直接承接销售订单。"
+        },
+        {
+          "fieldName": "关联应收账款-对账单",
+          "targetFormKey": "receivable-reconciliation",
+          "targetFieldName": "应收对账单编号",
+          "reason": "如果启用了更完整的财务链，收款单也可以挂在应收对账主体下。"
+        },
+        {
+          "fieldName": "关联收款账户",
+          "targetFormKey": "funds-account",
+          "targetFieldName": "账户名称",
+          "reason": "如果启用了资金账户主数据，收款可以记入账户。"
+        }
+      ]
+    },
+    {
+      "key": "payment",
+      "name": "付款单",
+      "moduleKey": "finance",
+      "purpose": "记录供应商付款，可直接关联采购订单；也可在更完整的财务链中关联应付对账，并按需挂到资金账户。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联采购订单",
+          "semanticRole": "purchase_order_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联应付账款-对账单",
+          "semanticRole": "payable_reconciliation_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "发票金额/附件",
+          "semanticRole": "invoice_evidence",
+          "suggestedWidget": "upload-or-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "关联付款账户",
+          "semanticRole": "funds_account_ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false,
+          "notes": "现结简化场景可不建资金账户，改用银行信息或回单附件。"
+        },
+        {
+          "name": "银行信息/回单附件",
+          "semanticRole": "bank_payment_evidence",
+          "suggestedWidget": "upload-or-text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "本次付款金额/元",
+          "semanticRole": "payment_amount",
+          "suggestedWidget": "number",
+          "requiredByDefault": true
+        },
+        {
+          "name": "付款时间",
+          "semanticRole": "payment_time",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联采购订单",
+          "targetFormKey": "purchase-order",
+          "targetFieldName": "采购订单编号",
+          "reason": "轻量模式下，付款单可以直接承接采购订单。"
+        },
+        {
+          "fieldName": "关联应付账款-对账单",
+          "targetFormKey": "payable-reconciliation",
+          "targetFieldName": "应付对账单编号",
+          "reason": "如果启用了更完整的财务链，付款单也可以挂在应付对账主体下。"
+        },
+        {
+          "fieldName": "关联付款账户",
+          "targetFormKey": "funds-account",
+          "targetFieldName": "账户名称",
+          "reason": "如果启用了资金账户主数据，付款可以从账户支出。"
+        }
+      ]
+    },
+    {
+      "key": "funds-account",
+      "name": "资金账户",
+      "moduleKey": "finance",
+      "purpose": "在需要内部账户管理时，为收款单和付款单提供真实收支账户。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "账户编码(自动生成)",
+          "semanticRole": "account_code",
+          "suggestedWidget": "auto-number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "账户类型",
+          "semanticRole": "account_type",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "账户名称",
+          "semanticRole": "account_name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "账户状态",
+          "semanticRole": "account_status",
+          "suggestedWidget": "single-select",
+          "requiredByDefault": false
+        },
+        {
+          "name": "初始金额",
+          "semanticRole": "opening_balance",
+          "suggestedWidget": "number",
+          "requiredByDefault": false
+        },
+        {
+          "name": "初始日期",
+          "semanticRole": "opening_date",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    }
+  ],
+  "flows": [
+    {
+      "from": "product-info",
+      "to": "product-sales-price",
+      "label": "产品可扩展不同价格等级的销售价"
+    },
+    {
+      "from": "customer",
+      "to": "sales-order",
+      "label": "客户决定销售订单的主体、价格等级和结算条件"
+    },
+    {
+      "from": "sales-order",
+      "to": "procurement-demand",
+      "label": "销售需求可被拆分到采购需求池"
+    },
+    {
+      "from": "supplier-info",
+      "to": "purchase-order",
+      "label": "采购订单以供应商为主体发起"
+    },
+    {
+      "from": "procurement-demand",
+      "to": "purchase-order",
+      "label": "采购需求池可被采购订单选用"
+    },
+    {
+      "from": "purchase-order",
+      "to": "purchase-receipt",
+      "label": "采购到货后形成采购入库"
+    },
+    {
+      "from": "sales-order",
+      "to": "sales-outbound",
+      "label": "销售订单履约后形成销售出库"
+    },
+    {
+      "from": "sales-outbound",
+      "to": "sales-return",
+      "label": "已出库销售可触发退货回冲"
+    },
+    {
+      "from": "purchase-receipt",
+      "to": "purchase-return",
+      "label": "已入库采购可触发退货回冲"
+    },
+    {
+      "from": "sales-order",
+      "to": "receipt",
+      "label": "轻量模式下销售订单可直接触发收款"
+    },
+    {
+      "from": "sales-outbound",
+      "to": "receivable-reconciliation",
+      "label": "销售出库形成应收明细"
+    },
+    {
+      "from": "purchase-order",
+      "to": "payment",
+      "label": "轻量模式下采购订单可直接触发付款"
+    },
+    {
+      "from": "purchase-receipt",
+      "to": "payable-reconciliation",
+      "label": "采购入库形成应付明细"
+    },
+    {
+      "from": "receivable-reconciliation",
+      "to": "receipt",
+      "label": "应收对账后进入收款"
+    },
+    {
+      "from": "payable-reconciliation",
+      "to": "payment",
+      "label": "应付对账后进入付款"
+    },
+    {
+      "from": "receipt",
+      "to": "funds-account",
+      "label": "若启用了资金账户，收款可记入资金账户"
+    },
+    {
+      "from": "payment",
+      "to": "funds-account",
+      "label": "若启用了资金账户，付款可记入资金账户"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "核销、发票、预收预付等深财务链路",
+      "reason": "第二个样本再次证明财务能力具有通用性，但更深层的核销、发票和预收预付仍不宜作为所有宽泛进销存需求的默认输出。"
+    },
+    {
+      "name": "审批流和毛利率门槛控制",
+      "reason": "模板中存在强经营规则，首轮骨架不应替用户默认决定。"
+    },
+    {
+      "name": "从销售订单智能拆分采购需求、自动补货建议",
+      "reason": "采购需求池表单本身可以进入增强层，但由销售订单自动拆分生成需求，或依据库存自动补货，仍属于规则和自动化扩展。"
+    },
+    {
+      "name": "看板、统计、利润分析",
+      "reason": "展示和口径强依赖具体业务，适合后续单独扩展。"
+    },
+    {
+      "name": "扫码、条码、通知",
+      "reason": "属于交互和设备能力增强，不是首轮骨架必要部分。"
+    },
+    {
+      "name": "销售换货",
+      "reason": "规则明显比普通退货更复杂，建议后续按场景补充。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我搭一个进销存系统，要有产品、客户、供应商、采购入库、销售出库和库存盘点。",
+      "expectedBehavior": "触发 inventory 的 foundation，生成主数据、采购、销售和库存基础单据，不默认加入发票和收付款。"
+    },
+    {
+      "userPrompt": "我想做销售订单和出库流程，客户能分价格等级，产品要有不同售价。",
+      "expectedBehavior": "触发 inventory 的销售切片，并补上产品销售价格表，不扩展完整采购和财务模块。"
+    },
+    {
+      "userPrompt": "我已经有客户和产品表，帮我补采购订单、采购入库和供应商管理。",
+      "expectedBehavior": "复用已有客户/产品上下文，只补采购相关切片和必要关系。"
+    },
+    {
+      "userPrompt": "把现有销售订单表单新增一个客户联系人手机字段。",
+      "expectedBehavior": "视为局部编辑，不重新触发整套行业骨架。"
+    },
+    {
+      "userPrompt": "我要在进销存里增加应收对账、收款单和资金账户。",
+      "expectedBehavior": "基于 inventory 已有骨架补财务增强切片，并明确这是 enhancement，不是默认首轮输出。"
+    },
+    {
+      "userPrompt": "做一个无库存版进销存，只管产品、客户、供应商、销售订单、采购订单和收付款。",
+      "expectedBehavior": "触发 inventory 的轻量交易切片，保留产品、客户、供应商、销售订单、采购订单、收付款单，不默认生成仓库、出入库和库存调整；只有用户明确需要账户管理时，再补资金账户。"
+    },
+    {
+      "userPrompt": "做一个极简版现结进销存，保留仓库和出入库，但收付款直接挂订单。",
+      "expectedBehavior": "触发 inventory 的现结库存切片，保留产品、仓库、客户、供应商、销售订单、销售出库、采购订单、采购入库、收款单和付款单，不默认生成应收应付对账、独立发票表和资金账户。"
+    },
+    {
+      "userPrompt": "做一个极简版赊销进销存，保留仓库和出入库，但不要报价单和采购申请。",
+      "expectedBehavior": "触发 inventory 的简化库存切片，保留产品、仓库、客户、供应商、销售订单、销售出库、采购订单、采购入库与财务增强链，但不默认生成报价单、采购需求池和复杂价格模型。"
+    }
+  ]
+}

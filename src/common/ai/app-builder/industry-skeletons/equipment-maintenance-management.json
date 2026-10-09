@@ -1,0 +1,425 @@
+{
+  "key": "equipment-maintenance-management",
+  "name": "设备运维管理",
+  "version": "0.1.0",
+  "aliases": [
+    "设备管理",
+    "设备管理与巡检",
+    "设备管理系统",
+    "设备巡检",
+    "设备巡检系统",
+    "设备巡检管理",
+    "设备扫码巡检",
+    "设备扫码巡检系统",
+    "设备点检管理",
+    "设备台账管理",
+    "模具管理",
+    "模具管理系统"
+  ],
+  "beginnerSummary": "适合管理设备台账、巡检点检、异常报修、维修处理和轻量保养闭环，统一承接设备状态跟踪，而不是默认扩成行政资产或完整库存系统。",
+  "intentExamples": [
+    "帮我做一个设备管理系统，后续要接巡检和维修",
+    "帮我做一个设备巡检系统，要有设备台账、巡检记录和异常报修",
+    "做一个设备管理与巡检系统，包含设备档案、点检、保养和维修",
+    "搭一个设备台账管理系统，后续还能接巡检和维修",
+    "做一个设备点检管理系统，异常要转维修",
+    "做一个设备扫码巡检系统",
+    "做一个模具管理系统，要管领用、维修、保养和报废"
+  ],
+  "modules": [
+    {
+      "key": "equipment-foundation",
+      "name": "设备基础",
+      "purpose": "维护设备台账、状态和位置等基础资料。"
+    },
+    {
+      "key": "inspection-operations",
+      "name": "巡检点检",
+      "purpose": "承接巡检计划、巡检记录和点检执行闭环。"
+    },
+    {
+      "key": "repair-maintenance",
+      "name": "维修保养",
+      "purpose": "承接异常报修、维修处理和轻量保养记录。"
+    }
+  ],
+  "forms": [
+    {
+      "key": "equipment-ledger",
+      "name": "设备台账",
+      "moduleKey": "equipment-foundation",
+      "purpose": "记录设备基础信息、所在位置和当前状态，是巡检与维修的主档案。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "设备编号",
+          "semanticRole": "equipment-code",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "设备名称",
+          "semanticRole": "equipment-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "设备分类",
+          "semanticRole": "equipment-category",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "所在位置",
+          "semanticRole": "equipment-location",
+          "suggestedWidget": "text",
+          "requiredByDefault": false
+        },
+        {
+          "name": "当前状态",
+          "semanticRole": "equipment-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "投用日期",
+          "semanticRole": "commissioned-at",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": []
+    },
+    {
+      "key": "inspection-plan",
+      "name": "巡检计划",
+      "moduleKey": "inspection-operations",
+      "purpose": "定义巡检周期、对象和检查项目，作为巡检执行的计划入口。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "计划名称",
+          "semanticRole": "plan-name",
+          "suggestedWidget": "text",
+          "requiredByDefault": true
+        },
+        {
+          "name": "适用设备",
+          "semanticRole": "equipment-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "巡检周期",
+          "semanticRole": "inspection-cycle",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "巡检项目摘要",
+          "semanticRole": "inspection-item-summary",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "负责人",
+          "semanticRole": "owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "适用设备",
+          "targetFormKey": "equipment-ledger",
+          "reason": "巡检计划通常基于具体设备或设备清单制定。"
+        }
+      ]
+    },
+    {
+      "key": "inspection-record",
+      "name": "巡检记录",
+      "moduleKey": "inspection-operations",
+      "purpose": "记录巡检执行结果、异常说明和现场处理结论。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联设备",
+          "semanticRole": "equipment-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "关联计划",
+          "semanticRole": "inspection-plan-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "巡检时间",
+          "semanticRole": "inspected-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "巡检结果",
+          "semanticRole": "inspection-result",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "异常说明",
+          "semanticRole": "abnormal-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        },
+        {
+          "name": "巡检人",
+          "semanticRole": "inspector",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联设备",
+          "targetFormKey": "equipment-ledger",
+          "reason": "巡检记录必须挂到具体设备，才能跟踪状态变化。"
+        },
+        {
+          "fieldName": "关联计划",
+          "targetFormKey": "inspection-plan",
+          "reason": "巡检执行可以回写到对应计划，形成计划到执行闭环。"
+        }
+      ]
+    },
+    {
+      "key": "repair-work-order",
+      "name": "维修工单",
+      "moduleKey": "repair-maintenance",
+      "purpose": "承接设备异常后的报修、分派、处理状态和维修结论。",
+      "commonality": "foundation",
+      "coreFields": [
+        {
+          "name": "关联设备",
+          "semanticRole": "equipment-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "来源巡检记录",
+          "semanticRole": "inspection-record-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": false
+        },
+        {
+          "name": "故障描述",
+          "semanticRole": "fault-description",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "处理状态",
+          "semanticRole": "repair-status",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "维修负责人",
+          "semanticRole": "repair-owner",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        },
+        {
+          "name": "完成时间",
+          "semanticRole": "completed-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联设备",
+          "targetFormKey": "equipment-ledger",
+          "reason": "维修工单始终围绕具体设备展开。"
+        },
+        {
+          "fieldName": "来源巡检记录",
+          "targetFormKey": "inspection-record",
+          "reason": "巡检异常可以直接转为维修工单，保留问题来源。"
+        }
+      ]
+    },
+    {
+      "key": "point-check-record",
+      "name": "点检记录",
+      "moduleKey": "inspection-operations",
+      "purpose": "补充按点检项执行的设备日常检查记录。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联设备",
+          "semanticRole": "equipment-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "点检时间",
+          "semanticRole": "point-check-at",
+          "suggestedWidget": "datetime",
+          "requiredByDefault": true
+        },
+        {
+          "name": "点检项目",
+          "semanticRole": "point-check-items",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "点检结论",
+          "semanticRole": "point-check-result",
+          "suggestedWidget": "select",
+          "requiredByDefault": true
+        },
+        {
+          "name": "异常说明",
+          "semanticRole": "abnormal-note",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联设备",
+          "targetFormKey": "equipment-ledger",
+          "reason": "点检记录需要绑定设备主档，才能复用状态与履历。"
+        }
+      ]
+    },
+    {
+      "key": "maintenance-record",
+      "name": "保养记录",
+      "moduleKey": "repair-maintenance",
+      "purpose": "记录设备日常保养执行情况，保留下一次保养时间。",
+      "commonality": "common-enhancement",
+      "coreFields": [
+        {
+          "name": "关联设备",
+          "semanticRole": "equipment-ref",
+          "suggestedWidget": "relation",
+          "requiredByDefault": true
+        },
+        {
+          "name": "保养时间",
+          "semanticRole": "maintained-at",
+          "suggestedWidget": "date",
+          "requiredByDefault": true
+        },
+        {
+          "name": "保养内容",
+          "semanticRole": "maintenance-content",
+          "suggestedWidget": "textarea",
+          "requiredByDefault": true
+        },
+        {
+          "name": "执行人",
+          "semanticRole": "maintainer",
+          "suggestedWidget": "member",
+          "requiredByDefault": false
+        },
+        {
+          "name": "下次保养时间",
+          "semanticRole": "next-maintenance-at",
+          "suggestedWidget": "date",
+          "requiredByDefault": false
+        }
+      ],
+      "relationHints": [
+        {
+          "fieldName": "关联设备",
+          "targetFormKey": "equipment-ledger",
+          "reason": "保养记录需要回到设备台账，形成设备履历。"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "from": "equipment-ledger",
+      "to": "inspection-plan",
+      "label": "设备建立后可配置巡检计划"
+    },
+    {
+      "from": "inspection-plan",
+      "to": "inspection-record",
+      "label": "按计划执行并登记巡检记录"
+    },
+    {
+      "from": "equipment-ledger",
+      "to": "point-check-record",
+      "label": "设备可补充点检执行记录"
+    },
+    {
+      "from": "inspection-record",
+      "to": "repair-work-order",
+      "label": "巡检异常可转维修工单"
+    },
+    {
+      "from": "equipment-ledger",
+      "to": "maintenance-record",
+      "label": "设备可补充保养记录"
+    }
+  ],
+  "deferredCapabilities": [
+    {
+      "name": "扫码巡检与一物一码入口",
+      "reason": "属于移动执行入口增强，首轮不作为所有设备运维场景的默认前置。"
+    },
+    {
+      "name": "备件库存与自动补货",
+      "reason": "更适合作为库存协同增强，而不是设备运维首轮默认对象。"
+    },
+    {
+      "name": "预测性维护与状态分析看板",
+      "reason": "依赖持续数据积累和高级分析能力，不应在首轮默认生成。"
+    },
+    {
+      "name": "报废处置与行政资产折旧联动",
+      "reason": "涉及行政资产与财务规则边界，不宜在当前设备运维骨架中默认展开。"
+    }
+  ],
+  "validationPrompts": [
+    {
+      "userPrompt": "帮我做一个设备巡检系统，要有设备台账、巡检记录和异常报修",
+      "expectedBehavior": "命中 equipment-maintenance-management foundation，生成设备台账、巡检计划、巡检记录和维修工单，不误并入行政资产或工单管理。"
+    },
+    {
+      "userPrompt": "做一个设备管理与巡检系统，包含设备档案、点检、保养和维修",
+      "expectedBehavior": "命中同一设备运维骨架，补点检记录和保养记录增强，不扩成库存备件系统。"
+    },
+    {
+      "userPrompt": "做一个设备台账管理系统",
+      "expectedBehavior": "仍归 equipment-maintenance-management 的台账入口，保留后续接巡检和维修的空间，不单独新建 asset-management skeleton。"
+    },
+    {
+      "userPrompt": "做一个设备点检管理系统，异常要转维修",
+      "expectedBehavior": "触发设备点检切片并接维修工单，不误路由到 EHS 安全检查。"
+    },
+    {
+      "userPrompt": "做一个设备扫码巡检系统",
+      "expectedBehavior": "仍归 equipment-maintenance-management，可保留扫码入口为增强能力，不单独新建设备扫码 skeleton。"
+    },
+    {
+      "userPrompt": "做一个设备管理系统，后续要接巡检和维修",
+      "expectedBehavior": "归 equipment-maintenance-management 的通用设备入口，先生成设备台账主链，并为后续巡检与维修保留扩展空间。"
+    },
+    {
+      "userPrompt": "做一个模具管理系统，要管领用、维修、保养和报废",
+      "expectedBehavior": "仍归 equipment-maintenance-management，作为制造工装垂直切片处理，不单独新建 mold-management skeleton。"
+    },
+    {
+      "userPrompt": "给现有巡检记录表增加一个巡检照片字段",
+      "expectedBehavior": "识别为局部编辑，不重新触发整套行业骨架。"
+    }
+  ]
+}

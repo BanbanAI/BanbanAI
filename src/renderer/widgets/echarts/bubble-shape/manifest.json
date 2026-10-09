@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.bubble-shape",
+    "displayName":  "气泡图2",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.bubble",
+    "icon":  "widget-echarts-bubble-shape-icon.svg",
+    "show":  true
+}

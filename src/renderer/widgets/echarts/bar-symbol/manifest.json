@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.symbol-bar",
+    "displayName":  "图形条形图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.symbol-column",
+    "icon":  "widget-echarts-symbol-bar-icon.svg",
+    "show":  true
+}

@@ -1,0 +1,8 @@
+{
+  "name": "widget.basic.timer-v2",
+  "displayName": "时间",
+  "version": "0.1.0",
+  "super": "",
+  "icon": "widget-basic-timer-v2-icon.svg",
+  "show": true
+}

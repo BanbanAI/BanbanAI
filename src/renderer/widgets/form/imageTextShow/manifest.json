@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.imageTextShow",
+    "displayName":  "图文展示",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-imageTextShow-icon.svg",
+    "show":  true
+}

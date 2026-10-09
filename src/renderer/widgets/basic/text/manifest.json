@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.text",
+    "displayName":  "单行文本",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-basic-text-icon.svg",
+    "show":  true
+}

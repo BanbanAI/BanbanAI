@@ -1,0 +1,14 @@
+<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="&#230;&#137;&#169;&#229;&#177;&#149;">
+<g id="Group 61">
+<rect id="Rectangle 165" x="5" width="4" height="8" rx="2" fill="white" fill-opacity="0.6"/>
+<rect id="Rectangle 166" x="17" y="8" width="4" height="8" rx="2" transform="rotate(90 17 8)" fill="white" fill-opacity="0.6"/>
+<path id="Subtract" fill-rule="evenodd" clip-rule="evenodd" d="M0 4C0 3.44772 0.447715 3 1 3H13C13.5523 3 14 3.44772 14 4V16C14 16.5523 13.5523 17 13 17H9V16C9 14.8954 8.10457 14 7 14C5.89543 14 5 14.8954 5 16V17H1C0.447716 17 0 16.5523 0 16V12H1C2.10457 12 3 11.1046 3 10C3 8.89543 2.10457 8 1 8H0V4Z" fill="white" fill-opacity="0.8"/>
+</g>
+<g id="Group 60">
+<rect id="Rectangle 165_2" x="6.70593" y="1" width="3.76471" height="7.52941" rx="1.88235" fill="white" fill-opacity="0.8"/>
+<rect id="Rectangle 166_2" x="18" y="8.5293" width="3.76471" height="7.52941" rx="1.88235" transform="rotate(90 18 8.5293)" fill="white" fill-opacity="0.8"/>
+<path id="Subtract_2" fill-rule="evenodd" clip-rule="evenodd" d="M2 4.82349C2 4.2712 2.44772 3.82349 3 3.82349H14.1765C14.7288 3.82349 15.1765 4.2712 15.1765 4.82349V16C15.1765 16.5522 14.7288 17 14.1765 17H10.4706V16.0588C10.4706 15.0192 9.62783 14.1765 8.58824 14.1765C7.54864 14.1765 6.70588 15.0192 6.70588 16.0588V17H3C2.44771 17 2 16.5522 2 16V12.294H2.94113C3.98073 12.294 4.82349 11.4512 4.82349 10.4116C4.82349 9.37205 3.98073 8.5293 2.94113 8.5293H2V4.82349Z" fill="white"/>
+</g>
+</g>
+</svg>

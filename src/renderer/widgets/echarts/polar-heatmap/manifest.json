@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.polar-heatmap",
+    "displayName":  "色块图2",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-polar-heatmap-icon.svg",
+    "show":  true
+}

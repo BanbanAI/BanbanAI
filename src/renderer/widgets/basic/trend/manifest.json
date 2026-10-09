@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.trend",
+    "displayName":  "数据变化",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-basic-trend-icon.svg",
+    "show":  true
+}

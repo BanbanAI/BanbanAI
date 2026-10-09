@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.textarea",
+    "displayName":  "多行文本",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-textarea-icon.svg",
+    "show":  true
+}

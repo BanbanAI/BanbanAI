@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# 寻找并给予二进制文件可执行权限（install_callback 在安装后由 root 执行）
+PACKAGE_ROOT="${TRIM_APPDEST:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+if [ -d "${PACKAGE_ROOT}/app" ]; then
+  APP_ROOT="${PACKAGE_ROOT}/app"
+else
+  APP_ROOT="${PACKAGE_ROOT}"
+fi
+
+for candidate in "${APP_ROOT}"/banban "${APP_ROOT}"/banban-*; do
+  if [ -f "${candidate}" ]; then
+    chmod 755 "${candidate}"
+  fi
+done
+
+exit 0

@@ -1,0 +1,11 @@
+// server配置文件
+{
+  // 服务监听端口
+  "listen": 16666,
+  //证书配置，若无，则使用http
+  // "cert":{
+  //   "cert": "cert.pem",
+  //   "key": "key.pem"
+  // },
+  // "adminPass" : 123456
+}

@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.bar-stack",
+    "displayName":  "堆叠条形图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.bar",
+    "icon":  "widget-echarts-bar-stack-icon.svg",
+    "show":  true
+}

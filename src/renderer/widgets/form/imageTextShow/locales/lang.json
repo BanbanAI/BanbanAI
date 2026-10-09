@@ -1,0 +1,29 @@
+{
+  "zh-CN": {
+    "defaultName": "图文展示",
+    "content": "图文内容",
+    "editContent": "编辑图文",
+    "hidden": "隐藏",
+    "noData": "暂无数据"
+  },
+  "en": {
+    "defaultName": "Image & Text display",
+    "content": "Image and text content",
+    "editContent": "Edit image and text",
+    "hidden": "Hide",
+    "noData": "No data"
+  },
+  "ja": {
+    "defaultName": "画像とテキスト表示",
+    "content": "画像とテキストの内容",
+    "editContent": "画像とテキストを編集",
+    "hidden": "非表示"
+  },
+  "zh-TW": {
+    "defaultName": "圖文展示",
+    "content": "圖文內容",
+    "editContent": "編輯圖文",
+    "hidden": "隱藏",
+    "noData": "暫無數據"
+  }
+}

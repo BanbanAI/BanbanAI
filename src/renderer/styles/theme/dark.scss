@@ -1,0 +1,31 @@
+@forward 'element-plus/theme-chalk/src/dark/var.scss' with (
+  $colors: (
+    'primary': (
+      'base': #0089ff
+    ),
+  ),
+  $fill-color:(
+    "light":#272727
+  ),
+  $text-color: (
+    'primary': #FFFFFF,
+    'regular': #CCCCCC,
+    "secondary":#AAAAAA,
+    'placeholder': #999999,
+    'disabled': #555555,
+  ),
+  $bg-color:(
+    "page":#131415,
+    "":#1E1E1E,
+    "overlay":#1E1E1E,
+  ),
+  $border-color:(
+    "light":#232427
+  ),
+
+);
+
+
+
+html.dark {
+}

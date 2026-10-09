@@ -1,0 +1,21 @@
+Source include/pkg_util.sh
+
+PROJECT_ROOT="$(pwd)"
+PAYLOAD_DIR="${PROJECT_ROOT}/payload"
+SPK_ROOT="${PROJECT_ROOT}/.spk"
+OUTPUT_DIR="/image/packages"
+
+rm -rf "${SPK_ROOT}"
+mkdir -p "${SPK_ROOT}/scripts" "${SPK_ROOT}/conf" "${OUTPUT_DIR}" "${TmpInstDir}/banban"
+
+install -m 0644 "${PROJECT_ROOT}/INFO" "${SPK_ROOT}/INFO"
+install -m 0644 "${PROJECT_ROOT}/PACKAGE_ICON.PNG" "${SPK_ROOT}/PACKAGE_ICON.PNG"
+install -m 0644 "${PROJECT_ROOT}/PACKAGE_ICON_256.PNG" "${SPK_ROOT}/PACKAGE_ICON_256.PNG"
+install -m 0644 "${PROJECT_ROOT}/conf/privilege" "${SPK_ROOT}/conf/privilege"
+for script_file in "${PROJECT_ROOT}"/scripts/*; do
+  install -m 0755 "${script_file}" "${SPK_ROOT}/scripts/$(basename "${script_file}")"
+done
+install -m 0644 "${PROJECT_ROOT}/INFO" "${TmpInstDir}/banban/INFO"
+
+pkg_make_package "${PAYLOAD_DIR}" "${SPK_ROOT}"
+pkg_make_spk "${SPK_ROOT}" "${OUTPUT_DIR}"

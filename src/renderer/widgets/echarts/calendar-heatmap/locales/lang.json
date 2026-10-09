@@ -1,0 +1,62 @@
+{
+  "zh-CN": {
+    "fieldsSetting": "字段设置",
+    "axisDate": "日期字段",
+    "axisValue": "取值字段",
+    "timeRangeCustom": "自定义时间范围",
+    "showAllYear": "显示整年",
+    "startTime": "开始时间",
+    "endTime": "结束时间",
+    "label": "坐标轴文本",
+    "dateLabelFont": "日期字体",
+    "monthLabelFont": "月份字体",
+    "dateSplitline": "月份分隔线",
+    "splitlineColor": "分隔线颜色",
+    "splitlineWidth": "分割线宽度"
+  },
+  "en": {
+    "fieldsSetting": "Field Settings",
+    "axisDate": "Data Field",
+    "axisValue": "Value Field",
+    "timeRangeCustom": "Custom Range",
+    "showAllYear": "Show all years",
+    "startTime": "Start Time",
+    "endTime": "End Time",
+    "label": "Axis Label",
+    "dateLabelFont": "Data Font",
+    "monthLabelFont": "Month Font",
+    "dateSplitline": "Month Splitline",
+    "splitlineColor": "Color",
+    "splitlineWidth": "Width"
+  },
+  "ja": {
+    "fieldsSetting": "フィールドの設定",
+    "axisDate": "日付フィールド",
+    "axisValue": "値フィールド",
+    "timeRangeCustom": "カスタム時間範囲",
+    "showAllYear": "年間を表示",
+    "startTime": "開始時間",
+    "endTime": "終了時間",
+    "label": "軸テキスト",
+    "dateLabelFont": "日付フォント",
+    "monthLabelFont": "月フォント",
+    "dateSplitline": "月区切り線",
+    "splitlineColor": "区切り線の色",
+    "splitlineWidth": "区切り線の幅"
+  },
+  "zh-TW": {
+    "fieldsSetting": "字段設置",
+    "axisDate": "日期字段",
+    "axisValue": "取值字段",
+    "timeRangeCustom": "自定義時間範圍",
+    "showAllYear": "顯示整年",
+    "startTime": "開始時間",
+    "endTime": "結束時間",
+    "label": "座標軸文本",
+    "dateLabelFont": "日期字體",
+    "monthLabelFont": "月份字體",
+    "dateSplitline": "月份分隔線",
+    "splitlineColor": "分隔線顏色",
+    "splitlineWidth": "分割線寬度"
+  }
+}

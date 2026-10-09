@@ -1,0 +1,6 @@
+PAYLOAD_DIR="$(pwd)/payload"
+
+if [ ! -d "${PAYLOAD_DIR}" ]; then
+  echo "payload not found: ${PAYLOAD_DIR}" >&2
+  exit 1
+fi

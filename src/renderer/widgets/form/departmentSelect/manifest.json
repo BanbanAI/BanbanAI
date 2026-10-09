@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.departmentSelect",
+    "displayName":  "部门",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-departmentSelect-icon.svg",
+    "show":  true
+}

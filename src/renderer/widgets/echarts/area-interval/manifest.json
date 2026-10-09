@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.area-interval",
+    "displayName":  "区间面积图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.line",
+    "icon":  "widget-echarts-area-interval-icon.svg",
+    "show":  true
+}

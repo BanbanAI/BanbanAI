@@ -1,0 +1,8 @@
+{
+  "name": "widget.basic.horizontal-filter-menu",
+  "displayName": "按钮快捷筛选",
+  "version": "0.0.1",
+  "super": "",
+  "icon": "widget-basic-horizontal-filter-menu-icon.svg",
+  "show": true
+}

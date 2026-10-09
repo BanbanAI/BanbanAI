@@ -1,0 +1,8 @@
+{
+    "name":  "widget.group.tab",
+    "displayName":  "选项卡",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-group-tab-icon.svg",
+    "show":  false
+}

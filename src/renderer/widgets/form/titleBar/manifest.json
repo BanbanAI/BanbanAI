@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.titleBar",
+    "displayName":  "标题栏",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-titleBar-icon.svg",
+    "show":  true
+}

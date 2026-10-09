@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.polar-bar",
+    "displayName":  "极坐标柱状图",
+    "version":  "0.1.1",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-polar-bar-icon.svg",
+    "show":  true
+}

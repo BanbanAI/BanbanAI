@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.histogram",
+    "displayName":  "直方图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.axis",
+    "icon":  "widget-echarts-histogram-icon.svg",
+    "show":  true
+}

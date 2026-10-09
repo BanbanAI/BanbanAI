@@ -1,0 +1,7 @@
+{
+    "name":  "widget.form.amountInput",
+    "displayName":  "金额",
+    "version":  "0.0.1",
+    "super":  "",
+    "show":  true
+}

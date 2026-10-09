@@ -1,0 +1,50 @@
+{
+  "zh-CN": {
+    "defaultName": "pdf",
+    "page": "页",
+    "unitBei": "倍",
+    "basicSetting": "基本设置",
+    "pdf": "文件地址",
+    "loadingBackgroundColor": "加载时颜色",
+    "loadingScall": "缩放倍数",
+    "btnSize": "按钮大小",
+    "btnFont": "按钮字体",
+    "btnClick": "点击切换下一页"
+  },
+  "en": {
+    "defaultName": "PDF",
+    "page": "Page",
+    "unitBei": "Times",
+    "basicSetting": "Basic Settings",
+    "pdf": "File address",
+    "loadingBackgroundColor": "Loading color",
+    "loadingScall": "Zoom factor",
+    "btnSize": "Button Size",
+    "btnFont": "Button Font",
+    "btnClick": "Click to Next"
+  },
+  "ja": {
+    "defaultName": "pdf",
+    "page": "ページ",
+    "unitBei": "倍",
+    "basicSetting": "基本設定",
+    "pdf": "アドレス",
+    "loadingBackgroundColor": "ロード時の色",
+    "loadingScall": "ズーム倍率",
+    "btnSize": "ボタンサイズ",
+    "btnFont": "ボタンフォント",
+    "btnClick": "クリックして次へ"
+  },
+  "zh-TW": {
+    "defaultName": "pdf",
+    "page": "頁",
+    "unitBei": "倍",
+    "basicSetting": "基本設置",
+    "pdf": "文件地址",
+    "loadingBackgroundColor": "加載時顏色",
+    "loadingScall": "縮放倍數",
+    "btnSize": "按鈕大小",
+    "btnFont": "按鈕字體",
+    "btnClick": "點擊切換下一頁"
+  }
+}

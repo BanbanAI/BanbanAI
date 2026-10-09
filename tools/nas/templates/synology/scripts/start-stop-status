@@ -1,0 +1,111 @@
+#!/bin/sh
+
+PACKAGE_ROOT="${SYNOPKG_PKGDEST:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+RUNTIME_DIR="${PACKAGE_ROOT}/var"
+PID_FILE="${RUNTIME_DIR}/banban.pid"
+LOG_FILE="${RUNTIME_DIR}/server.log"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+. "${SCRIPT_DIR}/banban-env.sh"
+
+find_server_executable() {
+  for candidate in "${PACKAGE_ROOT}"/banban "${PACKAGE_ROOT}"/banban-*; do
+    if [ -f "${candidate}" ]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_running() {
+  if [ ! -f "${PID_FILE}" ]; then
+    return 1
+  fi
+  PID="$(cat "${PID_FILE}" 2>/dev/null)"
+  if [ -z "${PID}" ]; then
+    return 1
+  fi
+  kill -0 "${PID}" 2>/dev/null
+}
+
+start_service() {
+  mkdir -p "${RUNTIME_DIR}"
+  if is_running; then
+    exit 0
+  fi
+  write_runtime_env || exit 1
+
+  SERVER_EXECUTABLE="$(find_server_executable)"
+  if [ -n "${SERVER_EXECUTABLE}" ]; then
+    chmod 755 "${SERVER_EXECUTABLE}" 2>/dev/null || true
+    (
+      cd "${PACKAGE_ROOT}" || exit 1
+      nohup "${SERVER_EXECUTABLE}" >>"${LOG_FILE}" 2>&1 &
+      echo $! > "${PID_FILE}"
+    )
+  elif command -v node >/dev/null 2>&1 && [ -f "${PACKAGE_ROOT}/server/server.js" ]; then
+    (
+      cd "${PACKAGE_ROOT}" || exit 1
+      nohup node "${PACKAGE_ROOT}/server/server.js" >>"${LOG_FILE}" 2>&1 &
+      echo $! > "${PID_FILE}"
+    )
+  else
+    echo "banban runtime not found" >&2
+    exit 1
+  fi
+
+  sleep 2
+  if is_running; then
+    exit 0
+  fi
+
+  rm -f "${PID_FILE}"
+  exit 1
+}
+
+stop_service() {
+  if ! is_running; then
+    rm -f "${PID_FILE}"
+    exit 0
+  fi
+
+  PID="$(cat "${PID_FILE}" 2>/dev/null)"
+  kill "${PID}" 2>/dev/null || true
+
+  WAIT_COUNT=0
+  while kill -0 "${PID}" 2>/dev/null; do
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ "${WAIT_COUNT}" -ge 10 ]; then
+      kill -9 "${PID}" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+  done
+
+  rm -f "${PID_FILE}"
+  exit 0
+}
+
+status_service() {
+  if is_running; then
+    exit 0
+  fi
+  rm -f "${PID_FILE}"
+  exit 1
+}
+
+case "$1" in
+  start)
+    start_service
+    ;;
+  stop)
+    stop_service
+    ;;
+  status)
+    status_service
+    ;;
+  *)
+    exit 1
+    ;;
+esac

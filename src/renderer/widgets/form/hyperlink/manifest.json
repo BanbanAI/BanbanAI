@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.hyperlink",
+    "displayName":  "超链接",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-form-hyperlink-icon.svg",
+    "show":  true
+}

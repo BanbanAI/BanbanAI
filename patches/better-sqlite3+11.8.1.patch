@@ -1,0 +1,24 @@
+diff --git a/node_modules/better-sqlite3/lib/database.js b/node_modules/better-sqlite3/lib/database.js
+index 14e0573..ce572ab 100644
+--- a/node_modules/better-sqlite3/lib/database.js
++++ b/node_modules/better-sqlite3/lib/database.js
+@@ -45,7 +45,18 @@ function Database(filenameGiven, options) {
+ 	// Load the native addon
+ 	let addon;
+ 	if (nativeBinding == null) {
+-		addon = DEFAULT_ADDON || (DEFAULT_ADDON = require('bindings')('better_sqlite3.node'));
++		const electronBinding = path.join(__dirname, '..', 'build', 'Release', 'better_sqlite3.electron.node');
++		const defaultBinding = process.versions.electron && fs.existsSync(electronBinding)
++			? electronBinding
++			: null;
++		if (DEFAULT_ADDON) {
++			addon = DEFAULT_ADDON;
++		} else if (defaultBinding) {
++			const requireFunc = typeof __non_webpack_require__ === 'function' ? __non_webpack_require__ : require;
++			addon = DEFAULT_ADDON = requireFunc(defaultBinding);
++		} else {
++			addon = DEFAULT_ADDON = require('bindings')('better_sqlite3.node');
++		}
+ 	} else if (typeof nativeBinding === 'string') {
+ 		// See <https://webpack.js.org/api/module-variables/#__non_webpack_require__-webpack-specific>
+ 		const requireFunc = typeof __non_webpack_require__ === 'function' ? __non_webpack_require__ : require;

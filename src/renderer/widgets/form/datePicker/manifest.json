@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.datePicker",
+    "displayName":  "日期时间",
+    "version":  "0.1.0",
+    "super":  "",
+    "icon":  "widget-form-datePicker-icon.svg",
+    "show":  true
+}

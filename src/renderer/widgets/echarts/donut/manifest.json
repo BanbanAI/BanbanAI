@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.donut",
+    "displayName":  "环形图",
+    "version":  "0.0.2",
+    "super":  "widget.echarts.pie",
+    "icon":  "widget-echarts-donut-icon.svg",
+    "show":  true
+}

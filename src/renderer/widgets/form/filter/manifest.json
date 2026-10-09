@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.filter",
+    "displayName":  "表单筛选",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-filter-icon.svg",
+    "show":  true
+}

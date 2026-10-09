@@ -1,0 +1,33 @@
+diff --git a/node_modules/nedb/lib/datastore.js b/node_modules/nedb/lib/datastore.js
+index e179dcd..69e33c8 100644
+--- a/node_modules/nedb/lib/datastore.js
++++ b/node_modules/nedb/lib/datastore.js
+@@ -9,6 +9,10 @@ var customUtils = require('./customUtils')
+   , Cursor = require('./cursor')
+   ;
+ 
++util.isDate = util.isDate || function (value) {
++  return value instanceof Date;
++};
++
+ 
+ /**
+  * Create a new collection
+diff --git a/node_modules/nedb/lib/model.js b/node_modules/nedb/lib/model.js
+index 0aa9e92..fb2ba2b 100644
+--- a/node_modules/nedb/lib/model.js
++++ b/node_modules/nedb/lib/model.js
+@@ -14,6 +14,13 @@ var util = require('util')
+   , arrayComparisonFunctions = {}
+   ;
+ 
++util.isDate = util.isDate || function (value) {
++  return value instanceof Date;
++};
++util.isRegExp = util.isRegExp || function (value) {
++  return value instanceof RegExp;
++};
++
+ 
+ /**
+  * Check a key, throw an error if the key is non valid

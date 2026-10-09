@@ -1,0 +1,8 @@
+{
+    "name":  "widget.form.splitLine",
+    "displayName":  "分割线",
+    "version":  "0.0.1",
+    "super":  "",
+    "icon":  "widget-form-splitLine-icon.svg",
+    "show":  true
+}

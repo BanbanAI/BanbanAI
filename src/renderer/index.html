@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html data-boot-mode="web">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" href="/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    document.documentElement.setAttribute("data-boot-mode", window.runtimeInfo?.inClient ? "client" : "web");
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --boot-bg: #f4f8fc;
+      --boot-panel: rgba(255, 255, 255, 0.78);
+      --boot-border: rgba(93, 146, 197, 0.18);
+      --boot-text: #203246;
+      --boot-text-muted: rgba(73, 101, 130, 0.82);
+      --boot-glow-a: #55a9ff;
+      --boot-glow-b: #6bd7be;
+      --web-boot-mask-bg: rgba(255, 255, 255, 0.92);
+      --web-boot-text: #606266;
+      --web-boot-text-muted: #909399;
+      --web-boot-primary: var(--color-primary, #409eff);
+      --web-boot-danger: #f56c6c;
+    }
+
+    html[data-boot-mode="client"],
+    html[data-boot-mode="client"] body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at top, rgba(85, 169, 255, 0.18), transparent 34%),
+        radial-gradient(circle at 85% 15%, rgba(107, 215, 190, 0.12), transparent 22%),
+        linear-gradient(160deg, #fbfdff 0%, var(--boot-bg) 52%, #eef4fa 100%);
+    }
+
+    html[data-boot-mode="client"] body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--boot-text);
+    }
+
+    html[data-boot-mode="web"],
+    html[data-boot-mode="web"] body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #ffffff;
+    }
+
+    html[data-boot-mode="web"] body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--web-boot-text);
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+    }
+
+    .boot-splash {
+      display: none;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.18s ease, visibility 0.18s ease;
+    }
+
+    .boot-splash,
+    .boot-splash * {
+      box-sizing: border-box;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      font-style: normal;
+      font-weight: 400;
+      line-height: 1.2;
+      font-synthesis: none;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    html[data-boot-mode="client"] .boot-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    html[data-boot-mode="web"] .boot-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--web-boot-mask-bg);
+      z-index: 9999;
+    }
+
+    html[data-app-ready="true"] .boot-splash {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .boot-splash::before,
+    .boot-splash::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(18px);
+      opacity: 0.45;
+      z-index: -1;
+    }
+
+    html[data-boot-mode="web"] .boot-splash::before,
+    html[data-boot-mode="web"] .boot-splash::after {
+      content: none;
+      display: none;
+    }
+
+    .boot-splash::before {
+      width: 420px;
+      height: 420px;
+      background: radial-gradient(circle, rgba(88, 208, 255, 0.28) 0%, transparent 68%);
+      animation: boot-float 5.4s ease-in-out infinite;
+    }
+
+    .boot-splash::after {
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(127, 242, 195, 0.22) 0%, transparent 70%);
+      transform: translate(140px, 110px);
+      animation: boot-float-reverse 6.2s ease-in-out infinite;
+    }
+
+    .boot-splash__panel {
+      position: relative;
+      width: min(280px, calc(100vw - 48px));
+      padding: 28px 24px 24px;
+      border: 1px solid var(--boot-border);
+      border-radius: 24px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 250, 255, 0.9)),
+        var(--boot-panel);
+      box-shadow:
+        0 18px 48px rgba(112, 144, 173, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(16px);
+      text-align: center;
+    }
+
+    html[data-boot-mode="web"] .boot-splash__panel {
+      display: none;
+    }
+
+    .boot-splash__mark {
+      position: relative;
+      width: 76px;
+      height: 76px;
+      margin: 0 auto 18px;
+    }
+
+    .boot-splash__spinner,
+    .boot-splash__spinner::before {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+    }
+
+    .boot-splash__spinner {
+      border: 2px solid rgba(85, 169, 255, 0.14);
+      border-top-color: var(--boot-glow-a);
+      animation: boot-spin 0.95s linear infinite;
+    }
+
+    .boot-splash__spinner::before {
+      content: "";
+      inset: 10px;
+      border: 1px solid rgba(107, 215, 190, 0.18);
+    }
+
+    .boot-splash__core {
+      position: absolute;
+      inset: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.98), transparent 36%),
+        linear-gradient(160deg, rgba(85, 169, 255, 0.18), rgba(107, 215, 190, 0.12)),
+        rgba(248, 251, 255, 0.96);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 1),
+        0 8px 18px rgba(85, 169, 255, 0.1);
+    }
+
+    .boot-splash__core-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f6feff, rgba(85, 169, 255, 0.84));
+      box-shadow:
+        0 0 10px rgba(85, 169, 255, 0.22),
+        0 0 18px rgba(107, 215, 190, 0.12);
+    }
+
+    .boot-splash__title {
+      margin-bottom: 6px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
+    }
+
+    .boot-splash__hint {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--boot-text-muted);
+      letter-spacing: 0.02em;
+      font-weight: 400;
+    }
+
+    .boot-splash__hint[hidden] {
+      display: none;
+    }
+
+    .boot-splash__action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 104px;
+      margin-top: 18px;
+      padding: 0 16px;
+      height: 32px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #4f9cff, #66d0dc);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      box-shadow: 0 10px 20px rgba(85, 169, 255, 0.18);
+    }
+
+    .boot-splash__action[hidden] {
+      display: none;
+    }
+
+    .boot-splash__action:focus-visible {
+      outline: 2px solid rgba(85, 169, 255, 0.3);
+      outline-offset: 2px;
+    }
+
+    .boot-splash__web {
+      display: none;
+    }
+
+    html[data-boot-mode="web"] .boot-splash__web {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 160px;
+      padding: 24px 32px;
+    }
+
+    .boot-splash__web-spinner {
+      width: 42px;
+      height: 42px;
+      transform-origin: center;
+      will-change: transform;
+      animation: boot-web-rotate 1s linear infinite;
+    }
+
+    .boot-splash__web-spinner-circle {
+      stroke: var(--web-boot-primary);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-dasharray: 96 126;
+    }
+
+    .boot-splash__web-title {
+      margin-top: 12px;
+      font-size: 14px;
+      line-height: 20px;
+      text-align: center;
+      color: var(--web-boot-text);
+    }
+
+    .boot-splash__web-hint {
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--web-boot-text-muted);
+      text-align: center;
+    }
+
+    .boot-splash__web-hint[hidden] {
+      display: none;
+    }
+
+    .boot-splash__web-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 88px;
+      height: 28px;
+      margin-top: 12px;
+      padding: 0 12px;
+      border: 1px solid var(--web-boot-primary);
+      border-radius: 4px;
+      background: #ffffff;
+      color: var(--web-boot-primary);
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .boot-splash__web-action[hidden] {
+      display: none;
+    }
+
+    .boot-splash__web-action:hover {
+      background: rgba(64, 158, 255, 0.08);
+    }
+
+    .boot-splash__web-action:focus-visible {
+      outline: 2px solid rgba(64, 158, 255, 0.2);
+      outline-offset: 2px;
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-title {
+      color: var(--web-boot-danger);
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-hint {
+      color: var(--web-boot-danger);
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-spinner {
+      animation: none;
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-spinner-circle {
+      stroke: var(--web-boot-danger);
+      animation: none;
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-action {
+      border-color: var(--web-boot-danger);
+      color: var(--web-boot-danger);
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-action:hover {
+      background: rgba(245, 108, 108, 0.08);
+    }
+
+    html[data-boot-mode="web"][data-boot-state="error"] .boot-splash__web-action:focus-visible {
+      outline-color: rgba(245, 108, 108, 0.2);
+    }
+
+    @keyframes boot-spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes boot-spin-reverse {
+      from {
+        transform: rotate(360deg);
+      }
+      to {
+        transform: rotate(0deg);
+      }
+    }
+
+    @keyframes boot-float {
+      0%,
+      100% {
+        transform: translate(-120px, -90px);
+      }
+      50% {
+        transform: translate(-70px, -120px);
+      }
+    }
+
+    @keyframes boot-float-reverse {
+      0%,
+      100% {
+        transform: translate(140px, 110px);
+      }
+      50% {
+        transform: translate(170px, 80px);
+      }
+    }
+
+    @keyframes boot-web-rotate {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .boot-splash::before,
+      .boot-splash::after,
+      .boot-splash__spinner,
+      .boot-splash__web-spinner,
+      .boot-splash__web-spinner-circle {
+        animation: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div class="boot-splash" aria-live="polite">
+    <div class="boot-splash__panel">
+      <div class="boot-splash__mark" aria-hidden="true">
+        <span class="boot-splash__spinner"></span>
+        <div class="boot-splash__core">
+          <span class="boot-splash__core-dot"></span>
+        </div>
+      </div>
+      <div class="boot-splash__title" data-boot-title></div>
+      <div class="boot-splash__hint" data-boot-hint></div>
+      <button class="boot-splash__action" data-boot-action type="button" hidden></button>
+    </div>
+    <div class="boot-splash__web">
+      <svg class="boot-splash__web-spinner" viewBox="0 0 50 50" aria-hidden="true">
+        <circle class="boot-splash__web-spinner-circle" cx="25" cy="25" r="20" fill="none"></circle>
+      </svg>
+      <div class="boot-splash__web-title" data-boot-title></div>
+      <div class="boot-splash__web-hint" data-boot-hint hidden></div>
+      <button class="boot-splash__web-action" data-boot-action type="button" hidden></button>
+    </div>
+  </div>
+</body>
+<script>
+  (function () {
+    const bootCopy = {
+      "zh-CN": {
+        client: {
+          loading: {
+            title: "启动中",
+            hint: "正在准备本地服务和工作台资源，请稍候",
+            ariaLabel: "应用启动中",
+          },
+          retrying: {
+            title: "仍在启动",
+            hint: "本地服务启动较慢，正在重试连接",
+            ariaLabel: "应用仍在启动",
+          },
+          error: {
+            title: "启动失败",
+            hint: "初始化未完成，请重启应用后重试",
+            ariaLabel: "应用启动失败",
+            actionLabel: "重新加载",
+          },
+        },
+        web: {
+          loading: {
+            title: "页面加载中...",
+            hint: "",
+            ariaLabel: "页面加载中",
+          },
+          retrying: {
+            title: "页面加载较慢",
+            hint: "正在重试，请稍候...",
+            ariaLabel: "页面仍在加载",
+          },
+          error: {
+            title: "页面加载失败",
+            hint: "初始化未完成，请重新加载",
+            ariaLabel: "页面加载失败",
+            actionLabel: "重新加载",
+          },
+        },
+      },
+      "zh-TW": {
+        client: {
+          loading: {
+            title: "啟動中",
+            hint: "正在準備本機服務與工作台資源，請稍候",
+            ariaLabel: "應用程式啟動中",
+          },
+          retrying: {
+            title: "仍在啟動",
+            hint: "本機服務啟動較慢，正在重試連線",
+            ariaLabel: "應用程式仍在啟動",
+          },
+          error: {
+            title: "啟動失敗",
+            hint: "初始化尚未完成，請重新啟動應用程式後再試",
+            ariaLabel: "應用程式啟動失敗",
+            actionLabel: "重新載入",
+          },
+        },
+        web: {
+          loading: {
+            title: "頁面載入中...",
+            hint: "",
+            ariaLabel: "頁面載入中",
+          },
+          retrying: {
+            title: "頁面載入較慢",
+            hint: "正在重試，請稍候...",
+            ariaLabel: "頁面仍在載入",
+          },
+          error: {
+            title: "頁面載入失敗",
+            hint: "初始化尚未完成，請重新載入",
+            ariaLabel: "頁面載入失敗",
+            actionLabel: "重新載入",
+          },
+        },
+      },
+      en: {
+        client: {
+          loading: {
+            title: "Starting",
+            hint: "Preparing local services and workbench resources.",
+            ariaLabel: "Application starting",
+          },
+          retrying: {
+            title: "Still Starting",
+            hint: "Local services are taking longer than expected. Retrying now.",
+            ariaLabel: "Application is still starting",
+          },
+          error: {
+            title: "Start Failed",
+            hint: "Initialization did not finish. Please restart the app and try again.",
+            ariaLabel: "Application start failed",
+            actionLabel: "Reload",
+          },
+        },
+        web: {
+          loading: {
+            title: "Loading...",
+            hint: "",
+            ariaLabel: "Page loading",
+          },
+          retrying: {
+            title: "Still Loading",
+            hint: "Retrying now. Please wait...",
+            ariaLabel: "Page is still loading",
+          },
+          error: {
+            title: "Load Failed",
+            hint: "Initialization did not finish. Please reload and try again.",
+            ariaLabel: "Page load failed",
+            actionLabel: "Reload",
+          },
+        },
+      },
+      ja: {
+        client: {
+          loading: {
+            title: "起動中",
+            hint: "ローカルサービスとワークベンチのリソースを準備しています。しばらくお待ちください。",
+            ariaLabel: "アプリケーションを起動しています",
+          },
+          retrying: {
+            title: "まだ起動中です",
+            hint: "ローカルサービスの起動に時間がかかっています。接続を再試行しています。",
+            ariaLabel: "アプリケーションはまだ起動中です",
+          },
+          error: {
+            title: "起動に失敗しました",
+            hint: "初期化が完了しませんでした。アプリを再起動してもう一度お試しください。",
+            ariaLabel: "アプリケーションの起動に失敗しました",
+            actionLabel: "再読み込み",
+          },
+        },
+        web: {
+          loading: {
+            title: "読み込み中...",
+            hint: "",
+            ariaLabel: "ページを読み込んでいます",
+          },
+          retrying: {
+            title: "読み込みに時間がかかっています",
+            hint: "再試行しています。しばらくお待ちください。",
+            ariaLabel: "ページはまだ読み込み中です",
+          },
+          error: {
+            title: "読み込みに失敗しました",
+            hint: "初期化が完了しませんでした。再読み込みしてください。",
+            ariaLabel: "ページの読み込みに失敗しました",
+            actionLabel: "再読み込み",
+          },
+        },
+      },
+    };
+
+    const normalizeBootLang = (lang) => {
+      const value = String(lang || "");
+      if (/^ja\b/i.test(value)) {
+        return "ja";
+      }
+      if (/^en\b/i.test(value)) {
+        return "en";
+      }
+      if (/^zh-(TW|HK|MO)\b/i.test(value) || /^zh-Hant\b/i.test(value)) {
+        return "zh-TW";
+      }
+      return "zh-CN";
+    };
+
+    const normalizeBootState = (state) => {
+      if (state === "retrying" || state === "error") {
+        return state;
+      }
+      return "loading";
+    };
+
+    const getBootLanguage = () => {
+      try {
+        return JSON.parse(localStorage.getItem('BOOT_LANGUAGE'));
+      } catch {
+        return null;
+      }
+    };
+
+    const bootState = {
+      lang: normalizeBootLang(document.documentElement.lang || navigator.language),
+      mode: document.documentElement.getAttribute("data-boot-mode") === "client" ? "client" : "web",
+      state: "loading",
+    };
+
+    const bootLanguage = getBootLanguage();
+    if (bootLanguage) {
+      bootState.lang = normalizeBootLang(bootLanguage);
+    }
+
+    const renderBootSplash = () => {
+      const splash = document.querySelector(".boot-splash");
+      if (!splash) return;
+
+      const copy = bootCopy[bootState.lang][bootState.mode][bootState.state];
+      document.querySelectorAll("[data-boot-title]").forEach((node) => {
+        node.textContent = copy.title;
+      });
+      document.querySelectorAll("[data-boot-hint]").forEach((node) => {
+        node.textContent = copy.hint || "";
+        node.hidden = !copy.hint;
+      });
+      document.querySelectorAll("[data-boot-action]").forEach((node) => {
+        node.textContent = copy.actionLabel || "";
+        node.hidden = !copy.actionLabel;
+      });
+      splash.setAttribute("aria-label", copy.ariaLabel);
+      document.documentElement.setAttribute("data-boot-lang", bootState.lang);
+      document.documentElement.setAttribute("data-boot-state", bootState.state);
+    };
+
+    window.__updateBootSplash = function (payload) {
+      if (payload?.lang) {
+        bootState.lang = normalizeBootLang(payload.lang);
+      }
+      if (payload?.state) {
+        bootState.state = normalizeBootState(payload.state);
+      }
+      renderBootSplash();
+    };
+
+    document.querySelectorAll("[data-boot-action]").forEach((node) => {
+      node.addEventListener("click", function () {
+        window.location.reload();
+      });
+    });
+
+    renderBootSplash();
+  })();
+</script>
+<script type="module" src="./index.ts"></script>
+</html>

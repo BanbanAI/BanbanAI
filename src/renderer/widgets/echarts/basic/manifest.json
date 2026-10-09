@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.basic",
+    "displayName":  "ECharts图表",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-echarts-basic-icon.svg",
+    "show":  true
+}

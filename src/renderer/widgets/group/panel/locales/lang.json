@@ -1,0 +1,37 @@
+{
+  "zh-CN": {
+    "defaultName": "分组面板",
+    "noEvents": "鼠标穿透",
+    "childrenNoEvents": "内部组件穿透",
+    "childStateFollow": "内部组件状态跟随",
+    "childSelectionExclusive": "内部组件选中互斥",
+    "noEventsTips": "开启后鼠标可以直接操作内部子组件或被该组件挡住的组件，但是编辑时当前组件只能通过左侧图层进行选中",
+    "unselect": "取消选中"
+  },
+  "en": {
+    "defaultName": "Group Panel",
+    "noEvents": "Mouse pass-through",
+    "childrenNoEvents": "Internal component penetration",
+    "childStateFollow": "Status Follow",
+    "childSelectionExclusive": "Selected Mutex",
+    "unselect": "Uncheck",
+    "noEventsTips": "When enabled, the mouse can directly operate internal subcomponents or components blocked by this component, but during editing, the current component can only be selected through the layers on the left."
+  },
+  "ja": {
+    "defaultName": "グループ化パネル",
+    "noEvents": "マウススルー",
+    "childrenNoEvents": "内部部品の貫通です",
+    "unselect": "チェックを外します",
+    "childSelectionExclusive": "内部コンポーネントの選択を排他にする",
+    "childStateFollow": "内部コンポーネントの状態に追従"
+  },
+  "zh-TW": {
+    "defaultName": "分組面板",
+    "noEvents": "鼠標穿透",
+    "childrenNoEvents": "內部組件穿透",
+    "childStateFollow": "內部組件狀態跟隨",
+    "childSelectionExclusive": "內部組件選中互斥",
+    "noEventsTips": "開啟後鼠標可以直接操作內部子組件或被該組件擋住的組件，但是編輯時當前組件只能通過左側圖層進行選中",
+    "unselect": "取消選中"
+  }
+}

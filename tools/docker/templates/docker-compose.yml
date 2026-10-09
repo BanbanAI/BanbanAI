@@ -1,0 +1,15 @@
+services:
+  banban:
+    image: ${BANBAN_IMAGE:-__IMAGE_REF__}
+    container_name: ${BANBAN_CONTAINER_NAME:-banban-server}
+    restart: unless-stopped
+    ports:
+      - "${BANBAN_PORT:-16666}:16666"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./config.jsonc:/app/config.jsonc:ro
+      - banban-data:/root/.config/banban
+
+volumes:
+  banban-data:

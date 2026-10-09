@@ -1,0 +1,11 @@
+export const PREFERENCES = 'PREFERENCES'
+export const USER = 'USER'
+export const SERVER_ENDPOINT = 'SERVER_ENDPOINT'
+export const JWT_SECRET = "WEB_JWT_SECRET"
+export const PROJECTS_DIR = "PROJECTS_DIR";
+export const REPORTS_DIR = "REPORTS_DIR";
+export const NOCODES_DIR = "NOCODES_DIR";
+export const UPLOADS_DIR = "UPLOADS_DIR";
+export const CLIENT_CONTEXT = 'CLIENT_CONTEXT';
+export const CUBIST_STORAGE = 'CUBIST_STORAGE';
+export const COMMON_UTIL = 'COMMON_UTIL';

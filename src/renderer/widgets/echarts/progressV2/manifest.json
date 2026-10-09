@@ -1,0 +1,8 @@
+{
+    "name":  "widget.echarts.progress-v2",
+    "displayName":  "百分比图",
+    "version":  "0.1.0",
+    "super":  "widget.echarts.basic",
+    "icon":  "widget-echarts-progress-v2-icon.svg",
+    "show":  true
+}

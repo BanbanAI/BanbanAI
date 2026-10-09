@@ -1,0 +1,8 @@
+{
+    "name":  "widget.basic.pdf",
+    "displayName":  "PDF",
+    "version":  "0.1.1",
+    "super":  "",
+    "icon":  "widget-basic-pdf-icon.svg",
+    "show":  true
+}
