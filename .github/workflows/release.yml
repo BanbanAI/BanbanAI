@@ -83,16 +83,18 @@ jobs:
             platform: linux
             arch: arm64
           # ──────────────────────────────────────────────────────────────
-          # macOS 目前走「本地 yarn build + yarn release:upload:mac 补传」。
-          # 以后要改成 CI 全自动，取消下面两条注释，并同时取消
-          # 「导入签名证书」「配置公证凭据」两个 step 的注释 + 配好对应 secrets。
+          # macOS 出的是未签名/未公证的包：构建侧已做降级
+          # （builder/electron-builder.config.ts 检测不到 Developer ID 证书
+          # 就跳过签名、公证），不需要任何 secrets 即可构建成功。
+          # 以后要做 CI 签名+公证：配好「导入签名证书」「配置公证凭据」
+          # 两个 step 的 secrets 并取消其注释即可。
           # ──────────────────────────────────────────────────────────────
-          # - os: macos-15        # Apple silicon
-          #   platform: mac
-          #   arch: arm64
-          # - os: macos-15-intel  # Intel
-          #   platform: mac
-          #   arch: x64
+          - os: macos-15        # Apple silicon
+            platform: mac
+            arch: arm64
+          - os: macos-15-intel  # Intel
+            platform: mac
+            arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +113,8 @@ jobs:
       - run: yarn install --frozen-lockfile
 
       # ──────────────────────────────────────────────────────────────────
-      # macOS 专用：签名证书 + 公证凭据。启用 mac 两条腿时取消注释。
+      # macOS 签名证书 + 公证凭据（可选）：不启用时 mac 出未签名包。
+      # 要出签名+公证的正式包时，取消下面两个 step 的注释并配好这些 secrets。
       #
       # 一次性准备（做完把值填进 Settings → Secrets and variables → Actions）：
       #   MAC_CERT_P12        本机「钥匙串访问」导出 Developer ID Application 证书为
@@ -132,7 +135,7 @@ jobs:
       #     KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       #   run: |
       #     KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
-      #     echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+      #     echo "$CERT_P12" | openssl base64 -d > "$RUNNER_TEMP/cert.p12"
       #
       #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
       #     security set-keychain-settings -lut 3600 "$KEYCHAIN"
@@ -158,7 +161,7 @@ jobs:
       #   run: |
       #     # 建一个和本机同名的 profile，electron-builder.config.ts 里的
       #     # keychainProfile: "NOTARY_BANBAN" 就不用改任何代码
-      #     echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      #     echo "$APPLE_API_KEY" | openssl base64 -d > "$RUNNER_TEMP/AuthKey.p8"
       #     xcrun notarytool store-credentials NOTARY_BANBAN \
       #       --key "$RUNNER_TEMP/AuthKey.p8" \
       #       --key-id "$APPLE_API_KEY_ID" \
@@ -168,7 +171,11 @@ jobs:
       - name: 打包
         run: yarn build
 
-      # electron-builder 产出的文件名带中文 productName 且不含架构，
+      - name: 打包（无桌面版）
+        if: matrix.platform == 'linux'
+        run: yarn build:server
+
+      # electron-builder 和无桌面版（pkg）产出的文件名带中文且不含架构，
       # 这里统一改成 ASCII 稳定名，Downloads 表格里的链接才成立。
       - name: 归一化产物名
         shell: bash
@@ -176,6 +183,7 @@ jobs:
           BASE: ${{ needs.prepare.outputs.base }}
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
+          SERVER_DIR: dist/server/main/zh-CN/app
         run: |
           set -euo pipefail
           mkdir -p upload
@@ -196,7 +204,16 @@ jobs:
             mac)   rename dmg "$BASE-mac-$ARCH.dmg"; rename zip "$BASE-mac-$ARCH.zip" ;;
             linux) rename AppImage "$BASE-linux-$ARCH.AppImage"
                    rename deb "$BASE-linux-$ARCH.deb"
-                   rename rpm "$BASE-linux-$ARCH.rpm" ;;
+                   rename rpm "$BASE-linux-$ARCH.rpm"
+                   # 无桌面版 zip 在 server 构建目录，不在 package 目录
+                   server_zips=("$SERVER_DIR"/*.zip)
+                   if [ ! -e "${server_zips[0]}" ]; then
+                     echo "没找到无桌面版 zip，检查 $SERVER_DIR（先跑 yarn build:server）" >&2
+                     exit 1
+                   fi
+                   cp -f "${server_zips[0]}" "upload/$BASE-linux-$ARCH-server.zip"
+                   echo "$(basename "${server_zips[0]}") -> $BASE-linux-$ARCH-server.zip"
+                   found=1 ;;
           esac
 
           if [ "$found" -eq 0 ]; then
@@ -280,4 +297,4 @@ jobs:
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             --input "$RUNNER_TEMP/release-body.json" > /dev/null
 
-          echo "draft 已就绪。macOS 安装包请在本地跑 yarn release:upload:mac 补传，再手动 Publish"
+          echo "draft 已就绪（macOS 为未签名包），确认后手动 Publish"

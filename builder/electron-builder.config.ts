@@ -2,6 +2,7 @@
  * @type {import('electron-builder').Configuration}
  * @see https://www.electron.build/configuration/configuration
  */
+import { spawnSync } from "child_process";
 import { Configuration } from "electron-builder";
 import { join } from "path";
 
@@ -42,6 +43,13 @@ const getArmArchSuffix = () => {
 const getFileAssociationIcon = (resourceDir: string) => {
   const extension = process.platform === "win32" ? "ico" : process.platform === "darwin" ? "icns" : "png";
   return join(resourceDir, "ext", `bb.${extension}`);
+};
+
+const hasDeveloperIdCertificate = () => {
+  const result = spawnSync("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], {
+    encoding: "utf8",
+  });
+  return result.status === 0 && String(result.stdout).includes("Developer ID Application");
 };
 
 export const electronBuilderConfig = (config: BuilderConfig): Configuration => {
@@ -171,11 +179,15 @@ export const electronBuilderConfig = (config: BuilderConfig): Configuration => {
       console.log("afterSign");
       //公证notarizing
       if (context.electronPlatformName === "darwin") {
+        if (!hasDeveloperIdCertificate()) {
+          console.log("未检测到 Developer ID 证书，跳过公证（产物未签名/未公证，仅供本地使用）");
+          return;
+        }
         const { notarize } = await import("@electron/notarize");
         const options = {
           tool: "notarytool",
           appPath: join(context.appOutDir, context.packager.appInfo.productName+".app"),
-          keychainProfile: "NOTARY_BANBAN",
+          keychainProfile: "NOTARY_BANBAN",   // 改成本机的 keychain profile 名称
         };
         console.log("notarize", options);
         return await notarize(options as any);

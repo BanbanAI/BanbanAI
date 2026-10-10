@@ -25,10 +25,14 @@ try {
     ".bin",
     process.platform === "win32" ? "electron-rebuild.cmd" : "electron-rebuild",
   );
-  const result = spawnSync(electronRebuild, ["--force", "--which-module", "better-sqlite3"], {
+  const result = spawnSync(electronRebuild, ["--force", "--only", "better-sqlite3"], {
     cwd: projectRoot,
     stdio: "inherit",
     shell: process.platform === "win32",
+    env: {
+      ...process.env,
+      npm_config_dist_url: "https://www.electronjs.org/headers",
+    },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`electron-rebuild exited with code ${result.status}`);

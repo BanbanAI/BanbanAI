@@ -33,8 +33,7 @@
     "prepare:docker:server": "ts-node --project tools/docker/tsconfig.json tools/docker/server prepare",
     "build:docker:server": "ts-node --project tools/docker/tsconfig.json tools/docker/server build",
     "publish:docker:server": "ts-node --project tools/docker/tsconfig.json tools/docker/server push",
-    "release:body": "node tools/release/compose-release-body.js",
-    "release:upload:mac": "node tools/release/upload-mac-assets.js"
+    "release:body": "node tools/release/compose-release-body.js"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,vue}": [

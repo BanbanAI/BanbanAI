@@ -62,6 +62,7 @@ const PLATFORMS = [
           { ext: "AppImage", label: "AppImage" },
           { ext: "deb", label: "DEB" },
           { ext: "rpm", label: "RPM" },
+          { ext: "zip", label: "Server", fileName: (base, arch) => `${base}-linux-${arch}-server.zip` },
         ],
       },
       {
@@ -71,6 +72,7 @@ const PLATFORMS = [
           { ext: "AppImage", label: "AppImage" },
           { ext: "deb", label: "DEB" },
           { ext: "rpm", label: "RPM" },
+          { ext: "zip", label: "Server", fileName: (base, arch) => `${base}-linux-${arch}-server.zip` },
         ],
       },
     ],
@@ -91,7 +93,9 @@ function listArtifacts({ product, tag }) {
         platform: platform.label,
         architecture: arch.label,
         files: arch.artifacts.map((artifact) => ({
-          fileName: platform.fileName(base, arch.arch, artifact.ext),
+          fileName: artifact.fileName
+            ? artifact.fileName(base, arch.arch)
+            : platform.fileName(base, arch.arch, artifact.ext),
           label: artifact.label,
         })),
       });
