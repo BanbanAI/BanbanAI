@@ -1,4 +1,4 @@
-import { AddTodoOptions, AggregationType, BackTodoOptions, BaseTodoOptions, CancelTodoOptions, DeleteTodoOptions, FieldAuthValue, FilterRule, FinishTodoOptions, FlowTriggerContext, FlowTriggerSkipReason, FormCondition, FormConditionValueType, FormLinkageCondition, FormLinkageRule, FormWidgetType, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, LogicalOperator, NocodeBody, NocodeFormData, PermissionCategory, PermissionRangeType, RejectTodoOptions, RuleFunc, SelectIdOfForm, SubmitTodoOptions, TODO, TodoCategory, TodoProcess, TransferTodoOptions, ViewActionTriggerContext, TodoSubCategory } from "@common/types/nocode";
+import { AddTodoOptions, AggregationType, BackTodoOptions, BaseTodoOptions, CancelTodoOptions, DeleteTodoOptions, FieldAuthValue, FilterRule, FinishTodoOptions, FlowTriggerContext, FlowTriggerSkipReason, FormCondition, FormConditionValueType, FormLinkageCondition, FormLinkageRule, FormWidgetType, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, LogicalOperator, NocodeBody, NocodeFormData, PermissionCategory, PermissionRangeType, RejectTodoOptions, RuleFunc, SelectIdOfForm, SubmitTodoOptions, TODO, TodoCategory, TodoProcess, TransferTodoOptions, ViewActionTriggerContext, ViewActionTriggerMode, TodoSubCategory } from "@common/types/nocode";
 import { OwnerEmptyHandle, CurrentSubTableFilter, CrossTableExecutionMode, DataChangeType, EditDataTargetScope, FLOW_DATA_OWNER_SOURCE_SUBMITTER, FlowOpinionFile, OrganizeOptionValue, ProcessBranch, ProcessFlow, ProcessNodeOwner, ProcessNodeOwnerType, ProcessNodeStatus, ProcessNodeType, SubmitRecord, TableUID, ApprovalCategory, NocodeProcess, ApproverType, ApprovalCategoryRule, OptionFieldUID, Row, TargetFieldFillType, TODOTriggerType, FormDataStageWhereCondition, ConditionBranchCondition, ConditionBranchConditionGroup, TimeTaskOptions, TimeTaskRepeat, Table, TargetFieldFillRule, TriggerMode, WhereCondition, SortType, QueryOptions, FormOption, FormValidRule, Field, getAllowCancel, getCrossTableExecutionMode, getWaitCrossTableFlowCompletion, getProcessTargetSourceUID, isDataChangeTriggerConditionsEnabled, isTimeTaskSingleTriggerMode, isTimeTaskTriggerConditionsEnabled, OperationTriggerMode, getOperationTriggerMode, ProcessVersionStatus, ProcessTimeoutActionType, ProcessTimeoutRule, FieldUID } from "@common/types/project";
 import { FormDataStage, canRollbackFlow, filterCircularLinkageRules, getCreateOwnerSystemField, getDueTimeoutRules, getFlowById, getFlows, getFollowingFlows, getLastFlowById, getLastOwnerBranchFlow, getLinkageFillData, getLinkageFillValue, getNextFlow, getNocodeDataSourceTableByUID, getOwnerBranchFlow, getRollbackReplayPlan, getRollbackTargetFlows, getUUIDSystemField, hasConfiguredValue, isBranchNode, isDataProcessingNode, isMeetConditionsByRow, isProcessTable, isRollbackSubmitNode, isSystemField, isTriggerNode, resolveTimeoutDeadlineAt, SystemField, transformCondition, transformFilterRule, getProcessVersionStatus } from "@common/utils";
 import { getNocodeDataSourceByUID, isDataOwnerEnabledTable } from "@common/utils/connection";
@@ -8955,13 +8955,42 @@ export class FormFlowService implements OnApplicationBootstrap {
       formData,
       currentTable,
     });
-    if (!currentRowContext?.currentRow) {
+    let currentRows = currentRowContext?.currentRows || [];
+    let currentRow = currentRowContext?.currentRow || null;
+    let hasPhysicalRow = currentRowContext?.hasPhysicalRow || false;
+    const startRecord = currentRowContext?.startRecord;
+    const operationTriggerStartMeta = this.getOperationTriggerStartMeta(startRecord);
+    const isSelectedDataTarget = targetTableDataScope === EditDataTargetScope.SELECTED;
+    let selectedTargetUUIDs: string[] = [];
+    if (isSelectedDataTarget) {
+      const executionContext = await this.getFlowExecutionContext(options.todoId);
+      const triggerContext = executionContext?.viewActionTriggerContext;
+      if (
+        !operationTriggerStartMeta
+        || !triggerContext
+        || triggerContext.tableUID !== options.tableId
+        || triggerContext.triggerMode !== ViewActionTriggerMode.VIEW_CONTEXT_ONCE
+        || targetNocodeId !== options.nocodeId
+        || targetTable.uid !== options.tableId
+      ) {
+        throw new Error(global.i18next.t('formFlowService.selectedDataTargetOnlyOnce'));
+      }
+      const allowedFillTypes = new Set([
+        TargetFieldFillType.CUSTOM,
+        TargetFieldFillType.EMPTY,
+        TargetFieldFillType.DEFAULT,
+      ]);
+      if (targetFields.some(item => !allowedFillTypes.has(item.type))) {
+        throw new Error(global.i18next.t('formFlowService.selectedDataTargetSimpleFields'));
+      }
+      selectedTargetUUIDs = [...new Set((triggerContext.targetUUIDs || [])
+        .map(uuid => String(uuid || '').trim())
+        .filter(Boolean))];
+    } else if (!currentRow) {
       return {
         messages: [],
       };
     }
-    const { currentRows, currentRow, hasPhysicalRow, startRecord } = currentRowContext;
-    const operationTriggerStartMeta = this.getOperationTriggerStartMeta(startRecord);
     this.ensureEmptyRowAutoRelatedSupported(node, hasPhysicalRow);
     if (isCrossAppTarget && targetTableDataScope === EditDataTargetScope.CURRENT) {
       throw new Error(global.i18next.t('projectServices.formNotExistOrPrivate'));
@@ -8974,7 +9003,37 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     const isEditingSubField = targetFields.some(item => item.fieldUID?.split(".")?.length > 1);
     let targetRows: Row[] = [];
-    if (targetTableDataScope === EditDataTargetScope.CURRENT) {
+    if (isSelectedDataTarget) {
+      if (selectedTargetUUIDs.length) {
+        targetRows = await this.getTableRows(
+          nocodeBody,
+          options.nocodeId,
+          targetTableUID,
+          { conditions: [], logic: LogicalOperator.AND },
+          currentRow || {},
+          {
+            fillSubTable: !isEditingSubField,
+            stage: this.getDefaultReadableStageCondition(),
+            filters: {
+              [targetTableUID]: [{
+                [uuidField.uid]: { $in: selectedTargetUUIDs },
+              }],
+            },
+          },
+        );
+        if (isEditingSubField) {
+          targetRows = await this.formDataService.fillSubFormField(targetRows, targetNocodeId, targetTable, targetFormData);
+        }
+        const selectedIndex = new Map(selectedTargetUUIDs.map((uuid, index) => [uuid, index]));
+        targetRows.sort((left, right) => (
+          (selectedIndex.get(String(left?.[uuidField.uid] || '')) ?? Number.MAX_SAFE_INTEGER)
+          - (selectedIndex.get(String(right?.[uuidField.uid] || '')) ?? Number.MAX_SAFE_INTEGER)
+        ));
+      }
+      currentRows = targetRows;
+      currentRow = targetRows[0] || currentRow;
+      hasPhysicalRow = targetRows.length > 0;
+    } else if (targetTableDataScope === EditDataTargetScope.CURRENT) {
       if (targetTableUID === options.tableId) {
         targetRows = deepClone(currentRows || []);
       } else {
@@ -9518,7 +9577,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     });
 
     let linkageFieldUIDs = new Set<string>();
-    if (node.options?.allowLinkageFill) {
+    if (node.options?.allowLinkageFill && !isSelectedDataTarget) {
       const explicitFieldUIDs = new Set(
         targetFields.filter(item => item.type !== TargetFieldFillType.EMPTY).map(item => String(item.fieldUID)),
       );
@@ -9562,7 +9621,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       triggered: false,
     };
     const ignoreUpdatePermissionDataStatus = (
-      targetTableDataScope === EditDataTargetScope.CURRENT
+      [EditDataTargetScope.CURRENT, EditDataTargetScope.SELECTED].includes(targetTableDataScope)
       && targetTable.uid === options.tableId
       && Boolean(operationTriggerStartMeta)
     );

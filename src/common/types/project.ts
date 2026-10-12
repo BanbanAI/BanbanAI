@@ -796,6 +796,7 @@ export type CurrentSubTableFilter = {
 export enum EditDataTargetScope {
   CURRENT = "current",
   HISTORY = "history",
+  SELECTED = "selected",
 }
 
 export type EditDataOptions = AddDataOptions & {

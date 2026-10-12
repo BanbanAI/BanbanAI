@@ -1,6 +1,6 @@
 import { isBranchNode } from "@common/utils/flow";
 import { unique } from "@common/utils/unique";
-import { ProcessNodeOwnerType, ApprovalCategory, ApprovalCategoryRule, ApprovalOptions, OwnerEmptyHandle, ApproverSameAsSubmitter, ApproverType, DataChangeOptions, DataChangeType, NotifyOptions, ProcessBranch, ProcessFlow, ProcessNodeType, TransactOptions, AddDataOptions, EditDataOptions, ConditionBranchOptions, TimeTaskOptions, TimeTaskMethod, TimeTaskDateType, TimeTaskDatePoint, ReportDataOptions, TimeTaskRepeat, TriggerMode, Table, isTimeTaskSingleTriggerMode, OperationTriggerMode, getOperationTriggerMode, ProcessTimeoutActionType, ProcessTimeoutDeadlineType, ProcessTimeoutRelativePoint, ProcessTimeoutUnit, ProcessNodeOwner } from "@common/types/project";
+import { ProcessNodeOwnerType, ApprovalCategory, ApprovalCategoryRule, ApprovalOptions, OwnerEmptyHandle, ApproverSameAsSubmitter, ApproverType, DataChangeOptions, DataChangeType, NotifyOptions, ProcessBranch, ProcessFlow, ProcessNodeType, TransactOptions, AddDataOptions, EditDataOptions, EditDataTargetScope, ConditionBranchOptions, TimeTaskOptions, TimeTaskMethod, TimeTaskDateType, TimeTaskDatePoint, ReportDataOptions, TimeTaskRepeat, TriggerMode, Table, isTimeTaskSingleTriggerMode, OperationTriggerMode, getOperationTriggerMode, ProcessTimeoutActionType, ProcessTimeoutDeadlineType, ProcessTimeoutRelativePoint, ProcessTimeoutUnit, ProcessNodeOwner } from "@common/types/project";
 import { FormConditionValueType, LogicalOperator, ProcessContext } from "@common/types/nocode";
 import { deepClone, equals, isEmpty } from '@common/utils/object';
 import { effectScope, EffectScope, reactive, ref, watch } from "vue";
@@ -1201,7 +1201,11 @@ export function getProcessNode(type: ProcessNodeType) {
   return allNodes[type];
 }
 
-const getDataContent = (tables: Table[], options: AddDataOptions, type: 'edit' | 'delete' | 'add') => {
+const getDataContent = (
+  tables: Table[],
+  options: AddDataOptions & { targetTableDataScope?: EditDataTargetScope },
+  type: 'edit' | 'delete' | 'add',
+) => {
   const typeName = {
     get edit(){return i18next.t('process.edit')},
     get delete(){return i18next.t('process.delete')},
@@ -1224,6 +1228,9 @@ const getDataContent = (tables: Table[], options: AddDataOptions, type: 'edit' |
       }
     }
     const name = tables?.find(item => item.uid === optionValue.targetTableUID)?.alias ?? optionValue.targetTableUID
+    if (type === 'edit' && optionValue.targetTableDataScope === EditDataTargetScope.SELECTED) {
+      return `${typeName[type]}${i18next.t('process.dataLabel')}${name}-${i18next.t('process.selectedData')}`
+    }
     return `${typeName[type]}${i18next.t('process.dataLabel')}${name}`
   } else {
     return i18next.t('process.setTargetFormTips')
