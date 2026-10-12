@@ -498,6 +498,12 @@ const getBehaviorText = (type: ViewActionBehaviorType) => {
 };
 
 const behaviorOptions = computed(() => {
+  if (isSelectedTarget(currentAction.value?.target)) {
+    return [
+      { label: i18next.t("TableActionSetting.behaviorEditRecord"), value: ViewActionBehaviorType.EDIT_RECORD },
+      { label: i18next.t("TableActionSetting.behaviorTriggerProcess"), value: ViewActionBehaviorType.TRIGGER_PROCESS },
+    ];
+  }
   if (isViewTarget(currentAction.value?.target)) {
     return [
       { label: i18next.t("TableActionSetting.behaviorTriggerProcess"), value: ViewActionBehaviorType.TRIGGER_PROCESS },
@@ -1497,8 +1503,12 @@ const normalizeAction = (action: ViewAction) => {
   action.executeCondition.tip = action.executeCondition.tip || "";
 
   if (isViewTarget(action.target)) {
-    ensureTriggerProcessBehavior(action);
-    normalizeTriggerProcessConfig(action);
+    if (isSelectedTarget(action.target) && action.behavior.type === ViewActionBehaviorType.EDIT_RECORD) {
+      ensureEditRecordBehavior(action);
+    } else {
+      ensureTriggerProcessBehavior(action);
+      normalizeTriggerProcessConfig(action);
+    }
     action.executeCondition = {
       enabled: action.executeCondition.enabled ?? true,
       scope: ViewActionConditionScope.VIEW,
@@ -1742,7 +1752,9 @@ const handleTargetChange = () => {
     ? ViewActionPlacement.VIEW_TOOLBAR
     : ViewActionPlacement.TABLE_ACTION_COLUMN;
   currentAction.value.executeCondition = createDefaultExecuteCondition(currentAction.value.target);
-  if (isViewTarget(currentAction.value.target)) {
+  if (isSelectedTarget(currentAction.value.target) && currentAction.value.behavior.type === ViewActionBehaviorType.EDIT_RECORD) {
+    ensureEditRecordBehavior(currentAction.value);
+  } else if (isViewTarget(currentAction.value.target)) {
     ensureTriggerProcessBehavior(currentAction.value);
   } else {
     const nextRecordBehaviorType = lastRecordBehaviorTypeStore[currentAction.value.id] || ViewActionBehaviorType.EDIT_RECORD;

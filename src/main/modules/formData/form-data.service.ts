@@ -214,6 +214,7 @@ type ViewActionCreateRowsResult = {
 
 const VIEW_ACTION_TRIGGER_CONFIRM_THRESHOLD = 50;
 const VIEW_ACTION_TRIGGER_MAX_COUNT = 500;
+const VIEW_ACTION_EDIT_MAX_COUNT = 500;
 const VIEW_ACTION_IMAGE_FILE_EXTENSIONS = new Set([
   ".apng",
   ".avif",
@@ -3012,6 +3013,7 @@ export class FormDataService implements OnApplicationBootstrap {
         scope,
       });
       const existingRows = buckets?.find(bucket => bucket.tableId === subTableUID[1])?.rows ?? [];
+      const preserveUnsubmittedRows = Array.isArray(updateFieldIds) && updateFieldIds.length > 0;
       if (scope === "main") {
         this.reconcileDeduplicatedSubTableRowsWithExistingRows(
           formData,
@@ -3054,7 +3056,7 @@ export class FormDataService implements OnApplicationBootstrap {
 
       for (const existingRow of existingRows) {
         const rowUUID = existingRow?.[relationUUIDField.uid];
-        if (isUniqueFieldEmpty(rowUUID) || !currentIDs.has(String(rowUUID))) {
+        if (!preserveUnsubmittedRows && (isUniqueFieldEmpty(rowUUID) || !currentIDs.has(String(rowUUID)))) {
           willRemoveRows.push(existingRow);
         }
       }
@@ -5129,6 +5131,144 @@ export class FormDataService implements OnApplicationBootstrap {
     };
   }
 
+  private async executeViewEditByRows(
+    nocodeBody: Awaited<ReturnType<typeof getNocodeBody>>,
+    formData: NocodeFormData,
+    table: Table,
+    action: ViewAction,
+    request: ExecuteViewActionRequest,
+  ): Promise<ExecuteViewActionResult> {
+    if (action.behavior.type !== ViewActionBehaviorType.EDIT_RECORD) {
+      throw new Error(global.i18next.t('formDataService.viewActionEditSelectedOnly'));
+    }
+    if (!isViewActionSelectedTarget(action.target)) {
+      throw new Error(global.i18next.t('formDataService.viewActionEditSelectedOnly'));
+    }
+
+    const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
+    if (!targetUUIDs.length) {
+      throw new Error(global.i18next.t('formDataService.selectDataFirst'));
+    }
+    if (targetUUIDs.length > VIEW_ACTION_EDIT_MAX_COUNT) {
+      return {
+        type: action.behavior.type,
+        affectedCount: targetUUIDs.length,
+        blockedByLimit: true,
+        message: global.i18next.t('formDataService.viewActionEditLimit', {
+          count: targetUUIDs.length,
+          limit: VIEW_ACTION_EDIT_MAX_COUNT,
+        }),
+      };
+    }
+
+    const targetRows = this.getUniqueViewActionRows(
+      table,
+      await this.getRowsByViewActionFilters(
+        nocodeBody,
+        formData,
+        request.nocodeId,
+        table,
+        request,
+      ),
+    );
+    if (targetRows.length !== targetUUIDs.length) {
+      throw new Error(global.i18next.t('formDataService.viewActionSelectedDataChanged'));
+    }
+
+    const resolvedFields = this.resolveEditActionFields(
+      request.nocodeId,
+      formData,
+      table,
+      action,
+    );
+    const hasSubTableFields = resolvedFields.some(item => Boolean(item.targetField.subFieldId));
+    const currentRows = hasSubTableFields
+      ? await this.fillSubmittedRowsSubForms(formData, request.nocodeId, table, targetRows)
+      : targetRows;
+    await this.validateViewActionExecuteCondition(action, table, { currentRows });
+
+    const memberFieldAuth = await this.getMemberFieldAuth(nocodeBody, table.uid);
+    for (const currentRow of currentRows) {
+      const editableFields = await this.filterEditableViewActionFields(
+        request.nocodeId,
+        formData,
+        table,
+        resolvedFields,
+        memberFieldAuth,
+        currentRow,
+      );
+      if (editableFields.length !== resolvedFields.length) {
+        throw new Error(global.i18next.t('formDataService.noEditableFields'));
+      }
+    }
+
+    const uuidField = getUUIDSystemField(table.fields);
+    const updateRows = currentRows.map((currentRow) => {
+      const nextRow = deepClone(currentRow);
+      for (const { fieldConfig, targetField } of resolvedFields) {
+        if (fieldConfig.mode === ViewActionEditFieldMode.CURRENT) {
+          continue;
+        }
+        const value = fieldConfig.customValue === undefined ? null : fieldConfig.customValue;
+        this.applyEditFieldValue(
+          nextRow,
+          targetField.fieldId as FieldUID,
+          targetField.subFieldId,
+          value,
+        );
+      }
+      return nextRow;
+    });
+
+    await this.formFlowService.validateSubmitRows(formData, request.nocodeId, table.uid, updateRows, {
+      fullReplace: hasSubTableFields,
+    });
+
+    await this.validateUpdatePermission(
+      request.nocodeId,
+      table,
+      [],
+      [uuidField.uid],
+      currentRows.map(row => ({ [uuidField.uid]: row[uuidField.uid] })),
+    );
+
+    const updateResult = await this.tryUpdateData(
+      formData,
+      request.nocodeId,
+      table.uid,
+      updateRows,
+      [[formData.uid, table.uid, uuidField.uid]],
+      null,
+      { triggerTodo: true },
+      { skipSubTableSync: !hasSubTableFields },
+      resolvedFields.map(item => item.fieldId),
+    );
+    const submittedRows = await this.getSubmittedRows(formData, request.nocodeId, table, {
+      [uuidField.uid]: { $in: targetUUIDs },
+    }, {
+      applyGetPermission: true,
+    });
+    const updatedRows = hasSubTableFields
+      ? await this.fillSubmittedRowsSubForms(formData, request.nocodeId, table, submittedRows)
+      : submittedRows;
+
+    return {
+      type: action.behavior.type,
+      affectedCount: Array.isArray(updateResult?.data) ? updateResult.data.length : updateRows.length,
+      auditMeta: {
+        tableUID: table.uid,
+        beforeRows: currentRows,
+        rows: updatedRows,
+      },
+    } as ExecuteViewActionResult & {
+      auditMeta: {
+        tableUID: TableUID,
+        beforeRows: Row[],
+        rows: Row[],
+      },
+    };
+  }
+
   private async executeViewTriggerOnce(
     nocodeBody: Awaited<ReturnType<typeof getNocodeBody>>,
     formData: NocodeFormData,
@@ -5405,6 +5545,9 @@ export class FormDataService implements OnApplicationBootstrap {
     }
 
     if (isViewActionViewTarget(action.target)) {
+      if (action.behavior.type === ViewActionBehaviorType.EDIT_RECORD) {
+        return await this.executeViewEditByRows(nocodeBody, formData, table, action, request);
+      }
       if (
         isViewActionSelectedTarget(action.target)
         && this.normalizeViewActionTargetUUIDs(request.targetUUIDs).length <= 0
