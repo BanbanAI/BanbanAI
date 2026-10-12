@@ -8771,6 +8771,123 @@ export class FormFlowService implements OnApplicationBootstrap {
       && /actual:\s.*(?:null|undefined)/.test(message);
   }
 
+  /**
+   * 跨表修改节点的写入载荷：只保留目标行标识字段与本节点真正改动的字段，
+   * 子表行保留子行标识与关联键，并且只带被改动的子字段。
+   * 无法安全收窄时（字段解析不到、子行结构变化、子表单开启查重聚合）返回 null，调用方回落到整行写入。
+   */
+  private buildScopedMutationRows(
+    targetTable: Table,
+    targetFormData: NocodeFormData,
+    rows: Row[],
+    originalRows: Row[],
+    writtenFieldUIDs: string[],
+  ): Row[] | null {
+    const uuidField = getUUIDSystemField(targetTable.fields);
+    const keyField = targetTable.fields.find(field => field.meta?.name === SystemField.KEY);
+    if (!uuidField?.uid || !writtenFieldUIDs.length) {
+      return null;
+    }
+    const hasValue = (value: unknown) => value !== undefined && value !== null && value !== "";
+    const plainFieldUIDs: string[] = [];
+    const containers = new Map<string, { subTable: Table; subFieldUIDs: string[] }>();
+    for (const fieldUID of writtenFieldUIDs) {
+      const [rootUID, subFieldUID, nestedUID] = fieldUID.split(".");
+      const rootField = targetTable.fields.find(field => field.uid === rootUID);
+      if (!rootField || nestedUID) {
+        return null;
+      }
+      const subTableUID = rootField.meta?.extra?.subTableUID?.[1];
+      if (!subFieldUID) {
+        if (subTableUID) {
+          return null;
+        }
+        plainFieldUIDs.push(fieldUID);
+        continue;
+      }
+      const subTable = targetFormData.tables.find(table => table.uid === subTableUID);
+      if (
+        !subTable?.fields.some(field => field.uid === subFieldUID)
+        || this.hasSubFormDeduplication(targetFormData, targetTable, rootField)
+      ) {
+        return null;
+      }
+      const container = containers.get(rootUID) || { subTable, subFieldUIDs: [] };
+      container.subFieldUIDs.push(subFieldUID);
+      containers.set(rootUID, container);
+    }
+
+    const scopedRows: Row[] = [];
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const originalRow = originalRows[index] || {};
+      if (!hasValue(row?.[uuidField.uid])) {
+        return null;
+      }
+      const scopedRow: Row = {
+        [uuidField.uid]: deepClone(row[uuidField.uid]),
+      };
+      if (hasValue(row?.[SystemField.UUID])) {
+        scopedRow[SystemField.UUID] = deepClone(row[SystemField.UUID]);
+      }
+      if (keyField && hasValue(row?.[keyField.uid])) {
+        scopedRow[keyField.uid] = deepClone(row[keyField.uid]);
+      }
+      for (const fieldUID of plainFieldUIDs) {
+        if (!equals(row?.[fieldUID], originalRow?.[fieldUID])) {
+          scopedRow[fieldUID] = deepClone(row?.[fieldUID]);
+        }
+      }
+      for (const [containerUID, container] of containers) {
+        const currentSubRows = Array.isArray(row?.[containerUID]) ? row[containerUID] as Row[] : [];
+        const originalSubRows = Array.isArray(originalRow?.[containerUID]) ? originalRow[containerUID] as Row[] : [];
+        const subUuidField = getUUIDSystemField(container.subTable.fields);
+        const subKeyField = container.subTable.fields.find(field => field.meta?.name === SystemField.KEY);
+        if (!subUuidField?.uid || currentSubRows.length !== originalSubRows.length) {
+          return null;
+        }
+        const originalSubRowByUUID = new Map(originalSubRows.map(subRow => [String(subRow?.[subUuidField.uid] ?? ""), subRow]));
+        const scopedSubRows: Row[] = [];
+        let hasSubFieldChange = false;
+        for (const subRow of currentSubRows) {
+          const subRowUUID = String(subRow?.[subUuidField.uid] ?? "");
+          const originalSubRow = subRowUUID ? originalSubRowByUUID.get(subRowUUID) : undefined;
+          if (!originalSubRow) {
+            return null;
+          }
+          const scopedSubRow: Row = {
+            [subUuidField.uid]: deepClone(subRow[subUuidField.uid]),
+          };
+          if (subKeyField && hasValue(subRow?.[subKeyField.uid])) {
+            scopedSubRow[subKeyField.uid] = deepClone(subRow[subKeyField.uid]);
+          }
+          for (const subFieldUID of container.subFieldUIDs) {
+            if (!equals(subRow?.[subFieldUID], originalSubRow?.[subFieldUID])) {
+              scopedSubRow[subFieldUID] = deepClone(subRow?.[subFieldUID]);
+              hasSubFieldChange = true;
+            }
+          }
+          scopedSubRows.push(scopedSubRow);
+        }
+        if (hasSubFieldChange) {
+          scopedRow[containerUID] = scopedSubRows;
+        }
+      }
+      scopedRows.push(scopedRow);
+    }
+    return scopedRows;
+  }
+
+  private hasSubFormDeduplication(targetFormData: NocodeFormData, targetTable: Table, subFormField: Field) {
+    const widgetUID = subFormField?.meta?.uid;
+    if (!widgetUID) {
+      return false;
+    }
+    const soul = targetFormData.formOptions?.[targetTable.uid]?.widget;
+    const subSoul = findWidgetSoulByUID([soul], widgetUID);
+    return !!subSoul?.options?.["deduplication-aggregation"];
+  }
+
   private async startEditDataNode(
     options: BaseTodoOptions,
     node: ProcessFlow,
@@ -9470,6 +9587,19 @@ export class FormFlowService implements OnApplicationBootstrap {
       : null;
     let updatedRows = deepClone(rows);
     let updateMutationCommitted = false;
+    // 只把本节点真正改动的字段交给存储层：把内存里的整行快照写回，会用旧值覆盖其他流程刚提交的结果。
+    const writtenFieldUIDs = [...new Set([
+      ...targetFields.map(item => String(item.fieldUID || "")),
+      ...linkageFieldUIDs,
+      ...formulaFields.map(field => String(field.uid || "")),
+    ].filter(Boolean))];
+    const updateRows = this.buildScopedMutationRows(
+      targetTable,
+      targetFormData,
+      rows,
+      originalTargetRows,
+      writtenFieldUIDs,
+    ) || rows;
     const updateData = async () => {
       try {
       const result = await (() => {
@@ -9495,7 +9625,7 @@ export class FormFlowService implements OnApplicationBootstrap {
             targetFormData,
             targetNocodeId,
             targetTable.uid,
-            rows,
+            updateRows,
             [key],
             null,
             triggerOptions,
