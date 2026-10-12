@@ -96,6 +96,22 @@ async function startElectronServer(config: ServerLaunchConfig): Promise<StartedS
   }
 }
 
+let notifiedPortSwitch: string | null = null;
+
+const notifyPortSwitch = (server: StartedServer) => {
+  const info = server.transport.portSwitch;
+  if (!info) return;
+  const key = `${info.from}->${info.to}`;
+  if (notifiedPortSwitch === key) return;
+  notifiedPortSwitch = key;
+  const options = {
+    type: "warning" as const,
+    title: global.i18next.t("mainServer.portSwitchNoticeTitle"),
+    message: global.i18next.t("mainServer.portSwitchNoticeMessage", { port: info.from, nextPort: info.to }),
+  };
+  void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
+};
+
 async function loadServer(config: ServerLaunchConfig) {
   startedServer = await startElectronServer(config);
   config.listen = startedServer.port;
@@ -159,6 +175,7 @@ async function loadServer(config: ServerLaunchConfig) {
     mainWindow.on("closed", () => { mainWindow = null; });
   }
   await mainWindow.loadURL(`${startedServer.url}/#/server`);
+  notifyPortSwitch(startedServer);
 }
 
 export async function applyElectronServerConfig(next: ServerLaunchConfig) {

@@ -6,6 +6,7 @@ import { UserWrapper } from "./components/user-wrapper.component";
 import { UserRest } from "../client";
 import { ProxyOptions, SaasPlan } from "@common/types/user";
 import fs from 'fs'
+import net from "net";
 import { EntityManager } from "@mikro-orm/core";
 import { NocodeRepository, Nocode as NocodeEntity } from "../project/entities";
 import { readdir, rm } from 'fs/promises'
@@ -505,12 +506,25 @@ export class UserService implements OnApplicationBootstrap {
       listen: this.preferences.getSaasPort(),
       protocol: this.preferences.get("saasIpProtocol", current.protocol || "http"),
     };
+    const runningPort = lifecycle.getStartedServer?.()?.port;
+    if (next.listen !== runningPort && !(await this.isPortBindable(next.listen))) {
+      throw new Error(global.i18next.t("userService.portOccupiedRestart", { port: next.listen }));
+    }
     setImmediate(() => {
       void lifecycle.applyConfig(next).catch((error) => {
         console.error("Electron server restart failed", error);
       });
     });
     return { restarting: true };
+  }
+
+  private isPortBindable(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const probe = net.createServer();
+      probe.once("error", () => resolve(false));
+      probe.once("listening", () => probe.close(() => resolve(true)));
+      probe.listen(port);
+    });
   }
 
   async getDomainPort() {

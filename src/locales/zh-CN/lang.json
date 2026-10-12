@@ -7782,6 +7782,9 @@
   "mainServer": {
     "serverStartFailPort": "服务启动失败, 端口",
     "portAlreadyUsed": "已被占用",
+    "portOccupiedSwitchRandom": "端口 {{port}} 无法使用，已自动切换为随机端口 {{nextPort}}",
+    "portSwitchNoticeTitle": "端口已自动切换",
+    "portSwitchNoticeMessage": "检测到端口 {{port}} 已被占用，服务已自动切换到新端口 {{nextPort}}，访问地址已同步更新。",
     "detectHttpsCertEnableHttps": "检测到 HTTPS 证书和密钥，启用 HTTPS",
     "readHttpsCertKeyFailUseHttp": "HTTPS 证书或密钥读取失败，使用 HTTP 模式",
     "noHttpsCertKeyDetectUseHttp": "未检测到 HTTPS 证书和密钥，使用 HTTP 模式",
@@ -10912,7 +10915,8 @@
   "userService": {
     "consoleConfigUnsupported": "当前环境不支持在控制台修改服务配置",
     "invalidProtocol": "协议无效",
-    "invalidPort": "端口无效"
+    "invalidPort": "端口无效",
+    "portOccupiedRestart": "端口 {{port}} 已被占用，请更换其他端口后重试"
   },
   "workbenchAuditService": {
     "none": "无"
