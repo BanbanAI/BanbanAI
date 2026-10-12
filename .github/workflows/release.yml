@@ -451,18 +451,23 @@ jobs:
           node-version: 20
           cache: yarn
 
-      - name: 安装群晖打包环境依赖
+      - name: 安装群晖打包环境依赖 + qemu
+        # fnpack 官方只发 amd64 版（静态链接），ARM 机器上靠 qemu 模拟执行；
+        # 已用 arm64 Ubuntu 22.04 容器实测：包内有 qemu-x86_64-static，amd64 fnpack 能正常跑
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap
+          sudo apt-get install -y debootstrap qemu-user-static binfmt-support
+          # 显式注册一次兜底（postinst 正常已注册，重复执行无副作用）
+          sudo update-binfmts --enable qemu-x86_64 2>/dev/null || true
+          test -f /proc/sys/fs/binfmt_misc/qemu-x86_64 && echo "qemu-x86_64 binfmt 已注册" || echo "警告：qemu-x86_64 binfmt 未注册，fnpack 可能执行失败"
 
-      # 飞牛 fpk 需要官方 fnpack；ARM 侧用单独的仓库变量（可执行文件需匹配 arm64）
+      # 飞牛 fpk 需要官方 fnpack：官方只有 amd64 版，这里下载的也是 amd64 版，靠上面的 qemu 跑
       - name: 安装 fnpack（飞牛打包工具）
         env:
-          FNPACK_URL: ${{ vars.FNPACK_URL_ARM64 }}
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
         run: |
           if [ -z "$FNPACK_URL" ]; then
-            echo "未配置仓库变量 FNPACK_URL_ARM64（fnpack linux-arm64 可执行文件直链）" >&2
+            echo "未配置仓库变量 FNPACK_URL（fnpack linux-amd64 可执行文件直链）" >&2
             exit 1
           fi
           curl -fsSL "$FNPACK_URL" -o "$HOME/fnpack"
