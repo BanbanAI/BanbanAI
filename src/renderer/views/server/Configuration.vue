@@ -16,5 +16,7 @@ const handleCompletedGuide = async () => {
 </script>
 
 <style lang='scss' scoped>
-
+.configuration {
+  height: 100%
+}
 </style>
