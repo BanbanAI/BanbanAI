@@ -59,17 +59,17 @@ export class FlowFieldReferenceValidationError extends Error {
 
   constructor(issues: FlowFieldReferenceIssue[]) {
     const first = issues[0];
-    const nodeName = first?.nodeName || "修改数据节点";
-    const tableName = first?.tableName || first?.sourceTableName || "目标表单";
+    const nodeName = first?.nodeName || global.i18next.t("flowFieldReferenceValidator.defaultNodeName");
+    const tableName = first?.tableName || first?.sourceTableName || global.i18next.t("flowFieldReferenceValidator.defaultTargetForm");
     const fieldName = first?.fieldName || first?.sourceFieldName;
     const reason = first?.reason === "source_table_missing" || first?.reason === "form_missing"
-      ? `${tableName}表单不存在或不可访问`
+      ? global.i18next.t("flowFieldReferenceValidator.formMissing", { tableName, interpolation: { escapeValue: false } })
       : fieldName
-        ? `${tableName}字段“${fieldName}”不存在或已被删除`
-        : "节点配置不完整";
-    const location = first?.location ? `（${first.location}）` : "";
-    const count = issues.length > 1 ? `共发现${issues.length}个问题，` : "";
-    super(`流程已结束：${nodeName}配置失效，${count}${reason}${location}。请修复流程配置后重新发起。`);
+        ? global.i18next.t("flowFieldReferenceValidator.fieldMissing", { tableName, fieldName, interpolation: { escapeValue: false } })
+        : global.i18next.t("flowFieldReferenceValidator.incomplete");
+    const location = first?.location ? global.i18next.t("flowFieldReferenceValidator.locationWrapper", { location: first.location }) : "";
+    const count = issues.length > 1 ? global.i18next.t("flowFieldReferenceValidator.issueCount", { issueCount: issues.length }) : "";
+    super(global.i18next.t("flowFieldReferenceValidator.nodeConfigInvalid", { nodeName, issueCount: count, reason, location, interpolation: { escapeValue: false } }));
     this.name = "FlowFieldReferenceValidationError";
     this.issues = issues;
   }
@@ -128,7 +128,7 @@ const fieldLabel = (field?: Field | null, fallback = "") => text(field?.alias ||
 export function validateEditDataNodeFieldReferences(input: ValidatorInput): FlowFieldReferenceIssue[] {
   const { node, nocodeId, nocodeBody, currentTable, targetTable, targetFormData, targetTableUID } = input;
   const options = node.options || {};
-  const nodeName = text(options.name) || "修改数据节点";
+  const nodeName = text(options.name) || global.i18next.t("flowFieldReferenceValidator.defaultNodeName");
   const nodeUID = text(node.uid) || undefined;
   const issues: FlowFieldReferenceIssue[] = [];
   const tableRefs = new Map<string, ResolvedTable>();
@@ -182,16 +182,16 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
 
   const sourceTables = Array.isArray(options.sourceTables) ? options.sourceTables : [];
   sourceTables.forEach((sourceTable, index) => {
-    const resolved = resolveConfiguredTable(sourceTable, "source_table", `数据源表单第${index + 1}项`);
-    if (resolved) validateFilterRule(sourceTable.filterRule, resolved, "source_field", `数据源表单第${index + 1}项筛选条件`);
+    const resolved = resolveConfiguredTable(sourceTable, "source_table", global.i18next.t("flowFieldReferenceValidator.sourceTableItem", { index: index + 1 }));
+    if (resolved) validateFilterRule(sourceTable.filterRule, resolved, "source_field", global.i18next.t("flowFieldReferenceValidator.sourceTableFilter", { index: index + 1 }));
   });
 
   const primarySourceTable = options.primarySourceTable as SourceTable | undefined;
   const primaryResolved = primarySourceTable
-    ? resolveConfiguredTable(primarySourceTable, "source_table", "主表数据源")
+    ? resolveConfiguredTable(primarySourceTable, "source_table", global.i18next.t("flowFieldReferenceValidator.primarySourceTable"))
     : undefined;
   if (primaryResolved) {
-    validateFilterRule(primarySourceTable?.filterRule, primaryResolved, "source_field", "主表数据源筛选条件");
+    validateFilterRule(primarySourceTable?.filterRule, primaryResolved, "source_field", global.i18next.t("flowFieldReferenceValidator.primarySourceTableFilter"));
   }
 
   const targetFields = Array.isArray(options.targetFields) ? options.targetFields as TargetFieldFillRule[] : [];
@@ -206,7 +206,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         tableName: targetTable.alias || targetTable.meta?.name,
         fieldUID: targetPath,
         fieldName: targetPath,
-        location: `目标字段赋值规则第${index + 1}项`,
+        location: global.i18next.t("flowFieldReferenceValidator.targetFieldRule", { index: index + 1 }),
       });
       return;
     }
@@ -214,9 +214,9 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
     if (item.type === TargetFieldFillType.FIELD) {
       const sourceValue = text(item.value);
       if (!sourceValue || sourceValue === "submitter") return;
-      validateSourceField(sourceValue, "source_field", `目标字段赋值规则第${index + 1}项`, false);
+      validateSourceField(sourceValue, "source_field", global.i18next.t("flowFieldReferenceValidator.targetFieldRule", { index: index + 1 }), false);
     } else if (item.type === TargetFieldFillType.FORMULA) {
-      validateFormula(text(item.value), `目标字段公式第${index + 1}项`);
+      validateFormula(text(item.value), global.i18next.t("flowFieldReferenceValidator.targetFieldFormula", { index: index + 1 }));
     }
   });
 
@@ -226,7 +226,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
     table: targetTable,
     formData: targetFormData,
     alias: targetTable.alias,
-  }, "target_filter_field", "目标表单筛选条件");
+  }, "target_filter_field", global.i18next.t("flowFieldReferenceValidator.targetFormFilter"));
 
   const currentSubTableFilters = [
     ...(Array.isArray(options.currentSubTableFilters) ? options.currentSubTableFilters : []),
@@ -244,7 +244,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         tableName: currentTable.alias || currentTable.meta?.name,
         fieldUID: text(filter.fieldUID),
         fieldName: fieldLabel(currentSubTableField, text(filter.fieldUID)),
-        location: `当前表单子表筛选第${index + 1}项`,
+        location: global.i18next.t("flowFieldReferenceValidator.currentSubTableFilter", { index: index + 1 }),
       });
       return;
     }
@@ -255,7 +255,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
       formData: nocodeBody.formData,
       alias: subTable.alias,
     };
-    validateFilterRule(filter.filterRule, subRef, "current_subtable_filter_field", `当前表单子表筛选第${index + 1}项`);
+    validateFilterRule(filter.filterRule, subRef, "current_subtable_filter_field", global.i18next.t("flowFieldReferenceValidator.currentSubTableFilter", { index: index + 1 }));
   });
 
   return issues;
@@ -321,9 +321,9 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         });
       }
       if (condition?.type === FormConditionValueType.FORM && text(condition.value)) {
-        validateSourceField(text(condition.value), "target_filter_value_field", `${location}的条件值`);
+        validateSourceField(text(condition.value), "target_filter_value_field", global.i18next.t("flowFieldReferenceValidator.conditionValue", { location }));
       } else if (condition?.type === FormConditionValueType.FORMULA) {
-        validateFormula(text(condition.formula || condition.value), `${location}的条件公式`);
+        validateFormula(text(condition.formula || condition.value), global.i18next.t("flowFieldReferenceValidator.conditionFormula", { location }));
       }
     }
   }

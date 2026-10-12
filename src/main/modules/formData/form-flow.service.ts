@@ -8799,7 +8799,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         reason: "form_missing",
         tableUID: targetTableUID,
         tableName: targetTableUID,
-        location: "目标表单",
+        location: global.i18next.t('formFlowService.flowFieldReferenceTargetForm'),
       }]);
     }
     const { targetNocodeId, targetFormData, targetTable, isCrossAppTarget } = resolvedTarget;
@@ -8817,7 +8817,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         reason: "form_missing",
         tableUID: options.tableId,
         tableName: options.tableId,
-        location: "当前表单",
+        location: global.i18next.t('formFlowService.flowFieldReferenceCurrentForm'),
       }]);
     }
     const referenceIssues = validateEditDataNodeFieldReferences({
