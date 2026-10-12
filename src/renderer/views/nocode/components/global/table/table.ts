@@ -1324,6 +1324,7 @@ export class Table implements RelatedData {
       this.rowKey,
       ...this.getOwnerFieldIds(),
       ...Object.keys(this.sortFieldsMap || {}),
+      ...(this.tableProps.preRequiredColumns || []),
     ].filter(Boolean) as FieldUID[]);
     const appendConditionFields = (conditions?: FormCondition[] | null) => conditions?.forEach(condition => {
       const [rootUID] = String(condition?.uid || "").split(".");

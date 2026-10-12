@@ -48,6 +48,7 @@
           @submitted="handleSubmitted"
           :isMultiple="widget.isMultiple"
           :preHiddenColumns="preHiddenColumns"
+          :preRequiredColumns="preRequiredColumns"
           :isAddDataAble="widget.allowAddNewRow"
           :isEditDataAble="widget.allowEditRow"
           :isImportDataAble="false"
@@ -123,6 +124,7 @@ const isLoading = ref(false);
 
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
+const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
 
 const isSelected = (row) => {
   return Object.keys(selectedRows.value).some(
