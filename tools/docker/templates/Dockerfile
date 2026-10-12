@@ -17,11 +17,11 @@ COPY __BINARY_NAME__ /app/__BINARY_NAME__
 COPY config.jsonc /app/config.jsonc
 
 RUN chmod +x /app/__BINARY_NAME__ \
-  && mkdir -p /root/.config/banban
+  && mkdir -p /root/.config/ds-banban
 
 ENV TZ=Asia/Shanghai
 
 EXPOSE 16666
-VOLUME ["/root/.config/banban"]
+VOLUME ["/root/.config/ds-banban"]
 
 ENTRYPOINT ["/app/__BINARY_NAME__"]

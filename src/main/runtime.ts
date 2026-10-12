@@ -12,7 +12,15 @@ const runtime: Runtime = {
     || process.env.NODE_ENV === "production",
 
   getUserDataPath() {
-    return path.join(os.homedir(), "AppData", "Roaming", process.env.APP_DATA_NAME || "ds-banban");
+    const appDataName = process.env.APP_DATA_NAME || "ds-banban";
+    switch (process.platform) {
+      case "win32":
+        return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), appDataName);
+      case "darwin":
+        return path.join(process.env.HOME || os.homedir(), "Library", "Application Support", appDataName);
+      default:
+        return path.join(process.env.HOME || os.homedir(), ".config", appDataName);
+    }
   },
 
   getProductionSrcPath() {

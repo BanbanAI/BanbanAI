@@ -47,7 +47,7 @@ docker compose up -d
 
 ## 数据目录
 
-- 容器内数据目录：`/root/.config/banban`
+- 容器内数据目录：`/root/.config/ds-banban`
 - `docker-compose.yml` 默认用命名卷 `banban-data` 持久化
 
 ## 说明

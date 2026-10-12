@@ -6,12 +6,9 @@ import { join } from "path";
 const main = async () => {
   const rootDir = join(__dirname, "..", "..");
   
-  console.log("1. 开始在 ARM 机器上编译 server...");
-  execSync("yarn build:server", { cwd: rootDir, stdio: "inherit" });
-  
   const serverDir = join(rootDir, "dist", "server");
   if (!existsSync(serverDir)) {
-    throw new Error(`编译失败，未找到目录: ${serverDir}`);
+    throw new Error(`未找到目录: ${serverDir}`);
   }
   
   const tarFile = join(rootDir, "dist", "dist-server-arm64.tar.gz");

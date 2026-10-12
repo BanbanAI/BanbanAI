@@ -9,7 +9,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./config.jsonc:/app/config.jsonc:ro
-      - banban-data:/root/.config/banban
+      - banban-data:/root/.config/ds-banban
 
 volumes:
   banban-data:

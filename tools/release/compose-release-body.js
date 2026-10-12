@@ -77,6 +77,46 @@ const PLATFORMS = [
       },
     ],
   },
+  {
+    id: "docker",
+    label: "Docker",
+    fileName: (base, arch, ext) => `${base}-docker-${arch}.${ext}`,
+    archs: [
+      {
+        arch: "x64",
+        label: "x64",
+        artifacts: [{ ext: "tar.gz", label: "离线镜像" }],
+      },
+      {
+        arch: "arm64",
+        label: "arm64",
+        artifacts: [{ ext: "tar.gz", label: "离线镜像" }],
+      },
+    ],
+  },
+  {
+    id: "nas",
+    label: "NAS",
+    fileName: (base, arch, ext) => `${base}-nas-${arch}.${ext}`,
+    archs: [
+      {
+        arch: "x64",
+        label: "x64",
+        artifacts: [
+          { ext: "fpk", label: "飞牛", fileName: (base, arch) => `${base}-fnos-${arch}.fpk` },
+          { ext: "spk", label: "群晖", fileName: (base, arch) => `${base}-synology-${arch}.spk` },
+        ],
+      },
+      {
+        arch: "arm64",
+        label: "arm64",
+        artifacts: [
+          { ext: "fpk", label: "飞牛", fileName: (base, arch) => `${base}-fnos-${arch}.fpk` },
+          { ext: "spk", label: "群晖", fileName: (base, arch) => `${base}-synology-${arch}.spk` },
+        ],
+      },
+    ],
+  },
 ];
 
 function releaseBaseName({ product, tag }) {
