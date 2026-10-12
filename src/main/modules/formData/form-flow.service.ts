@@ -30,6 +30,7 @@ import { ProjectService } from "../project/project.services";
 import { intersection } from 'lodash';
 import { FlowTriggerResult, TriggerOptions } from "./types";
 import { applyProcessFieldDefaults, calculateProcessDistinctAggregation, ProcessDefaultDependencyCycleError, resolveProcessDefaultQuickComputeFilterRow, resolveProcessTargetField, restoreProcessBatchFieldValues } from "./form-flow-default-value";
+import { FlowFieldReferenceValidationError, validateEditDataNodeFieldReferences } from "./flow-field-reference-validator";
 
 type DisplayFlowAncestor = {
   flow: ProcessFlow,
@@ -8789,7 +8790,18 @@ export class FormFlowService implements OnApplicationBootstrap {
     const nocodeBody = await this.getFlowNocodeBody(options.nocodeId);
     const formData = nocodeBody.formData;
     const currentTable = formData.tables.find(t => t.uid === options.tableId);
-    const resolvedTarget = this.resolveProcessTargetTable(options.nocodeId, nocodeBody, targetTableUID);
+    let resolvedTarget: ResolvedProcessTargetTable;
+    try {
+      resolvedTarget = this.resolveProcessTargetTable(options.nocodeId, nocodeBody, targetTableUID);
+    } catch {
+      throw new FlowFieldReferenceValidationError([{
+        kind: "target_form",
+        reason: "form_missing",
+        tableUID: targetTableUID,
+        tableName: targetTableUID,
+        location: "目标表单",
+      }]);
+    }
     const { targetNocodeId, targetFormData, targetTable, isCrossAppTarget } = resolvedTarget;
     const shouldTriggerTargetProcess = this.shouldTriggerTargetProcess(node, options, resolvedTarget);
     const isSubTargetTable = !!targetTable?.meta?.extra?.primaryTable && !!primarySourceTable;
@@ -8800,9 +8812,25 @@ export class FormFlowService implements OnApplicationBootstrap {
     };
     const nodeImportTaskId = options.importTaskId;
     if (!currentTable) {
-      return {
-        messages: [],
-      };
+      throw new FlowFieldReferenceValidationError([{
+        kind: "target_form",
+        reason: "form_missing",
+        tableUID: options.tableId,
+        tableName: options.tableId,
+        location: "当前表单",
+      }]);
+    }
+    const referenceIssues = validateEditDataNodeFieldReferences({
+      node,
+      nocodeId: options.nocodeId,
+      nocodeBody,
+      currentTable,
+      targetTable,
+      targetFormData,
+      targetTableUID,
+    });
+    if (referenceIssues.length) {
+      throw new FlowFieldReferenceValidationError(referenceIssues);
     }
     await this.assertCrossAppWritePermission(nocodeBody, resolvedTarget, DataChangeType.EDIT);
     const uuidField = getUUIDSystemField(currentTable.fields);
@@ -10654,12 +10682,27 @@ export class FormFlowService implements OnApplicationBootstrap {
         }
       } catch (err) {
         this.logger.error(`start data processing node error: ${node.type}`, err);
+        const referenceMeta = err instanceof FlowFieldReferenceValidationError
+          ? {
+            errorCode: err.code,
+            issues: err.issues,
+            nodeUID: node.uid,
+            nodeName: err.issues[0]?.nodeName || node.meta?.name,
+            referenceKind: err.issues[0]?.kind,
+            reason: err.issues[0]?.reason,
+            tableUID: err.issues[0]?.tableUID || err.issues[0]?.sourceTableUID,
+            tableName: err.issues[0]?.tableName || err.issues[0]?.sourceTableName,
+            fieldUID: err.issues[0]?.fieldUID || err.issues[0]?.sourceFieldUID,
+            fieldName: err.issues[0]?.fieldName || err.issues[0]?.sourceFieldName,
+            detectedAt: new Date().toISOString(),
+          }
+          : {};
         await this.rejectDataProcessingNode(
           options,
           nodes,
           node,
           this.getFlowErrorMessage(err),
-          {},
+          referenceMeta,
           processingRecord,
         );
         return;

@@ -102,6 +102,7 @@
           :filterRule="table.filterRule"
           :tableUID="table.tableUID"
           :disableAddCondition="props.disableAddCondition"
+          :validateDeletedField="true"
           ref="filterConditionSettingItemRef"
         />
       </el-form>
@@ -169,7 +170,7 @@ const rules = {
   tableUID: [
     {
       validator: (rule, value, callback) => {
-        if(isEmpty(value) || !value) {
+        if (isEmpty(value) || !value || !allFormOptions.value.some(item => item.value === value)) {
           return callback(new Error(i18next.t('DataSourceForm.selectForm')))
         }
         callback()

@@ -51,6 +51,7 @@
             <el-select
               class="target-field"
               v-model="field.fieldUID"
+              :class="{ lost: !isTargetFieldValid(field.fieldUID) }"
               :no-data-text="$t('TargetFormField.noField')"
               :placeholder="$t('TargetFormField.selectField')"
               @change="handleTargetFieldChange(field)"
@@ -68,7 +69,7 @@
               </template>
             </el-select>
           </el-form-item>
-          <div v-else class="target-field-disable" :title="getFieldAlias(field.fieldUID)" :class="{ 'field-deleted': !targetFieldOption.find(item => item.uid === field.fieldUID) }">
+          <div v-else class="target-field-disable" :title="getFieldAlias(field.fieldUID)" :class="{ 'field-deleted': !isTargetFieldValid(field.fieldUID) }">
             {{ getFieldAlias(field.fieldUID) }}
           </div>
         </div>
@@ -227,6 +228,7 @@
               v-else
               v-model="field.value"
               clearable
+              :class="{ lost: !isFieldReferenceValid(field) }"
               :placeholder="$t('TargetFormField.selectField')"
               :options="getFormSelectOptions(field)"
             />
@@ -236,7 +238,7 @@
         <div class="formula-value" v-else-if="field.type === TargetFieldFillType.FORMULA">
           <el-form-item prop="value" >
             <el-button
-              :class="['formula-button', field.value ? 'has-formula' : '']"
+              :class="['formula-button', field.value ? 'has-formula' : '', { lost: !isFormulaValid(field) }]"
               @click="handleEditFormula(field, fieldIndex)"
               :style="{color: field.value ? 'var(--color-primary)' : 'var(--text-color-regular)'}"
             >
@@ -295,6 +297,7 @@ import { cloneDeep as deepClone, isEqual } from "lodash";
 import i18next from 'i18next'
 import { getNocodeDataSourceConnections, getNocodeDataSourceTableByUID, isDataOwnerEnabledTable } from '@common/utils/connection'
 import { getFlowFieldWritePolicy } from '../../flowFieldPolicy'
+import { replaceByFormula } from '@common/utils/formula'
 
 const props = withDefaults(defineProps<{
   tableUID: TableUID,
@@ -390,7 +393,7 @@ const rules = {
   fieldUID: [
     {
       validator: (rule, value, callback) => {
-        if(!isConfiguredValue(value)) {
+        if(!isConfiguredValue(value) || !isTargetFieldValid(value)) {
           return callback(new Error(i18next.t('TargetFormField.selectTargetFormFieldValue')))
         }
         callback()
@@ -403,7 +406,7 @@ const rules = {
         if (!shouldValidateRuleValue(source)) {
           return callback();
         }
-        if (!isConfiguredValue(value)) {
+        if (!isConfiguredValue(value) || !isFieldReferenceValid(source) || !isFormulaValid(source)) {
           return callback(new Error(i18next.t('TargetFormField.inputCustomValue')))
         }
         callback()
@@ -416,7 +419,7 @@ const rules = {
         if (!shouldValidateRuleValue(source)) {
           return callback();
         }
-        if (!isConfiguredValue(value)) {
+        if (!isConfiguredValue(value) || !isFieldReferenceValid(source) || !isFormulaValid(source)) {
           return callback(new Error(i18next.t('TargetFormField.inputCustomValue')))
         }
         callback()
@@ -431,7 +434,7 @@ const fieldValueRule = [
       if (!shouldValidateRuleValue(source)) {
         return callback();
       }
-      if (!isConfiguredValue(value)) {
+      if (!isConfiguredValue(value) || !isFieldReferenceValid(source) || !isFormulaValid(source)) {
         return callback(new Error(i18next.t('TargetFormField.inputCustomValue')))
       }
       callback()
@@ -686,6 +689,45 @@ const normalizeLocalTargetFields = () => {
   }, false)
 }
 
+const findFormOption = (options: FormTreeOption[] = [], value?: string | null): FormTreeOption | undefined => {
+  if (!value) return undefined;
+  for (const option of options) {
+    if (option.value === value) return option;
+    const child = findFormOption(option.children, value);
+    if (child) return child;
+  }
+  return undefined;
+}
+
+const isTargetFieldValid = (fieldUID?: string | null) => {
+  return Boolean(fieldUID && targetFieldOption.value.some(option => option.uid === fieldUID));
+}
+
+const getFieldReferenceOptions = (field?: TargetFieldFillRule | null) => {
+  return getFormSelectOptions(field as TargetFieldFillRule).flatMap(group => group.options || []);
+}
+
+const isFieldReferenceValid = (field?: TargetFieldFillRule | null) => {
+  if (!field || field.type !== TargetFieldFillType.FIELD) return true;
+  if (isDataOwnerTargetField(field)) {
+    return field.value === FLOW_DATA_OWNER_SOURCE_SUBMITTER || !getInvalidDataOwnerFieldOption(field.value);
+  }
+  return Boolean(findFormOption(getFieldReferenceOptions(field), field.value));
+}
+
+const isFormulaValid = (field?: TargetFieldFillRule | null) => {
+  if (!field || field.type !== TargetFieldFillType.FORMULA) return true;
+  if (!isConfiguredValue(field.value)) return false;
+  let valid = true;
+  replaceByFormula(String(field.value), (keys) => {
+    if (!findFormOption(getFieldReferenceOptions(field), keys.join('.'))) {
+      valid = false;
+    }
+    return '';
+  });
+  return valid;
+}
+
 const targetFieldFillTypeName = {
   get [TargetFieldFillType.CUSTOM]() { return i18next.t('TargetFormField.customValue') },
   get [TargetFieldFillType.EMPTY]() {
@@ -841,8 +883,7 @@ const updateTargetFields = () => {
       const item = localTargetFields.value[i];
       const option = fieldOption.find(option => option.uid === item.fieldUID);
       if(!option) {
-        localTargetFields.value.splice(i, 1);
-        i --;
+        // 保留已删除字段的配置，展示为失效状态并在保存时阻止提交。
         continue;
       }
     }
@@ -1057,9 +1098,14 @@ const deleteTargetField = (index) => {
 }
 
 const validate = async () => {
+  const hasInvalidReference = localTargetFields.value.some(field => (
+    !isTargetFieldValid(field.fieldUID)
+    || !isFieldReferenceValid(field)
+    || !isFormulaValid(field)
+  ));
   if(!formRef.value) {
     emit('update', localTargetFields.value)
-    return true
+    return !hasInvalidReference
   }
   if (Array.isArray(formRef.value)) {
     // 多个子表单逐个校验
@@ -1070,19 +1116,19 @@ const validate = async () => {
         })
       )
     )
-    if(results.every(Boolean)) {
+    if(results.every(Boolean) && !hasInvalidReference) {
       emit('update', localTargetFields.value)
     }
-    return results.every(Boolean)
+    return results.every(Boolean) && !hasInvalidReference
   } else {
     // 单个表单
     const result = await new Promise<boolean>((resolve) => {
       formRef.value.validate((valid: boolean) => resolve(valid))
     })
-    if(result) {
+    if(result && !hasInvalidReference) {
       emit('update', localTargetFields.value)
     }
-    return result
+    return result && !hasInvalidReference
   }
 }
 
