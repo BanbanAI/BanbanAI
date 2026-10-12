@@ -1341,6 +1341,8 @@ export class Form extends AbstractForm {
 
   isChildShow(widget: FormElement) {
     if (this.isEditable) return true;
+    // 操作编辑弹窗等场景会强制隐藏未配置的字段，不含任何可见字段的布局元素（分组标题、空容器）应一并隐藏
+    if (!super.isChildShow(widget)) return false;
     if (!this.fieldsVisibleRules) return true;
     const widgetId = widget.uid;
 
