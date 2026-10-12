@@ -17,7 +17,7 @@
         <nocode-permission-table :nocodeId="widget.nocodeId" ref="nocodeTableRef" permissionMode="data" :isFilterEmptyValue="false"
           :tableUID="widget.connectionTable[1]" :click-row-checked="!widget.allowEditRow" v-if="widget" :isAddDataAble="widget.allowAddNewRow"
           @toggleCheckboxRow="handleSelectRow" @toggleCheckAll="handleSelectAll" @closeDialog="handleClosedAddDialog" :isMultiple="widget.isMultiple" @changeRows="handleChangeRows" @submitted="handleSubmitted"
-          :preHiddenColumns="preHiddenColumns" :isEditDataAble="widget.allowEditRow" :isImportDataAble="false" :isExportDataAble="false" :clickRowShowDetail="widget.allowEditRow"
+          :preHiddenColumns="preHiddenColumns" :preRequiredColumns="preRequiredColumns" :isEditDataAble="widget.allowEditRow" :isImportDataAble="false" :isExportDataAble="false" :clickRowShowDetail="widget.allowEditRow"
           :isShowMoreMenu="false" :hideColumnsAble="false" :preFilterRule="widget.formDataFilter" :addNewRowData="addNewRowData" :tableViewMeta="{}">
           <template #checkbox="{ row, checked }">
             <el-checkbox :modelValue="isSelected(row)" :value="true" style="height: 22px; width: 18px;" />
@@ -75,6 +75,7 @@ const isLoading = ref(false);
 
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
+const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
 
 if (!selectDataStore[widget.uid]) {
   isShowAdd.value = true;

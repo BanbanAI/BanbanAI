@@ -398,6 +398,20 @@ export class SelectData extends FormElement {
     return [...result];
   }
 
+  getFillRuleSourceMainFieldUIDs() {
+    const subTableFieldUIDSet = new Set(this.subFormTableFields.map(item => item.fieldUID));
+    const result = new Set<FieldUID>();
+
+    for (const rule of this.fillRules) {
+      const fieldUID = rule.sourceUID?.split(".")?.[0] as FieldUID | undefined;
+      if (fieldUID && !subTableFieldUIDSet.has(fieldUID)) {
+        result.add(fieldUID);
+      }
+    }
+
+    return [...result];
+  }
+
   get index() {
     return this.parent.widgets.findIndex(w => w.uid === this.uid);
   }

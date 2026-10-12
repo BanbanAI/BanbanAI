@@ -95,6 +95,8 @@ export type TableProps = {
   preViewFilterRules?: FilterRule[],
   /** 预隐藏字段信息 */
   preHiddenColumns?: FieldUID[],
+  /** 查询时必须返回的字段，不影响字段显示 */
+  preRequiredColumns?: FieldUID[],
   /** 预设置字段顺序信息 */
   preColumnOrders?: FormTableColumnOrder,
   /** 预排序字段 */

@@ -450,6 +450,7 @@ type NocodeDataManagementTableProps = {
   preFilterRule?: FilterRule;
   preViewFilterRules?: FilterRule[];
   preHiddenColumns?: FieldUID[];
+  preRequiredColumns?: FieldUID[];
   preColumnOrders?: FormTableColumnOrder;
   preSortFields?: FormSortField[];
   prePageSize?: number;
