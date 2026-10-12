@@ -47,6 +47,7 @@
             :targetTitle="$t('EditDataOption.targetFormField')"
             :isRequired="isTargetFilterRequired"
             :disableAddCondition="shouldDisableMainTableAddCondition"
+            :validateDeletedField="true"
           />
         </el-form-item>
         <hr />
@@ -641,7 +642,7 @@ const targetFormSelectValue = computed({
 
 const rules = {
   targetTableUID: [{
-    validator: (rule, value, callback) => value
+    validator: (rule, value, callback) => value && targetTableSource.value?.table
       ? callback()
       : callback(new Error(i18next.t('EditDataOption.selectForm'))),
     trigger: 'change'

@@ -7689,7 +7689,29 @@
     "contactAdminForPermission": "Contact an admin for access",
     "checkFlowConfigBeforeRetry": "Check the flow settings and retry",
     "retryFailedRowsAfterFix": "Fix the issue, then retry failed rows only",
-    "flowExecutionFailed": "Flow failed"
+    "flowExecutionFailed": "Flow failed",
+    "flowFieldReferenceTargetForm": "Target Form",
+    "flowFieldReferenceCurrentForm": "Current Form"
+  },
+  "flowFieldReferenceValidator": {
+    "defaultNodeName": "Update Record",
+    "defaultTargetForm": "Target Form",
+    "formMissing": "The form {{tableName}} does not exist or is not accessible",
+    "fieldMissing": "Field \"{{fieldName}}\" of form {{tableName}} does not exist or has been deleted",
+    "incomplete": "The node configuration is incomplete",
+    "issueCount": "{{issueCount}} issue(s) found. ",
+    "locationWrapper": " ({{location}})",
+    "nodeConfigInvalid": "The flow has ended: the configuration of node {{nodeName}} is invalid. {{issueCount}}{{reason}}{{location}}. Please fix the flow configuration and start the flow again.",
+    "sourceTableItem": "data source form #{{index}}",
+    "sourceTableFilter": "filter conditions of data source form #{{index}}",
+    "primarySourceTable": "main form data source",
+    "primarySourceTableFilter": "filter conditions of the main form data source",
+    "targetFieldRule": "target field assignment rule #{{index}}",
+    "targetFieldFormula": "target field formula #{{index}}",
+    "targetFormFilter": "filter conditions of the target form",
+    "currentSubTableFilter": "subtable filter #{{index}} of the current form",
+    "conditionValue": "condition value of {{location}}",
+    "conditionFormula": "condition formula of {{location}}"
   },
   "nocodeService": {
     "readExcelFileFail": "Read Excel file failed:",
