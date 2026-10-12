@@ -5,9 +5,9 @@ import { spawn, spawnSync } from "child_process";
 import zlib from "zlib";
 
 type Command = "prepare" | "build" | "push";
-type SupportedArch = "x86" | "arm64";
+export type SupportedArch = "x86" | "arm64";
 
-type CliOptions = {
+export type CliOptions = {
   [key: string]: string | undefined,
   appDir?: string,
   arch?: string,
@@ -20,7 +20,7 @@ type CliOptions = {
   saveTo?: string,
 };
 
-type ContextInfo = {
+export type ContextInfo = {
   appDir: string,
   arch: SupportedArch,
   binaryName: string,
@@ -41,7 +41,7 @@ type PreparedContext = ContextInfo & {
 const projectRoot = resolve(__dirname, "..", "..");
 const templateDir = join(__dirname, "templates");
 
-function parseArgs(argv: string[]) {
+export function parseArgs(argv: string[]) {
   const command = (argv[0] || "prepare") as Command;
   const options: CliOptions = {};
 
@@ -147,7 +147,7 @@ function getDefaultSavePath(contextDir: string, version: string, arch: Supported
   return join(contextDir, `banban-${version}-${arch}.tar.gz`);
 }
 
-function resolveContextInfo(options: CliOptions): ContextInfo {
+export function resolveContextInfo(options: CliOptions): ContextInfo {
   const version = getPackageVersion();
   const imageInfo = resolveImageInfo(version, options);
   const appDir = resolve(projectRoot, options.appDir || getDefaultAppDir());
@@ -387,7 +387,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

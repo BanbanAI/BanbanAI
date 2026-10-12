@@ -26,7 +26,6 @@
     "build:nas:x64": "yarn build:nas:payload --arch x64 && yarn build:nas:synology --arch x64 && yarn build:nas:fnos --arch x64",
     "build:nas:arm64": "yarn build:nas:payload --arch arm64 && yarn build:nas:synology --arch arm64 && yarn build:nas:fnos --arch arm64",
     "build:nas:server:arm64:tgz": "ts-node tools/nas/pack-server-arm",
-    "build:nas:synology:arm64": "ts-node tools/nas/prepare-synology-arm-server && yarn build:nas:payload --arch arm64 && yarn build:nas:synology --arch arm64",
     "build:nas:payload": "ts-node tools/nas/build-payload",
     "build:nas:synology": "ts-node tools/nas/build-synology-project",
     "build:nas:fnos": "ts-node tools/nas/pack-fnos-fpk",
