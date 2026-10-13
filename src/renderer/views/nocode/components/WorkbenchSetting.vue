@@ -110,7 +110,7 @@
       </el-form>
     </nocode-base-setting-panel>
   </nocode-panel>
-  <edit-user-password-dialog ref="editAdminPasswordDialogRef" :title="$t('workbenchSetting.modifyAdminPassword')" v-model="visibleEditPassword" @edit:formPassword="editFormPassword"></edit-user-password-dialog>
+  <edit-user-password-dialog ref="editAdminPasswordDialogRef" :title="$t('workbenchSetting.modifyAdminPassword')" :hide-old-password="true" v-model="visibleEditPassword" @edit:formPassword="editFormPassword"></edit-user-password-dialog>
   <https-setting-dialog ref="httpsSettingRef" />
 </template>
 
@@ -319,12 +319,8 @@ const handleEditAdminPass = () => {
 }
 
 const editFormPassword = async (val) => {
-  const { newPassword, oldPassword } = val;
-  const isClient = env.inClient();
-  await axios.post(
-    isClient ? '/workbench/update-password-in-client' : '/workbench/update-password',
-    isClient ? { newPassword } : { oldPassword, newPassword },
-  ).then((res) => {
+  const { newPassword } = val;
+  await axios.post('/workbench/update-admin-password', { newPassword }).then((res) => {
     if (res) {
       ElMessage.success(i18next.t("WorkbenchSetting.passwordChangedSuccess"));
       visibleEditPassword.value = false;

@@ -9,7 +9,7 @@
       </template>
       <div class="dialog-content">
         <el-form :model="formPassword" :rules="passFormRules" label-width="auto" ref="formRef">
-          <el-form-item v-if="!env.inClient()" label-position="left" prop="oldPassword" :label="$t('AccountSettingDialog.currentPassword')">
+          <el-form-item v-if="!hideOldPassword" label-position="left" prop="oldPassword" :label="$t('AccountSettingDialog.currentPassword')">
             <el-input type="password" v-model="formPassword.oldPassword" :placeholder="$t('AccountSettingDialog.currentPasswordTip')" show-password/>
           </el-form-item>
           <el-form-item label-position="left" prop="newPassword" :label="$t('AccountSettingDialog.newPassword')">
@@ -35,7 +35,6 @@ import { reactive, ref } from "vue";
 import { usePassportStore } from '@renderer/stores';
 import { FormRules} from 'element-plus';
 import i18next from "i18next";
-import { env } from '@renderer/utils/env';
 
 type FormPassWord = {
   oldPassword: string,
@@ -45,7 +44,8 @@ type FormPassWord = {
 
 const props = defineProps<{
   modelValue: boolean,
-  title?: string
+  title?: string,
+  hideOldPassword?: boolean
 }>();
 
 const emit = defineEmits<{

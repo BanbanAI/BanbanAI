@@ -354,11 +354,12 @@ export class WorkbenchService implements OnApplicationBootstrap {
     this.organizeCache.invalidateUsers("user-password-updated");
   }
 
-  async updateAdminPasswordInClient(newPassword: string) {
+  async updateAdminPassword(newPassword: string) {
     const admin = await this.workbenchUserRepository.findOne({ user: ADMIN_USERNAME });
     if (!admin) {
       throw new Error(global.i18next.t('workbenchServiceTs.userNotFound'));
     }
+    if (__IS_SERVER__ && serverConfig.adminPass) updateConfig("adminPass", newPassword);
     admin.pass = encodePassword(newPassword);
     await this.workbenchUserRepository.persistAndFlush(admin);
     this.organizeCache.invalidateUsers("user-password-updated");

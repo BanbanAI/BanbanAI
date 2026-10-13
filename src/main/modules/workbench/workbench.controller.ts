@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { WorkbenchService } from "./workbench.service";
 import { AiPermissionConfig, PublishCategory, PublishUpdateMethod } from "@common/types/project";
 import { Request } from 'express';
@@ -82,9 +82,12 @@ export class WorkbenchController {
   }
 
   @NoAdminPermissionGuard()
-  @Post('update-password-in-client')
-  updatePasswordInClient(@Body('newPassword') newPassword: string) {
-    return this.workbenchService.updateAdminPasswordInClient(newPassword);
+  @Post('update-admin-password')
+  updateAdminPassword(@Body('newPassword') newPassword: string, @Req() req: Request) {
+    if (req.account && !isSystemAdminAccount(req.account)) {
+      throw new ForbiddenException();
+    }
+    return this.workbenchService.updateAdminPassword(newPassword);
   }
 
   @NoAdminPermissionGuard()
