@@ -2556,8 +2556,15 @@
     "workbenchSetting": "Workbench",
     "storageSetting": "Storage",
     "generalSetting": "General",
+    "checkUpdate": "Check for Updates",
     "expire": " expires",
     "free": "Community"
+  },
+  "CheckUpdate": {
+    "checkUpdate": "Check for Updates",
+    "appVersion": "Version",
+    "officialDownload": "Official Download",
+    "github": "GitHub"
   },
   "WorkbenchSetting": {
     "cannotAccess": "Workbench unavailable? ",
