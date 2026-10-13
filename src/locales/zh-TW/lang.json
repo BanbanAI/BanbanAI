@@ -7766,7 +7766,8 @@
   "userService": {
     "consoleConfigUnsupported": "目前環境不支援在控制台修改服務設定",
     "invalidProtocol": "通訊協定無效",
-    "invalidPort": "連接埠無效"
+    "invalidPort": "連接埠無效",
+    "portOccupiedRestart": "連接埠 {{port}} 已被佔用，請更換其他連接埠後重試"
   },
   "workbenchController": {
     "appNotExist": "應用不存在"
@@ -7793,6 +7794,9 @@
   "mainServer": {
     "serverStartFailPort": "服務啓動失敗, 端口",
     "portAlreadyUsed": "已被佔用",
+    "portOccupiedSwitchRandom": "端口 {{port}} 無法使用，已自動切換爲隨機端口 {{nextPort}}",
+    "portSwitchNoticeTitle": "端口已自動切換",
+    "portSwitchNoticeMessage": "檢測到端口 {{port}} 已被佔用，服務已自動切換到新端口 {{nextPort}}，訪問地址已同步更新。",
     "detectHttpsCertEnableHttps": "檢測到 HTTPS 證書和密鑰，啓用 HTTPS",
     "readHttpsCertKeyFailUseHttp": "HTTPS 證書或密鑰讀取失敗，使用 HTTP 模式",
     "noHttpsCertKeyDetectUseHttp": "未檢測到 HTTPS 證書和密鑰，使用 HTTP 模式",

@@ -175,6 +175,19 @@ jobs:
         if: matrix.platform == 'linux'
         run: yarn build:server
 
+      - name: 压缩无桌面版产物（传工件给 docker/nas 复用）
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: tar -czf server-build.tar.gz --exclude='*.zip' -C dist/server/main/zh-CN app
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'linux'
+        with:
+          name: server-raw-${{ matrix.arch }}
+          path: server-build.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
       # electron-builder 和无桌面版（pkg）产出的文件名带中文且不含架构，
       # 这里统一改成 ASCII 稳定名，Downloads 表格里的链接才成立。
       - name: 归一化产物名
@@ -229,9 +242,291 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # ────────────────────────────────────────────────────────────────────
+  # docker / nas 打包：不重复编译 server——直接复用 build 里两条 linux 腿产出的
+  # 无桌面版产物（server-raw-x64 / server-raw-arm64 工件），只跑各自的打包命令。
+  # x64 的两条腿跑在 x86 runner 上，arm64 的两条腿跑在 ARM runner 上（leveldown
+  # 等原生模块只能在 ARM 机器上编出来）；群晖封包分别用 v1000nk / rtd1619b 的
+  # pkgscripts-ng chroot。
+  # 代价：这四条腿要等整个 build job（含 windows/mac 腿）结束才开始。
+  # ────────────────────────────────────────────────────────────────────
+  docker-x64:
+    name: 打包 docker-x64
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      # 复用 build 里 linux-x64 腿编好的无桌面版产物
+      - name: 下载无桌面版产物
+        uses: actions/download-artifact@v4
+        with:
+          name: server-raw-x64
+          path: dist/server/main/zh-CN
+
+      - name: 解包到 dist/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/server/main/zh-CN
+          tar -xzf server-build.tar.gz
+          rm server-build.tar.gz
+
+      - name: 构建离线镜像
+        run: yarn build:docker:server --arch x64
+
+      - name: 归一化产物名
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          cp dist/docker/server/banban-*.tar.gz "upload/$BASE-docker-x64.tar.gz"
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-docker-x64
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  docker-arm64:
+    name: 打包 docker-arm64
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      # 复用 build 里 linux-arm64 腿编好的无桌面版产物
+      - name: 下载无桌面版产物
+        uses: actions/download-artifact@v4
+        with:
+          name: server-raw-arm64
+          path: dist/server/main/zh-CN
+
+      - name: 解包到 dist/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/server/main/zh-CN
+          tar -xzf server-build.tar.gz
+          rm server-build.tar.gz
+
+      # ARM runner 上原生构建，docker build 默认就出 linux/arm64 镜像
+      - name: 构建离线镜像
+        run: yarn build:docker:server --arch arm64
+
+      - name: 归一化产物名
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          cp dist/docker/server/banban-*.tar.gz "upload/$BASE-docker-arm64.tar.gz"
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-docker-arm64
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  nas-x64:
+    name: 打包 nas-x64
+    needs: [prepare, build]
+    # pkgscripts-ng 官方只保证 Ubuntu ≤ 22.04，别升 24.04
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: 安装群晖打包环境依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap
+
+      # 飞牛 fpk 需要官方 fnpack；下载地址放仓库变量 FNPACK_URL
+      - name: 安装 fnpack（飞牛打包工具）
+        env:
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+        run: |
+          if [ -z "$FNPACK_URL" ]; then
+            echo "未配置仓库变量 FNPACK_URL（fnpack linux-amd64 可执行文件直链）" >&2
+            exit 1
+          fi
+          curl -fsSL "$FNPACK_URL" -o "$HOME/fnpack"
+          chmod +x "$HOME/fnpack"
+          echo "FNPACK_BIN=$HOME/fnpack" >> "$GITHUB_ENV"
+
+      - name: 准备 pkgscripts-ng（部署 v1000nk chroot，会下载 Synology 工具链，较慢）
+        run: |
+          git clone https://github.com/SynologyOpenSource/pkgscripts-ng.git "$HOME/pkgscripts-ng"
+          cd "$HOME/pkgscripts-ng"
+          git checkout DSM7.3
+          sudo ./EnvDeploy -v 7.3 -p v1000nk
+          echo "PKGSCRIPTS_NG_DIR=$HOME/pkgscripts-ng" >> "$GITHUB_ENV"
+
+      - run: yarn install --frozen-lockfile
+
+      # 复用 build 里 linux-x64 腿编好的无桌面版产物
+      - name: 下载无桌面版产物
+        uses: actions/download-artifact@v4
+        with:
+          name: server-raw-x64
+          path: dist/server/main/zh-CN
+
+      - name: 解包到 dist/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/server/main/zh-CN
+          tar -xzf server-build.tar.gz
+          rm server-build.tar.gz
+
+      - name: 生成 NAS 包（飞牛 fpk + 群晖工程骨架）
+        run: yarn build:nas:x64
+
+      # 与本地一致：进 synology 工程目录跑官方封包（PKGSCRIPTS_NG_DIR 已就绪，可省第一个参数）
+      - name: 群晖正式封包（v1000nk，产出 x64 通用包）
+        working-directory: dist/nas/synology/main/zh-CN/x64
+        run: bash build-on-linux.sh v1000nk 7.3
+
+      - name: 归一化产物名
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          cp dist/nas/fnos/main/zh-CN/x64/*.fpk "upload/$BASE-fnos-x64.fpk"
+          cp dist/nas/synology/main/zh-CN/x64/*.spk "upload/$BASE-synology-x64.spk"
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-nas-x64
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  nas-arm64:
+    name: 打包 nas-arm64
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: 安装群晖打包环境依赖 + qemu
+        # fnpack 官方只发 amd64 版（静态链接），ARM 机器上靠 qemu 模拟执行；
+        # 已用 arm64 Ubuntu 22.04 容器实测：包内有 qemu-x86_64-static，amd64 fnpack 能正常跑
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap qemu-user-static binfmt-support
+          # 显式注册一次兜底（postinst 正常已注册，重复执行无副作用）
+          sudo update-binfmts --enable qemu-x86_64 2>/dev/null || true
+          test -f /proc/sys/fs/binfmt_misc/qemu-x86_64 && echo "qemu-x86_64 binfmt 已注册" || echo "警告：qemu-x86_64 binfmt 未注册，fnpack 可能执行失败"
+
+      # 飞牛 fpk 需要官方 fnpack：官方只有 amd64 版，这里下载的也是 amd64 版，靠上面的 qemu 跑
+      - name: 安装 fnpack（飞牛打包工具）
+        env:
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+        run: |
+          if [ -z "$FNPACK_URL" ]; then
+            echo "未配置仓库变量 FNPACK_URL（fnpack linux-amd64 可执行文件直链）" >&2
+            exit 1
+          fi
+          curl -fsSL "$FNPACK_URL" -o "$HOME/fnpack"
+          chmod +x "$HOME/fnpack"
+          echo "FNPACK_BIN=$HOME/fnpack" >> "$GITHUB_ENV"
+
+      - name: 准备 pkgscripts-ng（部署 rtd1619b chroot，会下载 Synology 工具链，较慢）
+        run: |
+          git clone https://github.com/SynologyOpenSource/pkgscripts-ng.git "$HOME/pkgscripts-ng"
+          cd "$HOME/pkgscripts-ng"
+          git checkout DSM7.3
+          sudo ./EnvDeploy -v 7.3 -p rtd1619b
+          echo "PKGSCRIPTS_NG_DIR=$HOME/pkgscripts-ng" >> "$GITHUB_ENV"
+
+      - run: yarn install --frozen-lockfile
+
+      # 复用 build 里 linux-arm64 腿编好的无桌面版产物
+      - name: 下载无桌面版产物
+        uses: actions/download-artifact@v4
+        with:
+          name: server-raw-arm64
+          path: dist/server/main/zh-CN
+
+      - name: 解包到 dist/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/server/main/zh-CN
+          tar -xzf server-build.tar.gz
+          rm server-build.tar.gz
+
+      - name: 生成 NAS 包（飞牛 fpk + 群晖工程骨架）
+        run: yarn build:nas:arm64
+
+      - name: 群晖正式封包（rtd1619b，产出 ARM64 通用包）
+        working-directory: dist/nas/synology/main/zh-CN/arm64
+        run: bash build-on-linux.sh rtd1619b 7.3
+
+      - name: 归一化产物名
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          cp dist/nas/fnos/main/zh-CN/arm64/*.fpk "upload/$BASE-fnos-arm64.fpk"
+          cp dist/nas/synology/main/zh-CN/arm64/*.spk "upload/$BASE-synology-arm64.spk"
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-nas-arm64
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: 建 draft release
-    needs: [prepare, build]
+    needs: [prepare, build, docker-x64, docker-arm64, nas-x64, nas-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -7778,7 +7778,8 @@
   "userService": {
     "consoleConfigUnsupported": "Service settings cannot be changed in this environment",
     "invalidProtocol": "Invalid protocol",
-    "invalidPort": "Invalid port"
+    "invalidPort": "Invalid port",
+    "portOccupiedRestart": "Port {{port}} is already in use. Please use another port and try again."
   },
   "workbenchController": {
     "appNotExist": "App does not exist"
@@ -7805,6 +7806,9 @@
   "mainServer": {
     "serverStartFailPort": "Service startup failed, Port",
     "portAlreadyUsed": "is already in use",
+    "portOccupiedSwitchRandom": "Port {{port}} is unavailable, switched to random port {{nextPort}}",
+    "portSwitchNoticeTitle": "Port Switched Automatically",
+    "portSwitchNoticeMessage": "Port {{port}} is already in use. The service has automatically switched to port {{nextPort}}, and the access address has been updated.",
     "detectHttpsCertEnableHttps": "Detected HTTPS Certificate and key, Enable HTTPS",
     "readHttpsCertKeyFailUseHttp": "HTTPS certificate or key read failed, Use HTTP Mode",
     "noHttpsCertKeyDetectUseHttp": "No HTTPS Certificate and key, Use HTTP Mode",
