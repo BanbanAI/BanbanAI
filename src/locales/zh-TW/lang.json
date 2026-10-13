@@ -2279,6 +2279,7 @@
   "commmonSetting": {
     "title": "通用設定",
     "basicSetting": "基本設定",
+    "powerOnStart": "開機啟動：",
     "projectPath": "專案路徑：",
     "clearCache": "立即清理",
     "changeDir": "更改",

@@ -20,6 +20,7 @@ type ConfType = {
   clientIdentifier: string,
   clientUUID: string,
   proxy: Proxy,
+  autoStart: boolean,
   resourceProxy: boolean,
   // saasDomain: string,
   domain: string,

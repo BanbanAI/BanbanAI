@@ -1,5 +1,11 @@
 <template>
   <nocode-panel :title="$t('commmonSetting.title')" max-height="300px">
+    <nocode-base-setting-panel :title="$t('commmonSetting.basicSetting')" v-if="!isServer && settingState.isBootStartSupported">
+      <div class="setting-item">
+        <span class="title">{{ $t('commmonSetting.powerOnStart') }}</span>
+        <el-switch v-model="isBootStart" @change="bootStartFn" :disabled="isDev"/>
+      </div>
+    </nocode-base-setting-panel>
     <nocode-base-setting-panel :title="$t('CommonSetting.languageSetting')">
       <div class="setting-item">
         <span class="title language-title">{{ $t('CommonSetting.currentLanguage') }}{{ getI18nLabelColon() }}</span>
@@ -167,7 +173,7 @@
 </template>
 
 <script lang='ts' setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import axios from "axios";
 import { ElLoading, ElMessage, FormInstance, ElUpload, UploadProps, UploadRawFile, genFileId, UploadFile } from "element-plus";
 import { CircleCheck, RefreshRight } from "@element-plus/icons-vue";
@@ -194,6 +200,9 @@ const emit = defineEmits<{
 }>();
 
 const settingState = useSettingStore();
+const isDev = import.meta.env.DEV;
+const isServer = __IS_SERVER__;
+const isBootStart = ref(false);
 const isClearCache = ref(false);
 const passportState = usePassportStore();
 const languageOptions = [
@@ -255,6 +264,16 @@ const migrationApplyErrorText = computed(() => {
   return `${i18next.t('SystemMigration.applyFailed')}: ${message}`;
 });
 
+// 开机自启
+const bootStartFn = async () => {
+  await axios.post("/user/boot-start", { isBootStart: isBootStart.value });
+  ElMessage.success(i18next.t("basicSetting.setSuccess"));
+}
+
+watch(() => settingState.isBootStart, (val) => {
+  isBootStart.value = val;
+});
+
 // 清除缓存
 const clearCache = async()=>{
   isClearCache.value = true;
@@ -296,9 +315,11 @@ const proxyForm = reactive<ProxyOptions>({
 
 onMounted(async () => {
   const loaders = [
+    settingState.getBootStart(),
     settingState.getProxyOptions(),
   ];
   await Promise.allSettled(loaders);
+  isBootStart.value = settingState.isBootStart;
   Object.assign(proxyForm, settingState.proxy);
 });
 

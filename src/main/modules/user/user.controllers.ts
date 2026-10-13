@@ -2,6 +2,7 @@ import { UserService } from "./user.service";
 import { Body, Controller, Get, Post, Inject, Query, UseGuards } from '@nestjs/common'
 import { Preferences } from "../common";
 import { PREFERENCES } from "@main/constants";
+import { getRuntime } from "@main/runtime";
 import { osLocale } from 'os-locale';
 import { AccountRole, ValidateMainUserOptions } from "@common/types/account";
 import { NoLocalAuthGuard } from "../auth/guards";
@@ -222,6 +223,21 @@ export class UserController {
   @NoLocalAuthGuard()
   async getProxy(){
     return this.preferences.get("proxy", { on: false });
+  }
+
+  @Post("boot-start")
+  bootStart(@Body('isBootStart') isBootStart: boolean){
+    this.preferences.set({ autoStart: isBootStart });
+    getRuntime().setOpenAtLogin(isBootStart);
+  }
+
+  @Get("get-boot-start")
+  @NoLocalAuthGuard()
+  getBootStart(){
+    return {
+      isBootStart: !!this.preferences.get('autoStart'),
+      isBootStartSupported: process.platform === "win32" || process.platform === "darwin",
+    }
   }
 
   @Get("clear-cache")
