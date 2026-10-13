@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { WorkbenchService } from "./workbench.service";
 import { AiPermissionConfig, PublishCategory, PublishUpdateMethod } from "@common/types/project";
 import { Request } from 'express';
@@ -79,9 +79,17 @@ export class WorkbenchController {
   @NoAdminPermissionGuard()
   @Post('update-password')
   updatePassword(@Body('oldPassword') oldPassword: string, @Body('newPassword') newPassword: string, @Req() req: Request) {
+    return this.workbenchService.updatePassword(req.account.id, oldPassword, newPassword);
+  }
+
+  @NoAdminPermissionGuard()
+  @Post('update-password-in-client')
+  updatePasswordInClient(@Body('newPassword') newPassword: string, @Req() req: Request) {
     const clientToken = req.headers[ELECTRON_CLIENT_TOKEN_HEADER.toLowerCase()];
-    const isClient = !!clientToken && isElectronClientRequestToken(clientToken);
-    return this.workbenchService.updatePassword(req.account.id, oldPassword, newPassword, isClient);
+    if (!clientToken || !isElectronClientRequestToken(clientToken)) {
+      throw new UnauthorizedException();
+    }
+    return this.workbenchService.updateAdminPasswordInClient(newPassword);
   }
 
   @NoAdminPermissionGuard()

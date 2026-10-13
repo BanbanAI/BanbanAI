@@ -339,29 +339,28 @@ export class WorkbenchService implements OnApplicationBootstrap {
     return true;
   }
 
-  async updatePassword(id: string, oldPassword: string, newPassword: string, isClient: boolean) {
+  async updatePassword(id: string, oldPassword: string, newPassword: string) {
     const user = await this.workbenchUserRepository.findOne({ id });
     if (!user) {
       throw new Error(global.i18next.t('workbenchServiceTs.userNotFound'));
     }
-    if (__IS_SERVER__) {
-      const adminPass = this.getAdminPassword();
-      let pwdValid;
-      if (adminPass && !isClient) {
-        pwdValid = adminPass === oldPassword;
-      }
-      if (!pwdValid) {
-        pwdValid = user.pass === encodePassword(oldPassword);
-      }
-      if (!pwdValid) throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
-      if (serverConfig.adminPass) updateConfig("adminPass", newPassword);
-    } else {
-      if (encodePassword(oldPassword) !== user.pass && !isClient) {
-        throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
-      }
-    }
+    const adminPass = this.getAdminPassword();
+    let pwdValid = adminPass ? adminPass === oldPassword : false;
+    if (!pwdValid) pwdValid = user.pass === encodePassword(oldPassword);
+    if (!pwdValid) throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
+    if (__IS_SERVER__ && serverConfig.adminPass) updateConfig("adminPass", newPassword);
     user.pass = encodePassword(newPassword);
     await this.workbenchUserRepository.persistAndFlush(user);
+    this.organizeCache.invalidateUsers("user-password-updated");
+  }
+
+  async updateAdminPasswordInClient(newPassword: string) {
+    const admin = await this.workbenchUserRepository.findOne({ user: ADMIN_USERNAME });
+    if (!admin) {
+      throw new Error(global.i18next.t('workbenchServiceTs.userNotFound'));
+    }
+    admin.pass = encodePassword(newPassword);
+    await this.workbenchUserRepository.persistAndFlush(admin);
     this.organizeCache.invalidateUsers("user-password-updated");
   }
 

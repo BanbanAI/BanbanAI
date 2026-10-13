@@ -320,10 +320,11 @@ const handleEditAdminPass = () => {
 
 const editFormPassword = async (val) => {
   const { newPassword, oldPassword } = val;
-  await axios.post(`/workbench/update-password`, {
-    oldPassword,
-    newPassword,
-  }).then((res) => {
+  const isClient = env.inClient();
+  await axios.post(
+    isClient ? '/workbench/update-password-in-client' : '/workbench/update-password',
+    isClient ? { newPassword } : { oldPassword, newPassword },
+  ).then((res) => {
     if (res) {
       ElMessage.success(i18next.t("WorkbenchSetting.passwordChangedSuccess"));
       visibleEditPassword.value = false;
