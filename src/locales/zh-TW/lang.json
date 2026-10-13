@@ -2544,8 +2544,15 @@
     "workbenchSetting": "工作台設定",
     "storageSetting": "儲存設定",
     "generalSetting": "通用設定",
+    "checkUpdate": "檢查更新",
     "expire": "到期",
     "free": "社區版"
+  },
+  "CheckUpdate": {
+    "checkUpdate": "檢查更新",
+    "appVersion": "當前版本",
+    "officialDownload": "官網下載",
+    "github": "GitHub"
   },
   "WorkbenchSetting": {
     "cannotAccess": "工作台無法使用？",

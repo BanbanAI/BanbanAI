@@ -55,6 +55,11 @@
                 <i-ven-frame />
               </el-icon>
               {{ $t("NocodeView.generalSetting") }}</vn-stack-tab>
+            <vn-stack-tab class="tab" name="checkUpdate">
+              <el-icon :size="16">
+                <i-ven-union />
+              </el-icon>
+              {{ $t("NocodeView.checkUpdate") }}</vn-stack-tab>
           </div>
           <div class="version-info" v-if="!isServer">
             <span class="version product-name" :title="$t('productName')">{{ $t("productName") }}</span>
@@ -83,6 +88,9 @@
             :systemMigrationApplyStatus="systemMigrationApplyStatus"
             @retry-system-migration-apply="handleRetrySystemMigrationApply"
           ></common-setting>
+        </vn-stack-layer>
+        <vn-stack-layer name="checkUpdate">
+          <check-update v-if="activeTab === 'checkUpdate'"></check-update>
         </vn-stack-layer>
       </el-main>
     </el-container>
