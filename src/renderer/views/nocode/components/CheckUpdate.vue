@@ -11,7 +11,7 @@
           {{ $t('CheckUpdate.appVersion') }}: v{{ version }}
         </div>
 
-        <div class="btn-group" v-if="env.inClient()">
+        <div class="btn-group">
           <el-button class="btn-official-download" @click="handleOfficialDownload">
             {{ $t('CheckUpdate.officialDownload') }}
             <el-icon class="btn-icon" :size="16"><i-material-symbols-open-in-new-rounded /></el-icon>
@@ -27,8 +27,6 @@
 </template>
 
 <script lang='ts' setup>
-import { env } from '@renderer/utils/env';
-
 const version = __APP_VERSION__;
 
 const handleOfficialDownload = () => {
