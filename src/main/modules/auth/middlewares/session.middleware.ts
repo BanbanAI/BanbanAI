@@ -2,12 +2,30 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response } from "express";
 import { getExpressSession } from './session';
 import passport from "passport";
+import { WorkbenchService } from '@main/modules/workbench/workbench.service';
+import { ELECTRON_CLIENT_TOKEN_HEADER, isElectronClientRequestToken } from '@main/electron/electron-client-token';
 import { AsyncResource } from 'async_hooks';
 
 @Injectable()
 export class SessionMiddleware implements NestMiddleware<Request, Response> {
+  constructor(
+    private readonly workbenchService: WorkbenchService,
+  ) {}
+
+  private async getAdmin() {
+    return await this.workbenchService.getAdmin();
+  }
+
   use(req: Request, res: Response, next: () => void) {
     const resource = new AsyncResource('SessionMiddleware');
+    const clientToken = req.headers[ELECTRON_CLIENT_TOKEN_HEADER.toLowerCase()];
+    if (clientToken && isElectronClientRequestToken(clientToken)) {
+      this.getAdmin().then(admin => {
+        req.account = admin;
+        resource.runInAsyncScope(next);
+      })
+      return;
+    }
     const t0 = Date.now();
     getExpressSession().then((expressSession)=>{
       if (expressSession) {

@@ -12,6 +12,7 @@ import { NocodeStructure, NocodeStructureType } from "@common/types/nocode";
 import { deepClone, isEmpty } from "@common/utils/object";
 import { AdminPermissionsGuard, NoAdminPermissionGuard } from "./guards";
 import { isSystemAdminAccount } from "@common/types/account";
+import { ELECTRON_CLIENT_TOKEN_HEADER, isElectronClientRequestToken } from "@main/electron/electron-client-token";
 
 @Controller('workbench')
 @UseGuards(AdminPermissionsGuard)
@@ -78,7 +79,9 @@ export class WorkbenchController {
   @NoAdminPermissionGuard()
   @Post('update-password')
   updatePassword(@Body('oldPassword') oldPassword: string, @Body('newPassword') newPassword: string, @Req() req: Request) {
-    return this.workbenchService.updatePassword(req.account.id, oldPassword, newPassword);
+    const clientToken = req.headers[ELECTRON_CLIENT_TOKEN_HEADER.toLowerCase()];
+    const isClient = !!clientToken && isElectronClientRequestToken(clientToken);
+    return this.workbenchService.updatePassword(req.account.id, oldPassword, newPassword, isClient);
   }
 
   @NoAdminPermissionGuard()

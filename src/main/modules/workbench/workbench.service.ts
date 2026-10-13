@@ -339,16 +339,27 @@ export class WorkbenchService implements OnApplicationBootstrap {
     return true;
   }
 
-  async updatePassword(id: string, oldPassword: string, newPassword: string) {
+  async updatePassword(id: string, oldPassword: string, newPassword: string, isClient: boolean) {
     const user = await this.workbenchUserRepository.findOne({ id });
     if (!user) {
       throw new Error(global.i18next.t('workbenchServiceTs.userNotFound'));
     }
-    const adminPass = this.getAdminPassword();
-    let pwdValid = adminPass ? adminPass === oldPassword : false;
-    if (!pwdValid) pwdValid = user.pass === encodePassword(oldPassword);
-    if (!pwdValid) throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
-    if (__IS_SERVER__ && serverConfig.adminPass) updateConfig("adminPass", newPassword);
+    if (__IS_SERVER__) {
+      const adminPass = this.getAdminPassword();
+      let pwdValid;
+      if (adminPass && !isClient) {
+        pwdValid = adminPass === oldPassword;
+      }
+      if (!pwdValid) {
+        pwdValid = user.pass === encodePassword(oldPassword);
+      }
+      if (!pwdValid) throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
+      if (serverConfig.adminPass) updateConfig("adminPass", newPassword);
+    } else {
+      if (encodePassword(oldPassword) !== user.pass && !isClient) {
+        throw new Error(global.i18next.t('workbenchServiceTs.oldPasswordIsIncorrect'));
+      }
+    }
     user.pass = encodePassword(newPassword);
     await this.workbenchUserRepository.persistAndFlush(user);
     this.organizeCache.invalidateUsers("user-password-updated");
