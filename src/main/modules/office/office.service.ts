@@ -8,7 +8,7 @@ import { unique } from '@common/utils/unique';
 import { cp, rename, rm, readFile, chmod, readdir } from 'fs/promises';
 import { detectLinuxPackageType, LinuxPackageType } from '@main/utils/linuxType';
 import { unzipFile } from '@main/utils';
-import getPort from 'get-port';
+import { isFreePort, findFreePorts } from 'find-free-ports';
 import net from 'net';
 import {
   OfficeRuntimeError,
@@ -231,7 +231,11 @@ export class OfficeService implements OnApplicationBootstrap {
 
     let processRef: ReturnType<typeof spawn>;
     try {
-      this.port = await getPort({ port: this.port || 2002, host: this.host });
+      const isFree = await isFreePort(this.port || 2002);
+      if (!isFree) {
+        const ports = await findFreePorts(1);
+        this.port = ports[0];
+      }
       await this.ensureExecutable();
       processRef = spawn(this.sofficePath, [
         '--headless',

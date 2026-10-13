@@ -7079,6 +7079,11 @@ finalhandler@1.2.0:
     statuses "2.0.1"
     unpipe "~1.0.0"
 
+find-free-ports@^3.0.0:
+  version "3.0.0"
+  resolved "https://registry.npmmirror.com/find-free-ports/-/find-free-ports-3.0.0.tgz#8cb33bc27065cbf2f53282eea6cb0587bb7e61d8"
+  integrity sha512-C9XrjG5O1EWPHSjY/hzJaUAoyUQ+KhmiYn0zHohOpScSeWr5TqJu613iIvzI4DnIKpdcBZZ5B4ifiUA10Y2HuA==
+
 find-up@^3.0.0:
   version "3.0.0"
   resolved "https://registry.npmmirror.com/find-up/-/find-up-3.0.0.tgz#49169f1d7993430646da61ecc5ae355c21c97b73"
@@ -7363,11 +7368,6 @@ get-package-type@^0.1.0:
   version "0.1.0"
   resolved "https://registry.npmmirror.com/get-package-type/-/get-package-type-0.1.0.tgz#8de2d803cff44df3bc6c456e6668b36c3926e11a"
   integrity sha512-pjzuKtY64GYfWizNAJ0fr9VqttZkNiK2iS430LtIHzjBEr6bX8Am2zm4sW4Ro5wjWW5cAlRL1qAMTcXbjNAO2Q==
-
-get-port@^7.2.0:
-  version "7.2.0"
-  resolved "https://registry.npmjs.org/get-port/-/get-port-7.2.0.tgz#db0d52eb2d89890cdc010ed0e9a6f2d4b78cbbe7"
-  integrity sha512-afP4W205ONCuMoPBqcR6PSXnzX35KTcJygfJfcp+QY+uwm3p20p1YczWXhlICIzGMCxYBQcySEcOgsJcrkyobg==
 
 get-proto@^1.0.1:
   version "1.0.1"
