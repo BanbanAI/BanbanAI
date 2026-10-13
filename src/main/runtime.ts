@@ -5,6 +5,7 @@ interface Runtime {
   readonly isProduction: boolean;
   getUserDataPath(): string;
   getProductionSrcPath(): string;
+  setOpenAtLogin(onoff: boolean): void;
 }
 
 const runtime: Runtime = {
@@ -25,6 +26,13 @@ const runtime: Runtime = {
 
   getProductionSrcPath() {
     return path.dirname(require.main?.path || process.cwd());
+  },
+
+  setOpenAtLogin(onoff: boolean) {
+    if (!process.versions.electron) return;
+    const { app } = require("electron") as typeof import("electron");
+    if (!app.isPackaged) return;
+    app.setLoginItemSettings({ openAtLogin: onoff });
   },
 };
 

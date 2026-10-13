@@ -2291,6 +2291,7 @@
   "commmonSetting": {
     "title": "General Settings",
     "basicSetting": "Basic Settings",
+    "powerOnStart": "Startup",
     "projectPath": "Project Path:",
     "clearCache": "Clear",
     "changeDir": "Change",
