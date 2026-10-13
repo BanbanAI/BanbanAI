@@ -5,11 +5,11 @@ import { Uploader } from '../uploader/uploader';
 import { Row } from '@common/types/project';
 
 export const isSelect = (widget: any): widget is TreeSelect => {
-  return ["widget.form.treeSelect", "widget.form.treeMultipleSelect"].includes(widget.type);
+  return ["widget.form.treeSelect", "widget.form.treeMultipleSelect"].includes(widget?.type);
 }
 
 export const isUploader = (widget: any): widget is Uploader => {
-  return ["widget.form.image-uploader", "widget.form.file-uploader"].includes(widget.type);
+  return ["widget.form.image-uploader", "widget.form.file-uploader"].includes(widget?.type);
 }
 
 export const getCurrentRowData = (allFormInputs, addNewRowRule) => {
