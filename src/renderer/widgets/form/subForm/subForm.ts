@@ -3,7 +3,7 @@ import { Field, FieldUID, OptionTableUID, QueryOptions, Row, WhereCondition } fr
 import { FormConditionValueType, RuleFunc, FormCondition, FormWidgetType } from "@common/types/nocode";
 import { isSystemField, getUUIDSystemField, SystemField, transformCondition } from "@common/utils/connection";
 import { DefinedOptions, LogicalOperator, GetOptionOptions, SelectIdOfForm, WidgetStatus, FormVisibleRule, VisibleType, FormLinkageRule } from "@renderer/b2/types";
-import { FormElement, AbstractSubForm, SubFormRow, AbstractForm } from "@renderer/b2/controllers/form";
+import { FormElement, AbstractSubForm, SubFormRow, AbstractForm, isSubForm } from "@renderer/b2/controllers/form";
 import { WidgetSoul, OptionValue } from "@common/types/project";
 import { Widget } from "@renderer/b2/controllers/widget";
 import { effectScope, EffectScope, nextTick, reactive, Ref, ref, watch, defineAsyncComponent } from "vue";
@@ -26,6 +26,7 @@ import axios from "axios";
 import {
   createCoalescedDataFillRunner,
   ensureSubFormDataFillRows,
+  getSubFormColumnLastChangeTimes,
   getSubFormDataFillChangeToken,
   markSubFormStructureChanged,
 } from "../form/formula-change-triggers";
@@ -158,6 +159,19 @@ const waitForRuntimeLinkage = (runtime: SubFormRuntime) => {
     new Promise<void>(resolve => { timer = setTimeout(resolve, RUNTIME_LINKAGE_WAIT_MS); }),
   ]).finally(() => { if (timer) clearTimeout(timer); });
 };
+
+function emptyValueOfFieldType(fieldType: FormElement["fieldType"]) {
+  switch (fieldType) {
+    case "number":
+      return 0;
+    case "array":
+      return [];
+    case "object":
+      return {};
+    default:
+      return "";
+  }
+}
 
 export class SubForm extends AbstractSubForm implements RelatedData {
   static resource = resource as any;
@@ -2076,13 +2090,34 @@ export class SubForm extends AbstractSubForm implements RelatedData {
 
   private resolveRuntimeFormulaExternalValue(widgetUid: string) {
     const widget = (this.topForm as AbstractForm | undefined)?.getChildElement(widgetUid) as FormElement | undefined;
-    if (!widget || widget.isInSubForm || widget instanceof AbstractSubForm) return undefined;
+    if (!widget) return undefined;
+    if (widget.isInSubForm) {
+      return this.resolveRuntimeFormulaExternalColumnValues(widget);
+    }
+    if (widget instanceof AbstractSubForm) return undefined;
     return widget.inputValue;
+  }
+
+  private resolveRuntimeFormulaExternalColumnValues(widget: FormElement) {
+    const owner = widget.form as SubForm | undefined;
+    if (!owner || !isSubForm(owner)) return undefined;
+    const rows: Array<SubFormRow | Record<string, unknown>> = owner.hasRuntime
+      ? owner.runtimeTableData
+      : owner.tableData;
+    return rows.map(row => {
+      const value = typeof (row as SubFormRow).getFormInputValue === "function"
+        ? (row as SubFormRow).getFormInputValue(widget.fieldId)
+        : (row as Record<string, unknown>)[widget.fieldId];
+      return value === undefined || value === null ? emptyValueOfFieldType(widget.fieldType) : value;
+    });
   }
 
   private resolveRuntimeConditionExternalValue(uid: string) {
     const childUid = uid.split(".").filter(Boolean).pop();
-    return childUid ? this.resolveRuntimeFormulaExternalValue(childUid) : undefined;
+    if (!childUid) return undefined;
+    const widget = (this.topForm as AbstractForm | undefined)?.getChildElement(childUid) as FormElement | undefined;
+    if (!widget || widget.isInSubForm || widget instanceof AbstractSubForm) return undefined;
+    return widget.inputValue;
   }
 
   private isRuntimeConditionTargetVisible(uid: string) {
@@ -2107,16 +2142,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   private resolveRuntimeFormulaEmptyValue(referenceId: string) {
     const widget = (this.children.find(child => child.fieldId === referenceId)
       || this.topForm?.getChildElement(referenceId)) as FormElement | undefined;
-    switch (widget?.fieldType) {
-      case "number":
-        return 0;
-      case "array":
-        return [];
-      case "object":
-        return {};
-      default:
-        return "";
-    }
+    return emptyValueOfFieldType(widget?.fieldType);
   }
 
   private watchRuntimeExternalFormulaDependencies(widgetUids: readonly string[]) {
@@ -2124,9 +2150,13 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     this._runtimeExternalFormulaStop = undefined;
     if (!widgetUids.length || !this._runtime) return;
     const stop = watch(
-      () => widgetUids.map(widgetUid => (
-        this.topForm?.getChildElement(widgetUid) as FormElement | undefined
-      )?.status?.lastChangeTime),
+      () => widgetUids.map(widgetUid => {
+        const widget = this.topForm?.getChildElement(widgetUid) as FormElement | undefined;
+        if (widget?.isInSubForm && isSubForm(widget.form)) {
+          return getSubFormColumnLastChangeTimes(widget.form as SubForm, widget.fieldId);
+        }
+        return widget?.status?.lastChangeTime;
+      }),
       () => { void this._runtimeExternalFormulaRun(); },
       { flush: "post" },
     );
