@@ -17,7 +17,6 @@ export type LinkageRule = {
 type LinkageTask = {
   rule: LinkageRule;
   rowId: RowId;
-  rowRevision: number;
   key: string;
 };
 
@@ -122,7 +121,7 @@ export class LinkageEngine {
           const queued = this.queuedTasks[index];
           if (`${queued.rule.id}\u0000${queued.rowId}` === taskKey) this.queuedTasks.splice(index, 1);
         }
-        this.queuedTasks.push({ rule, rowId, rowRevision: row.revision, key });
+        this.queuedTasks.push({ rule, rowId, key });
         this.metricsState.scheduled += 1;
       }
     }
@@ -146,7 +145,7 @@ export class LinkageEngine {
 
   private async executeTask(task: LinkageTask) {
     const row = this.store.getRow(task.rowId);
-    if (!row || row.revision !== task.rowRevision) {
+    if (!row || !this.isTaskInputCurrent(task, row)) {
       this.metricsState.discarded += 1;
       return;
     }
@@ -177,7 +176,7 @@ export class LinkageEngine {
     try {
       const values = await this.awaitWithAbort(request.promise, taskController.signal);
       const latestRow = this.store.getRow(task.rowId);
-      if (!latestRow || latestRow.revision !== task.rowRevision) {
+      if (!latestRow || !this.isTaskInputCurrent(task, latestRow)) {
         this.metricsState.discarded += 1;
         return;
       }
@@ -200,6 +199,11 @@ export class LinkageEngine {
     } finally {
       if (this.taskControllers.get(taskKey) === taskController) this.taskControllers.delete(taskKey);
     }
+  }
+
+  private isTaskInputCurrent(task: LinkageTask, row: RowContext): boolean {
+    const key = task.rule.getKey(row);
+    return key !== undefined && key === task.key;
   }
 
   private awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
