@@ -189,6 +189,8 @@ import { elementPlusLocale } from '@renderer/utils/elementPlusLocale';
 import { ElMessage } from 'element-plus';
 import i18next from 'i18next';
 import { useLocalizedDocumentTitle } from '@renderer/hooks/useLocalizedDocumentTitle';
+import { provideFormMode } from '@renderer/views/nocode/components/global/table/hooks';
+import { FormMode } from '@renderer/types/base';
 
 const props = defineProps({
   isShowSearch: {
@@ -230,7 +232,8 @@ const totalCount = computed(() => {
 });
 const currentPage = ref(1);
 const pageSize = ref(20);
-
+const formMode = computed(() => FormMode.Edit);
+provideFormMode(formMode);
 const nocodeSelectTransferUserDialogRef = ref(null)
 const usePaddingOperators = ref([])
 const reInitiateDialogVisible = ref(false)
