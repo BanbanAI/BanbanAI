@@ -43,7 +43,6 @@
 import { NOCODE_ID, ORGANIZE_UTIL } from '@renderer/types';
 import { ElMessage, FormItemRule } from 'element-plus';
 import { ref, computed, inject, onMounted } from 'vue';
-import { ADMIN_USERNAME } from '@common/types/account';
 import { usePassportStore, useSettingStore } from '@renderer/stores';
 import i18next from 'i18next';
 
@@ -122,14 +121,7 @@ const getUserList = async () => {
   });
 
   if (data) {
-    userList.value = [
-      {
-        id: 1,
-        user: ADMIN_USERNAME,
-        realname: ADMIN_USERNAME,
-      },
-      ...data.users
-    ];
+    userList.value = data.users;
     totalNumber.value = data.total;
   }
 
