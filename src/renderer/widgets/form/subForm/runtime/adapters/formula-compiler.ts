@@ -1,10 +1,12 @@
 
-import { replaceByFormula, getFormulaStr, evaluateFormula } from "@common/utils/formula";
+import { replaceByFormula, getFormulaStr, createFormulaContextByData, createFormulaRuntime } from "@common/utils/formula";
+import type { Field } from "@common/types/project";
 import { CompiledFormula } from "../column-definition";
 
 export type SubFormFormulaCompilerOptions = {
   resolveExternalValue?: (widgetUid: string) => unknown;
   resolveEmptyValue?: (referenceId: string) => unknown;
+  subTableFields?: Field[];
 };
 
 export function createSubFormFormulaCompiler(options: SubFormFormulaCompilerOptions = {}) {
@@ -16,6 +18,7 @@ export function createSubFormFormulaCompiler(options: SubFormFormulaCompilerOpti
   ): CompiledFormula {
     const rawFormula = getFormulaStr(formulaStr);
     const references = extractFormulaReferences(rawFormula, widgetUidToFieldId);
+    const subTableFields = options.subTableFields || [];
 
     const toFormulaValue = (referenceId: string, value: unknown) => {
       if (value === undefined || value === null) {
@@ -37,9 +40,13 @@ export function createSubFormFormulaCompiler(options: SubFormFormulaCompilerOpti
           return options.resolveExternalValue ? toFormulaValue(uid, options.resolveExternalValue(uid)) : null;
         };
         const substituted = replaceByFormula(rawFormula, keys => resolveReference(keys[keys.length - 1]) as any);
+        const context = createFormulaContextByData(
+          { ...row.data, __uuid__: row.id },
+          subTableFields,
+        );
 
         try {
-          return evaluateFormula(substituted);
+          return createFormulaRuntime(context).evaluate(substituted);
         } catch {
           return undefined;
         }

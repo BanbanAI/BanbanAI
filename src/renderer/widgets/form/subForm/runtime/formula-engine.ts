@@ -54,14 +54,16 @@ export class FormulaEngine {
     return this.order.slice();
   }
 
-  async recomputeAll(rowIds: readonly RowId[] = this.store.rowIds) {
+  async recomputeAll(rowIds: readonly RowId[] = this.store.rowIds, options: { onlyMissing?: boolean } = {}) {
     if (this.disposed || !this.formulas.size || !rowIds.length) return;
+    const onlyMissing = options.onlyMissing === true;
     await this.store.transact(tx => {
       for (const fieldId of this.order) {
         const column = this.formulas.get(fieldId)!;
         for (const rowId of rowIds) {
           const row = this.store.getRow(rowId);
           if (!row) continue;
+          if (onlyMissing && this.store.getValue({ rowId, fieldId }) !== undefined) continue;
           const nextValue = this.evaluate(column, rowId);
           if (!Object.is(this.store.getValue({ rowId, fieldId }), nextValue)) {
             tx.setValue({ rowId, fieldId }, nextValue, "formula");
