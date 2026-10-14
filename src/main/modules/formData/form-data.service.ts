@@ -6313,13 +6313,19 @@ export class FormDataService implements OnApplicationBootstrap {
           continue;
         }
 
-        const childBaseCondition = targetStage === FormDataStage.NORMAL
-          ? this.buildRecycleRestoreRelationCondition(table, rows, relationTable, relationField.uid)
-          : {
+        let childBaseCondition: WhereCondition | undefined;
+        let matchRestoreChildRow: ((row: Row) => boolean) | null = null;
+        if (targetStage === FormDataStage.NORMAL) {
+          const restoreRelation = this.buildRecycleRestoreRelationCondition(table, rows, relationTable, relationField.uid);
+          childBaseCondition = restoreRelation?.condition;
+          matchRestoreChildRow = restoreRelation?.match ?? null;
+        } else {
+          childBaseCondition = {
             [relationField.uid]: {
               $in: uuids,
             },
           };
+        }
         if (!childBaseCondition) {
           continue;
         }
@@ -6336,7 +6342,9 @@ export class FormDataService implements OnApplicationBootstrap {
           enabledStage: false,
           scope,
         });
-        const childRows = childBuckets?.[0]?.rows || [];
+        const childRows = matchRestoreChildRow
+          ? (childBuckets?.[0]?.rows || []).filter(matchRestoreChildRow)
+          : childBuckets?.[0]?.rows || [];
         if (isEmpty(childRows)) {
           continue;
         }
@@ -6379,49 +6387,49 @@ export class FormDataService implements OnApplicationBootstrap {
     const parentUpdateOwnerField = getUpdateOwnerSystemField(parentTable.fields);
     const relationUpdateTimeField = this.getSystemFieldByName(relationTable, SystemField.UPDATE_TIME);
     const relationUpdateOwnerField = getUpdateOwnerSystemField(relationTable.fields);
-    const conditions = parentRows
-      .map((row) => {
-        const uuid = row?.[parentUUIDField.uid];
-        if (!uuid) {
-          return null;
-        }
+    const relationUpdateTimeUID = relationUpdateTimeField?.uid;
+    const relationUpdateOwnerUID = relationUpdateOwnerField?.uid;
+    const parentConditions = new Map<string, { updateTime?: string; updateOwner?: string }>();
+    for (const row of parentRows) {
+      const uuid = row?.[parentUUIDField.uid];
+      if (!uuid) {
+        continue;
+      }
+      parentConditions.set(String(uuid), {
+        updateTime: parentUpdateTimeField?.uid ? row?.[parentUpdateTimeField.uid] : null,
+        updateOwner: parentUpdateOwnerField?.uid ? row?.[parentUpdateOwnerField.uid] : null,
+      });
+    }
 
-        const andConditions: WhereCondition[] = [{
-          [relationFieldUID]: uuid,
-        }];
-        const updateTime = parentUpdateTimeField?.uid ? row?.[parentUpdateTimeField.uid] : null;
-        if (relationUpdateTimeField?.uid && updateTime) {
-          andConditions.push({
-            [relationUpdateTimeField.uid]: {
-              $gte: updateTime,
-            },
-          });
-        }
-        const updateOwner = parentUpdateOwnerField?.uid ? row?.[parentUpdateOwnerField.uid] : null;
-        if (relationUpdateOwnerField?.uid && updateOwner) {
-          andConditions.push({
-            [relationUpdateOwnerField.uid]: updateOwner,
-          });
-        }
-
-        if (andConditions.length === 1) {
-          return andConditions[0];
-        }
-        return {
-          $and: andConditions,
-        } as WhereCondition;
-      })
-      .filter(Boolean);
-
-    if (!conditions.length) {
+    if (!parentConditions.size) {
       return null;
     }
-    if (conditions.length === 1) {
-      return conditions[0];
-    }
+
     return {
-      $or: conditions,
-    } as WhereCondition;
+      condition: {
+        [relationFieldUID]: {
+          $in: Array.from(parentConditions.keys()),
+        },
+      } as WhereCondition,
+      match: (childRow: Row) => {
+        const parentCondition = parentConditions.get(String(childRow?.[relationFieldUID] ?? ''));
+        if (!parentCondition) {
+          return false;
+        }
+        if (relationUpdateTimeUID && parentCondition.updateTime) {
+          const childUpdateTime = childRow?.[relationUpdateTimeUID];
+          if (!(childUpdateTime >= parentCondition.updateTime)) {
+            return false;
+          }
+        }
+        if (relationUpdateOwnerUID && parentCondition.updateOwner) {
+          if (!equals(childRow?.[relationUpdateOwnerUID], parentCondition.updateOwner)) {
+            return false;
+          }
+        }
+        return true;
+      },
+    };
   }
 
   private sanitizeRowsForPromote(formData: NocodeFormData, tableUID: TableUID, rows: Row[]) {
@@ -9707,10 +9715,25 @@ export class FormDataService implements OnApplicationBootstrap {
           const previousRows = queries.length
             ? await db.find({ $or: queries })
             : [];
+          const previousRowIndexes = new Map<string, Map<string, number>>();
+          const findPreviousRowIndex = (query: Record<string, unknown>) => {
+            const queryKeys = Object.keys(query);
+            const keySetSignature = JSON.stringify(queryKeys);
+            let index = previousRowIndexes.get(keySetSignature);
+            if (!index) {
+              index = new Map<string, number>();
+              for (let i = 0; i < previousRows.length; i++) {
+                const signature = JSON.stringify(queryKeys.map(key => previousRows[i]?.[key] ?? null));
+                if (!index.has(signature)) {
+                  index.set(signature, i);
+                }
+              }
+              previousRowIndexes.set(keySetSignature, index);
+            }
+            return index.get(JSON.stringify(queryKeys.map(key => query[key] ?? null)));
+          };
           const hasMissingTarget = preparedRows.some(prepared => {
-            return !previousRows.some(previousRow => {
-              return Object.entries(prepared.queryForDb).every(([key, value]) => equals(previousRow?.[key], value));
-            });
+            return findPreviousRowIndex(prepared.queryForDb) === undefined;
           });
           if (hasMissingTarget) {
             throw new Error(global.i18next.t('formDataService.updateDataFail'));
@@ -9729,10 +9752,8 @@ export class FormDataService implements OnApplicationBootstrap {
             if (isEmpty(prepared.queryForDb)) {
               continue;
             }
-            const previousIndex = availablePreviousRows.findIndex(previousRow => {
-              return Object.entries(prepared.queryForDb).every(([key, value]) => equals(previousRow?.[key], value));
-            });
-            if (previousIndex < 0) {
+            const previousIndex = findPreviousRowIndex(prepared.queryForDb);
+            if (previousIndex === undefined) {
               continue;
             }
             const previousRow = availablePreviousRows[previousIndex];
