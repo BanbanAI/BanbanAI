@@ -5297,7 +5297,6 @@ provide(UPDATE_NOCODE_SIGN, handleUpdateNocodeSign);
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  border: 1px solid #e5e6eb;
   background-color: #ffffff;
 
   .stage-tool {

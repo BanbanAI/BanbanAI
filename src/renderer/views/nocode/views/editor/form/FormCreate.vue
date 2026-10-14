@@ -66,7 +66,7 @@
             :ai-flow-issue-state="props.aiFlowIssueState || null"
           ></form-process>
         </vn-stack-layer>
-        <vn-stack-layer class="layer" :class="{ 'displayReminder': displayReminder, embedded: props.embedded }" name="data-management" :lazy="true">
+        <vn-stack-layer class="layer" :class="{ 'data': true, embedded: props.embedded }" name="data-management" :lazy="true">
           <div class="kind-reminder" v-if="displayReminder">
             <div class="kind-reminder-container">
               <span class="text">{{ $t('formCreate.dataManageTip') }}</span>
@@ -80,6 +80,7 @@
           <DataManagementV2
             :active="activeTab === 'data-management'"
             :uid="table?.uid || ''"
+            :style="{ height: displayReminder ? 'calc(100% - 60px)' : '100%' }"
           />
         </vn-stack-layer>
       </vn-stack>
@@ -1245,7 +1246,6 @@ watch(activeTab, async (value, previousValue) => {
 
 <style lang='scss' scoped>
 .form-create {
-  background-color: var(--bg-color-page);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1452,30 +1452,27 @@ watch(activeTab, async (value, previousValue) => {
         height: 100%;
       }
 
-      &.displayReminder {
-        height: calc(100% - 100px);
+      &.data {
+        background-color: var(--bg-color-page);
+        .kind-reminder {
+          padding: 16px 16px 0 16px;
+          .kind-reminder-container {
+            width: 100%;
+            height: 44px;
+            padding: 0 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba($color: #FAAD14, $alpha: 0.15);
+            .text {
+              font-size: 14px;
+              color: var(--el-color-danger);
+            }
+          }
+        }
+      }
 
-        &.embedded {
-          height: calc(100% - 60px);
-        }
-      }
-    }
-    .kind-reminder {
-      padding: 16px 16px 0 16px;
-      .kind-reminder-container {
-        width: 100%;
-        height: 44px;
-        padding: 0 8px;
-        border-radius: 4px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: rgba($color: #FAAD14, $alpha: 0.15);
-        .text {
-          font-size: 14px;
-          color: var(--el-color-danger);
-        }
-      }
     }
   }
 }

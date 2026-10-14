@@ -421,7 +421,6 @@ defineExpose({
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  border: 1px solid #e5e6eb;
   background-color: #ffffff;
 
   .stage-tool {
@@ -498,7 +497,6 @@ defineExpose({
   display: flex;
   flex-direction: column;
   border-radius: 8px;
-  border: 1px solid #e5e6eb;
   background: #ffffff;
   box-shadow: 0 12px 32px rgba(29, 33, 41, 0.12), 0 4px 12px rgba(29, 33, 41, 0.08);
   overflow: hidden;
@@ -512,6 +510,7 @@ defineExpose({
     height: 100% !important;
     transform: none !important;
     z-index: auto !important;
+    box-shadow: none;
   }
 }
 
