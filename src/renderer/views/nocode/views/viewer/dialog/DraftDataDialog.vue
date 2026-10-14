@@ -34,8 +34,8 @@
                 <nocode-form ref="editingFormRef" v-bind="nocodeFormProps"></nocode-form>
               </div>
               <div class="footer">
-                <el-button type="primary" @click="handleSubmit">{{ $t('DraftDataDialog.submit') }}</el-button>
-                <el-button @click="handleSaveDraft">{{ $t('DraftDataDialog.saveDraft') }}</el-button>
+                <el-button type="primary" :loading="submitting" :disabled="submitting || saving" @click="handleSubmit">{{ $t('DraftDataDialog.submit') }}</el-button>
+                <el-button :loading="saving" :disabled="submitting || saving" @click="handleSaveDraft">{{ $t('DraftDataDialog.saveDraft') }}</el-button>
               </div>
             </div>
           </div>
@@ -76,6 +76,8 @@ const updateNocodeMainSign = (sign: string) => {
 
 const editingFormRef = ref();
 const isFullscreen = ref(false);
+const submitting = ref(false);
+const saving = ref(false);
 const nocodeFormProps = computed(() => {
   return {
     nocodeId: nocode.value?.meta?.id,
@@ -84,43 +86,47 @@ const nocodeFormProps = computed(() => {
   }
 });
 const handleSubmit = async ()=>{
-  if(!editingFormRef.value) return;
-  const _row = await editingFormRef.value.prepareSubmitRow();
-  if (!_row) {
-    return;
-  }
-  const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.({
-    onSignSyncConflict: saveDraftBeforeRefresh,
-  });
-  if (!confirmed) {
-    editingFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
-  const loading = ElLoading.service({
-    target: ".form-wrap",
-    text: i18next.t('DraftDataDialog.submitting'),
-    background: "rgba(0, 0, 0, 0.2)"
-  });
-  const row = { ...props.row, ..._row };
-  const formData = nocode.value.body.formData;
-  await formDataApi.updateDraft({
-    formData,
-    nocodeId: nocode.value.meta.id,
-    tableUID: props.table.uid,
-    rows: [ row ],
-    stage: FormDataStage.NORMAL,
-    sign: nocode.value.body.sign,
-    onMainSign: updateNocodeMainSign,
-  }).then(() =>{
+  if(!editingFormRef.value || submitting.value || saving.value) return;
+  submitting.value = true;
+  let loading: ReturnType<typeof ElLoading.service> | undefined;
+  try {
+    const _row = await editingFormRef.value.prepareSubmitRow();
+    if (!_row) return;
+    const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.({
+      onSignSyncConflict: saveDraftBeforeRefresh,
+    });
+    if (!confirmed) {
+      editingFormRef.value?.clearSubmitValidationNotice?.();
+      return;
+    }
+    loading = ElLoading.service({
+      target: ".form-wrap",
+      text: i18next.t('DraftDataDialog.submitting'),
+      background: "rgba(0, 0, 0, 0.2)"
+    });
+    const row = { ...props.row, ..._row };
+    const formData = nocode.value.body.formData;
+    await formDataApi.updateDraft({
+      formData,
+      nocodeId: nocode.value.meta.id,
+      tableUID: props.table.uid,
+      rows: [ row ],
+      stage: FormDataStage.NORMAL,
+      sign: nocode.value.body.sign,
+      onMainSign: updateNocodeMainSign,
+    });
     editingFormRef.value?.notifySubmitValidationMessages?.();
     editingFormRef.value?.clearSubmitValidationNotice?.();
     ElMessage.success(i18next.t('DraftDataDialog.submitSuccess'));
     emit('submitted', row);
     emit('update:modelValue', false);
-  }).catch((err) =>{
+  } catch (err) {
     editingFormRef.value?.clearSubmitValidationNotice?.();
     ElMessage.error(err.message || i18next.t('DraftDataDialog.submitFail'));
-  }).finally(() => loading.close());
+  } finally {
+    loading?.close();
+    submitting.value = false;
+  }
 }
 
 async function saveDraftBeforeRefresh() {
@@ -166,45 +172,46 @@ async function saveDraftBeforeRefresh() {
 }
 
 const handleSaveDraft = async () => {
-  if(!editingFormRef.value) return;
+  if(!editingFormRef.value || submitting.value || saving.value) return;
+  saving.value = true;
   const loading = ElLoading.service({
     target: ".form-wrap",
     text: i18next.t('DraftDataDialog.savingDraft'),
     background: "rgba(0, 0, 0, 0.2)"
   });
-  const _row = editingFormRef.value.serialize();
-  const row = { ...props.row, ..._row };
-  const formData = nocode.value.body.formData;
-  const uuidField = props.table.fields.find(field => field.meta.name === SystemField.UUID);
-  const notLocal = row[uuidField.uid];
-  if(notLocal){
-    await formDataApi.updateDraft({
-      formData,
-      nocodeId: nocode.value.meta.id,
-      tableUID: props.table.uid,
-      rows: [ row ],
-      stage: FormDataStage.DRAFT,
-      sign: nocode.value.body.sign,
-      onMainSign: updateNocodeMainSign,
-    }).then(() =>{
-      ElMessage.success(i18next.t('DraftDataDialog.saveSuccess'));
-      emit('updated', row);
-      emit('update:modelValue', false);
-    }).catch((err) =>{
-      ElMessage.error(err.message || i18next.t('DraftDataDialog.saveFail'));
-    }).finally(() => loading.close());
-  } else {
-    const storage = storeFactory(`TABLE_DRAFT_${props.table.uid}`);
-    const rows = storage.get() || [];
-    const index = rows.findIndex(r => r[SystemField.UUID] === row[SystemField.UUID]);
-    if(index > -1){
-      rows[index] = row;
+  try {
+    const _row = editingFormRef.value.serialize();
+    const row = { ...props.row, ..._row };
+    const formData = nocode.value.body.formData;
+    const uuidField = props.table.fields.find(field => field.meta.name === SystemField.UUID);
+    const notLocal = row[uuidField.uid];
+    if(notLocal){
+      await formDataApi.updateDraft({
+        formData,
+        nocodeId: nocode.value.meta.id,
+        tableUID: props.table.uid,
+        rows: [ row ],
+        stage: FormDataStage.DRAFT,
+        sign: nocode.value.body.sign,
+        onMainSign: updateNocodeMainSign,
+      });
+    } else {
+      const storage = storeFactory(`TABLE_DRAFT_${props.table.uid}`);
+      const rows = storage.get() || [];
+      const index = rows.findIndex(r => r[SystemField.UUID] === row[SystemField.UUID]);
+      if(index > -1){
+        rows[index] = row;
+      }
+      storage.set(rows);
     }
-    storage.set(rows);
-    loading.close()
     ElMessage.success(i18next.t('DraftDataDialog.saveSuccess'));
     emit('updated', row);
     emit('update:modelValue', false);
+  } catch (err) {
+    ElMessage.error(err.message || i18next.t('DraftDataDialog.saveFail'));
+  } finally {
+    loading.close();
+    saving.value = false;
   }
 }
 

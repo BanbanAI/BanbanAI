@@ -26,7 +26,7 @@
       </el-form>
       <template #footer>
         <el-button @click="visible = false">{{ $t('NocodeHomePageSettingDialog.cancel') }}</el-button>
-        <el-button type="primary" :disabled="!selectedNodeId" @click="handleConfirm">
+        <el-button type="primary" :loading="saving" :disabled="saving || !selectedNodeId" @click="handleConfirm">
           {{ $t('NocodeHomePageSettingDialog.confirm') }}
         </el-button>
       </template>
@@ -56,6 +56,7 @@ const nocode = inject(NOCODE);
 const nocodeId = inject(NOCODE_ID);
 const nocodeSignIsLatest = inject(NOCODE_SIGN_IS_LATEST, null);
 const selectedNodeId = ref('');
+const saving = ref(false);
 
 const visible = computed({
   get: () => props.modelValue,
@@ -83,6 +84,7 @@ watch(visible, (value) => {
 });
 
 const handleConfirm = async () => {
+  if (saving.value) return;
   if (!nocode?.value || !selectedNodeId.value || !checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
 
   const settings = {
@@ -93,6 +95,7 @@ const handleConfirm = async () => {
     },
   };
 
+  saving.value = true;
   try {
     const { headers } = await axios.post('/project/save-nocode-settings', {
       nocodeId,
@@ -114,6 +117,8 @@ const handleConfirm = async () => {
     if (!handleNocodeSyncConflictError(error, nocodeSignIsLatest)) {
       ElMessage.error(error?.response?.data?.message || error?.message);
     }
+  } finally {
+    saving.value = false;
   }
 };
 </script>

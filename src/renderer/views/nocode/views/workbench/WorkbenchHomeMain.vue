@@ -157,7 +157,7 @@
     <workbench-nocode-expire-dialog v-model="nocodeExpireDialogVisible" :nocodeId="currentExpireDialogNocodeId" @updated="handleNocodeExpireUpdated"></workbench-nocode-expire-dialog>
     <nocode-rename-dialog ref="renameNocodeDialogRef" @closed="handleNocodeRenamed"></nocode-rename-dialog>
     <project-limit-dialog v-model="dialogState.projectLimitDialogVisible" ref="projectLimitDialogRef"></project-limit-dialog>
-    <delete-confirm-dialog :text="$t('WorkbenchHomeMain.areYouConfirmDelete')" :tip="$t('WorkbenchHomeMain.deleteWithCaution')" v-model="deleteConfirmDialogVisible" @confirm="handleDeleteNocode" />
+    <delete-confirm-dialog :text="$t('WorkbenchHomeMain.areYouConfirmDelete')" :tip="$t('WorkbenchHomeMain.deleteWithCaution')" v-model="deleteConfirmDialogVisible" :action="handleDeleteNocode" />
     <workbench-broken-app-restore-dialog
       v-model="brokenAppRestoreDialogVisible"
       :loading="restoringBrokenApp"
@@ -697,9 +697,10 @@ const handleDeleteNocode = async () => {
     ElMessage.error(response.data.message);
     return false;
   });
-  if (!res) return;
+  if (!res) return false;
   shareNocodeCacheStore.markAllDirty();
   await getGroupStructure();
+  return true;
 }
 
 
@@ -758,24 +759,24 @@ const handleConfirmRestoreBrokenNocode = async () => {
   }
 
   restoringBrokenApp.value = true;
-  const nocodeMeta = pendingRestoreBrokenNocode.value;
-  const restoreResult = await axios.post("/project/restore-broken-nocode", {
-    nocodeId: nocodeMeta.id,
-  }).then(({ data }) => data).catch(({ response }) => {
-    ElMessage.error(response?.data?.message || i18next.t("nocodeServiceTs.restoreBackupUnavailable"));
-    return null;
-  });
+  try {
+    const nocodeMeta = pendingRestoreBrokenNocode.value;
+    const restoreResult = await axios.post("/project/restore-broken-nocode", {
+      nocodeId: nocodeMeta.id,
+    }).then(({ data }) => data).catch(({ response }) => {
+      ElMessage.error(response?.data?.message || i18next.t("nocodeServiceTs.restoreBackupUnavailable"));
+      return null;
+    });
 
-  if (!restoreResult) {
+    if (!restoreResult) return;
+
+    brokenAppRestoreDialogVisible.value = false;
+    pendingRestoreBrokenNocode.value = null;
+    ElMessage.success(i18next.t("WorkbenchHomeMain.restoreBrokenAppSuccess"));
+    applyRestoredBrokenNocode(nocodeMeta, restoreResult.body, restoreResult.cover);
+  } finally {
     restoringBrokenApp.value = false;
-    return;
   }
-
-  brokenAppRestoreDialogVisible.value = false;
-  pendingRestoreBrokenNocode.value = null;
-  restoringBrokenApp.value = false;
-  ElMessage.success(i18next.t("WorkbenchHomeMain.restoreBrokenAppSuccess"));
-  applyRestoredBrokenNocode(nocodeMeta, restoreResult.body, restoreResult.cover);
 }
 
 watch(brokenAppRestoreDialogVisible, (visible) => {

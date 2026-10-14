@@ -2,7 +2,7 @@
   <div class="retrieve-password">
       <retrieve-password-form ref="retrievePasswordRef"></retrieve-password-form>
       <div class="retrieve-password-footer">
-        <el-button type="primary" class="btn-next" @click="handleConfirm">{{ $t("nocodeLoginDialog.confirm") }}</el-button>
+        <el-button type="primary" class="btn-next" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t("nocodeLoginDialog.confirm") }}</el-button>
       </div>
   </div>
 </template>
@@ -15,11 +15,18 @@ const emit = defineEmits<{
 }>();
 
 let retrievePasswordRef = ref();
+const loading = ref(false);
 const handleConfirm = async () => {
-  let res = await retrievePasswordRef.value.changePassword()
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    const res = await retrievePasswordRef.value.changePassword()
     if (res) {
       emit("confirmModifyPass")
     }
+  } finally {
+    loading.value = false;
+  }
 }
 </script>
 

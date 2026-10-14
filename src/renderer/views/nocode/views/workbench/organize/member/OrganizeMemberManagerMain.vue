@@ -124,7 +124,7 @@
     <workbench-import-user-dialog ref="importUserDialogRef" @completed="handleImportedUser"></workbench-import-user-dialog>
     <workbench-add-user-dialog ref="addUserDialogRef" @confirm="handleConfirm"></workbench-add-user-dialog>
     <workbench-add-user-to-department-dialog ref="addUserToDepartmentDialogRef" @add-user-to-department="handleConfirm" @select-user-to-department="handleSelectUserToDepartment" />
-    <workbench-select-users-dialog ref="selectUserToRoleDialogRef" @confirm="handleAddUserToRole" />
+    <workbench-select-users-dialog ref="selectUserToRoleDialogRef" :action="handleAddUserToRole" />
     <organize-manager-dialog
       ref="batchAdjustDepartmentDialogRef"
       :tableList="{
@@ -139,6 +139,7 @@
       :isShowQuick="false"
       :multiple="true"
       currentType="department"
+      :loading="departmentActionLoading"
       @confirm="handleBatchAdjustDepartmentConfirm"
     />
     <organize-delete-user-dialog
@@ -148,7 +149,7 @@
       :warning-text="$t('OrganizeDeleteUserDialog.deleteMemberWarn')"
       :confirm-text="$t('OrganizeDeleteUserDialog.delete')"
       confirm-type="danger"
-      @confirm="handleDeleteUser"
+      :action="handleDeleteUser"
     />
   </el-main>
 </template>
@@ -191,6 +192,7 @@ const addUserDialogRef = ref();
 const addUserToDepartmentDialogRef = ref();
 const selectUserToRoleDialogRef = ref();
 const batchAdjustDepartmentDialogRef = ref();
+const departmentActionLoading = ref(false);
 const userTableRef = ref();
 const batchManageDropdownVisible = ref(false);
 const selectedUsers = ref<NocodeUser[]>([]);
@@ -375,22 +377,32 @@ const handleRowCommand = (command: string, row: NocodeUser) => {
   }
 }
 
-const handleSelectUserToDepartment = async (userIds: string[]) => {
-  await organizeUtil.addUserToDepartment({
-    departmentId: architectureContext.departmentId, 
-    userIds,
-  });
-  await getUserList();
+const handleSelectUserToDepartment = async (userIds: string[], callback: (success: boolean) => void) => {
+  try {
+    await organizeUtil.addUserToDepartment({
+      departmentId: architectureContext.departmentId,
+      userIds,
+    });
+    await getUserList();
+    callback(true);
+  } catch {
+    callback(false);
+  }
 }
 
 
 
 const handleAddUserToRole = async (userIds: string[]) => {
-  await organizeUtil.addUserToRole({
-    roleId: architectureContext.roleId, 
-    userIds,
-  });
-  await getUserList();
+  try {
+    await organizeUtil.addUserToRole({
+      roleId: architectureContext.roleId,
+      userIds,
+    });
+    await getUserList();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const checkIsSelectableUser = (row: NocodeUser) => {
@@ -420,30 +432,42 @@ const handleBatchAdjustDepartment = () => {
 }
 
 const handleBatchAdjustDepartmentConfirm = async (value) => {
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
   const departmentIds = value.departments.map((item: Department) => item.id).filter(Boolean) as string[];
-  for (const user of selectedUsers.value) {
-    await organizeUtil.updateUser({
-      ...user,
-      nocodeId,
-      departments: departmentIds,
-    });
+  try {
+    for (const user of selectedUsers.value) {
+      await organizeUtil.updateUser({
+        ...user,
+        nocodeId,
+        departments: departmentIds,
+      });
+    }
+    ElMessage.success(i18next.t('OrganizeMemberManagerMain.editSuccess'));
+    await getUserList();
+    batchAdjustDepartmentDialogRef.value?.close();
+  } finally {
+    departmentActionLoading.value = false;
   }
-  ElMessage.success(i18next.t('OrganizeMemberManagerMain.editSuccess'));
-  await getUserList();
 }
 
-const handleDeleteUser = async () => {
+const handleDeleteUser = async (): Promise<boolean> => {
   const requestMode = deleteRequestMode.value;
   const ids = pendingDeleteUsers.value.map(user => user.id).filter(Boolean);
-  if (requestMode === 'batch') {
-    await organizeUtil.removeUserPermanentlyList({ ids });
-  } else {
-    await organizeUtil.removeUserPermanently({ id: ids[0] });
+  try {
+    if (requestMode === 'batch') {
+      await organizeUtil.removeUserPermanentlyList({ ids });
+    } else {
+      await organizeUtil.removeUserPermanently({ id: ids[0] });
+    }
+  } catch {
+    return false;
   }
   pendingDeleteUsers.value = [];
   deleteRequestMode.value = 'single';
   ElMessage.success(i18next.t('OrganizeMemberManagerMain.permanentDeleteSuccess'));
   await getUserList();
+  return true;
 }
 
 const findDepartmentNameById = (

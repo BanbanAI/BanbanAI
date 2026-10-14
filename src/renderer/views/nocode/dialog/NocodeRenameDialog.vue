@@ -6,7 +6,7 @@
       </el-form-item>
       <template #footer>
         <span class="dialog-footer">
-          <el-button type="primary" @click="doRename">{{ $t("nocodeRenameDialog.confirmLabel") }}</el-button>
+          <el-button type="primary" :loading="renaming" :disabled="renaming" @click="doRename">{{ $t("nocodeRenameDialog.confirmLabel") }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -23,6 +23,7 @@ import i18next from "i18next";
 const showDialog = ref(false);
 const nocodeId = ref("");
 const nocodeName = ref("");
+const renaming = ref(false);
 defineExpose({
   show(id: string, name: string) {
     nocodeId.value = id;
@@ -41,6 +42,7 @@ const newName = ref<HTMLInputElement>(null);
 
 const reg = /[\/\\:*?"<>|]/;
 const doRename = async () => {
+  if (renaming.value) return;
   let name = nocodeName.value;
   if(!name || !name.trim()){
     ElMessage.warning(i18next.t("nocodeRenameDialog.nameEmptyTip"));
@@ -49,15 +51,17 @@ const doRename = async () => {
     ElMessage.warning(i18next.t("nocodeRenameDialog.nameFormatTip") + ' \\ / : * ? " < > |');
     return;
   }
-  let result = await axios.get("/project/rename-nocode?name="+encodeURIComponent(nocodeName.value)+"&id="+nocodeId.value).catch(err => {
-    console.log(err);
-  });
-  if(result){
+  renaming.value = true;
+  try {
+    const result = await axios.get("/project/rename-nocode?name="+encodeURIComponent(nocodeName.value)+"&id="+nocodeId.value).catch(err => {
+      console.log(err);
+    });
+    if (!result) return;
     emit("closed", nocodeId.value, result.data);
-  }else{
-    emit("closed");
+    showDialog.value = false;
+  } finally {
+    renaming.value = false;
   }
-  showDialog.value = false;
 };
 
 </script>

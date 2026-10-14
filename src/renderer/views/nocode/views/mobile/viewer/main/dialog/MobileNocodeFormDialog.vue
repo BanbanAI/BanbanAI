@@ -60,8 +60,8 @@
     :drafts="drafts"
     :table="table"
     :enable-clear="true"
-    @delete="handleDeleteDraft"
-    @clear="handleClearDrafts"
+    :delete-action="handleDeleteDraft"
+    :clear-action="handleClearDrafts"
     @submitted="handleDraftSubmitted"
     @updated="handleDraftSaved"
   />
@@ -198,6 +198,7 @@ const handleDeleteDraft = async (row: Row) => {
     drafts.value = drafts.value.filter(item => item[SystemField.UUID] !== row[SystemField.UUID]);
     if (!drafts.value.length) draftBoxListVisible.value = false;
   }
+  return !!res;
 }
 const handleClearDrafts = async () => {
   const res = await deleteDraftRows([ ...drafts.value ]);
@@ -206,6 +207,7 @@ const handleClearDrafts = async () => {
     drafts.value = [];
     draftBoxListVisible.value = false;
   }
+  return !!res;
 }
 const handleDraftSubmitted = async () => {
   draftsLoadedKey = "";

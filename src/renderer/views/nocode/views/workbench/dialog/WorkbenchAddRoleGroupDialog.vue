@@ -13,7 +13,7 @@
       </div>
       <template #footer>
         <el-button class="cancel" @click="emit('update:modelValue', false)">{{ $t('WorkbenchAddRoleGroupDialog.cancel') }}</el-button>
-        <el-button type="primary" class="confirm" @click="handleConfirm">{{ $t('WorkbenchAddRoleGroupDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="props.loading" :disabled="props.loading" @click="handleConfirm">{{ $t('WorkbenchAddRoleGroupDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -22,8 +22,9 @@
 import { ref, reactive } from "vue";
 import i18next from "i18next";
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean;
+  loading?: boolean;
 }>();
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)  
@@ -41,8 +42,8 @@ const rules = reactive({
 })
 
 const handleConfirm = () => {
+  if (props.loading) return;
   emit('confirm',groupInfo.value);
-  emit('update:modelValue', false);
 }
 </script>
 

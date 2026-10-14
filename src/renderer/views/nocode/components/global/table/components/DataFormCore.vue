@@ -67,7 +67,7 @@
             <el-tooltip :content="$t('DataFormCore.formLoadingTip')" :disabled="formReady" placement="top">
               <span class="form-action-tooltip-trigger">
                 <el-button type="primary" @click="emit('submit', isSubmitContinuous, isSaveCurrentContent)"
-                  :loading="loading" :disabled="!formReady">{{
+                  :loading="loading" :disabled="!formReady || loading">{{
                     $t('DataFormCore.submit')
                   }}</el-button>
               </span>
@@ -75,7 +75,7 @@
             <el-tooltip v-if="formMode !== FormMode.Edit" :content="$t('DataFormCore.formLoadingTip')"
               :disabled="formReady" placement="top">
               <span class="form-action-tooltip-trigger">
-                <el-button @click="emit('submitDraft')" :loading="loading" :disabled="!formReady">{{
+                <el-button @click="emit('submitDraft')" :loading="loading" :disabled="!formReady || loading">{{
                   $t('DataFormCore.saveDraft') }}</el-button>
               </span>
             </el-tooltip>
@@ -84,7 +84,7 @@
             <el-tooltip v-if="showStashButton" :content="$t('DataFormCore.formLoadingTip')" :disabled="formReady"
               placement="top">
               <span class="form-action-tooltip-trigger">
-                <el-button @click="emit('stash')" :loading="loading" :disabled="!formReady">{{
+                <el-button @click="emit('stash')" :loading="loading" :disabled="!formReady || loading">{{
                   $t('DataFormCore.stash') }}</el-button>
               </span>
             </el-tooltip>

@@ -31,12 +31,12 @@
       </organize-tree>
     </div>
 
-    <workbench-department-dialog v-model="departmentDialogVisible" :department="activeDepartment" @confirm="departmentConfirm" :departmentList="departmentRootTree"></workbench-department-dialog>
-    <department-rename-dialog v-model="departmentRenameDialogVisible" :title="$t('OrganizeMemberDepartmentAside.rename')" :label="$t('OrganizeMemberDepartmentAside.deptName')" @confirm="changeDepartmentName" :info="activeDepartment"></department-rename-dialog>
-    <department-manager-dialog v-model="departmentManagerDialogVisible" :title="departmentDialogName" :managerIds="departmentManagers" :departmentId="activeDepartmentId" @confirm="setManager"></department-manager-dialog>
-    <workbench-delete-dialog v-model="deleteDialogVisible" :title="$t('OrganizeMemberDepartmentAside.delete')" :category="architectureContext.category" @confirm="handleDelete"></workbench-delete-dialog>
+    <workbench-department-dialog v-model="departmentDialogVisible" :department="activeDepartment" @confirm="departmentConfirm" :departmentList="departmentRootTree" :loading="departmentActionLoading"></workbench-department-dialog>
+    <department-rename-dialog v-model="departmentRenameDialogVisible" :title="$t('OrganizeMemberDepartmentAside.rename')" :label="$t('OrganizeMemberDepartmentAside.deptName')" @confirm="changeDepartmentName" :info="activeDepartment" :loading="departmentActionLoading"></department-rename-dialog>
+    <department-manager-dialog v-model="departmentManagerDialogVisible" :title="departmentDialogName" :managerIds="departmentManagers" :departmentId="activeDepartmentId" @confirm="setManager" :loading="departmentActionLoading"></department-manager-dialog>
+    <workbench-delete-dialog v-model="deleteDialogVisible" :title="$t('OrganizeMemberDepartmentAside.delete')" :category="architectureContext.category" @confirm="handleDelete" :loading="departmentActionLoading"></workbench-delete-dialog>
     <workbench-delete-tip-dialog v-model="deleteTipDialogVisible" :tip="hasUserTip"></workbench-delete-tip-dialog>
-    <department-rename-dialog v-model="departmentAddSonDialogVisible" :title="$t('OrganizeMemberDepartmentAside.addSubDept')" :label="$t('OrganizeMemberDepartmentAside.subDeptName')" @confirm="addSonDepartment"></department-rename-dialog>
+    <department-rename-dialog v-model="departmentAddSonDialogVisible" :title="$t('OrganizeMemberDepartmentAside.addSubDept')" :label="$t('OrganizeMemberDepartmentAside.subDeptName')" @confirm="addSonDepartment" :loading="departmentActionLoading"></department-rename-dialog>
   </div>
 </template>
 
@@ -104,6 +104,7 @@ const departmentManagerDialogVisible = ref(false)
 const hasUserTip = ref('');
 const deleteDialogVisible = ref(false);
 const deleteTipDialogVisible = ref(false);
+const departmentActionLoading = ref(false);
 
 const handleActiveAllMember = () => {
   architectureContext.departmentId = "";
@@ -114,16 +115,19 @@ const handleDepartment = () => {
   departmentDialogVisible.value = true;
 }
 const departmentConfirm = async (departInfo, type: "add" | "edit") =>{
-  if (type === "add") {
-    await organizeUtil.addDepartment({...departInfo, nocodeId});
-    updateDepartmentList();
-  } else {
-    await organizeUtil.updateDepartmentParent({
-      ...departInfo,
-      nocodeId,
-      departmentId: activeDepartment.value?.id,
-    });
-    initDepartment();
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
+  try {
+    if (type === "add") {
+      await organizeUtil.addDepartment({...departInfo, nocodeId});
+      updateDepartmentList();
+    } else {
+      await organizeUtil.updateDepartmentParent({ ...departInfo, nocodeId, departmentId: activeDepartment.value?.id });
+      initDepartment();
+    }
+    departmentDialogVisible.value = false;
+  } finally {
+    departmentActionLoading.value = false;
   }
 }
 
@@ -189,23 +193,40 @@ const clickDelete = (data: DepartmentTree) => {
   deleteDialogVisible.value = true
 }
 const handleDelete = async () => {
-  await organizeUtil.removeDepartment({...activeDepartment.value, nocodeId});
-  updateDepartmentList();
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
+  try {
+    await organizeUtil.removeDepartment({...activeDepartment.value, nocodeId});
+    updateDepartmentList();
+    deleteDialogVisible.value = false;
+  } finally { departmentActionLoading.value = false; }
 }
 
 
 const changeDepartmentName = async (departmentName) => {
-  const newDepartment = Object.assign({nocodeId}, activeDepartment.value, {name:departmentName});
-  await organizeUtil.updateDepartment(newDepartment); 
-  updateDepartmentList();
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
+  try {
+    const newDepartment = Object.assign({nocodeId}, activeDepartment.value, {name:departmentName});
+    await organizeUtil.updateDepartment(newDepartment);
+    updateDepartmentList();
+    departmentRenameDialogVisible.value = false;
+  } finally { departmentActionLoading.value = false; }
 }
 
 const addSonDepartment = async (departmentName) => {
-  await organizeUtil.addDepartment({name:departmentName, parent: activeDepartment.value?.id, isEditor: false, nocodeId });
-  updateDepartmentList();
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
+  try {
+    await organizeUtil.addDepartment({name:departmentName, parent: activeDepartment.value?.id, isEditor: false, nocodeId });
+    updateDepartmentList();
+    departmentAddSonDialogVisible.value = false;
+  } finally { departmentActionLoading.value = false; }
 }
 
 const setManager = async (payload) => {
+  if (departmentActionLoading.value) return;
+  departmentActionLoading.value = true;
   try {
     // 调用organizeUtil中的方法将部门主管信息发送到后端
     await organizeUtil.updateDepartmentManagers({ id: payload.id, managers: payload.managers, nocodeId });
@@ -215,10 +236,13 @@ const setManager = async (payload) => {
     })
     // 只有在成功时才执行以下操作
     ElMessage.success(i18next.t('OrganizeMemberDepartmentAside.setDeptManagerSuccess'));
+    departmentManagerDialogVisible.value = false;
   } catch (error) {
     // 在错误情况下只显示错误消息，不执行其他操作
     console.error(i18next.t('OrganizeMemberDepartmentAside.setDeptManagerFailWithReason'), error);
     ElMessage.error(error.response?.data?.message || i18next.t('OrganizeMemberDepartmentAside.setDeptManagerFail'));
+  } finally {
+    departmentActionLoading.value = false;
   }
 }
 

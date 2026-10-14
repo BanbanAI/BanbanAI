@@ -110,7 +110,7 @@
           </div>
           <div class="dialog-footer">
             <el-button type="default" @click="handleCancelCreateGroup">{{ $t("projectGroupDialog.cancelGroup") }}</el-button>
-            <el-button type="primary" @click="handleSaveCreateGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
+            <el-button type="primary" :loading="actionLoading" :disabled="actionLoading" @click="handleSaveCreateGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
           </div>
         </div>
       </el-dialog>
@@ -127,7 +127,7 @@
           </div>
           <div class="dialog-footer">
             <el-button type="default" @click="handleCancelRenameGroup">{{ $t("projectGroupDialog.cancelGroup") }}</el-button>
-            <el-button type="primary" @click="handleSaveRenameGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
+            <el-button type="primary" :loading="actionLoading" :disabled="actionLoading" @click="handleSaveRenameGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
           </div>
         </div>
       </el-dialog>
@@ -151,7 +151,7 @@
           </div>
           <div class="dialog-footer">
             <el-button type="default" @click="handleCancelMoveGroup">{{ $t("projectGroupDialog.cancelGroup") }}</el-button>
-            <el-button type="primary" @click="handleSaveMoveGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
+            <el-button type="primary" :loading="actionLoading" :disabled="actionLoading" @click="handleSaveMoveGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
           </div>
         </div>
       </el-dialog>
@@ -208,7 +208,7 @@
         </div>
         <template #footer>
           <el-button type="default" @click="handleCancelAddAppGroup">{{ $t("projectGroupDialog.cancelGroup") }}</el-button>
-          <el-button type="primary" @click="handleSaveAddAppGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
+          <el-button type="primary" :loading="actionLoading" :disabled="actionLoading" @click="handleSaveAddAppGroup">{{ $t("projectGroupDialog.confirmMove") }}</el-button>
         </template>
       </el-dialog>
     </div>
@@ -256,6 +256,7 @@ const renameDialogVisible = ref(false)
 const newGroupName = ref('')
 const createDialogVisible = ref(false)
 const createGroupName = ref('')
+const actionLoading = ref(false)
 
 const selectedUnGroupedAppsList = ref([])
 const selectedGroupedAppIdList = ref([])
@@ -278,21 +279,29 @@ const syncNocodeSnapshots = (nocodeList: GroupNocodeSummary[]) => {
   nocodeCovers.value = coverMap;
 }
 
-const getNocodes = async () => {
-  const res = await shareNocodeCacheStore.getShareNocodeSummaries() as GroupNocodeSummary[];
-  syncNocodeSnapshots(res);
-  nocodes.value = res.map((item) => item.meta);
+const getNocodes = async (): Promise<boolean> => {
+  try {
+    const res = await shareNocodeCacheStore.getShareNocodeSummaries() as GroupNocodeSummary[];
+    syncNocodeSnapshots(res);
+    nocodes.value = res.map((item) => item.meta);
+    return !shareNocodeCacheStore.isShareNocodeSummariesDirty();
+  } catch (error: unknown) {
+    ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+    return false;
+  }
 }
 
 // 构建分组结构
-const getGroupStructure = async () => {
-  await axios.get("/project/get-all-nocode-groups").then(({ data }) => {
+const getGroupStructure = async (): Promise<boolean> => {
+  try {
+    const { data } = await axios.get("/project/get-all-nocode-groups");
     groupStructure.value = buildGroupStructure(data, nocodes.value);
     panelContentGroupList.value = groupStructure.value.filter(item => item.isUngrouped !== true)
-  }).catch(({ response }) => {
-    ElMessage.error(response.data.message);
-    return [];
-  });
+    return true;
+  } catch (error: unknown) {
+    ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+    return false;
+  }
 }
 
 function buildGroupStructure(groups, nocodes) {
@@ -335,9 +344,9 @@ function buildGroupStructure(groups, nocodes) {
   return groupStructure;
 }
 
-const init = async () => {
-  await getNocodes();
-  await getGroupStructure();
+const init = async (): Promise<boolean> => {
+  if (!await getNocodes()) return false;
+  return await getGroupStructure();
 }
 
 
@@ -427,36 +436,43 @@ async function handleCancelCreateGroup() {
 }
 
 async function handleSaveCreateGroup() {
+  if (actionLoading.value) return;
+  const createdGroupName = createGroupName.value;
   // 分组名不允许重复
-  const isNameDuplication =  groupStructure.value.some(item => item.name === createGroupName.value);
+  const isNameDuplication =  groupStructure.value.some(item => item.name === createdGroupName);
 
   if(!isNameDuplication) {
-    const res = await axios.post("/project/create-nocode-group",{
-      name: createGroupName.value
-    }).then(({ data }) => data).catch(({ response }) => {
-      ElMessage.error(response.data.message);
-      return [];
-    })
+    actionLoading.value = true;
+    try {
+      const res = await axios.post("/project/create-nocode-group",{
+        name: createdGroupName
+      }).then(({ data }) => data).catch((error: unknown) => {
+        ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+        return null;
+      })
+      if (!res) return;
 
-    await init()
+      if (!await init()) return;
+      createGroupName.value = ''
+      createDialogVisible.value = false;
 
-    // 清除以前选中的nocode
-    selectedNocodes.value = []
-    panelContentGroupList.value = groupStructure.value.filter(item => item.isUngrouped !== true)
-    // 需要单选效果（只有一个激活项）
-    panelContentGroupList.value.forEach(item => {
-      if (item.name === createGroupName.value) {
-        item.isActive = true;
-      } else {
-        item.isActive = false;
-      }
-    });
-    // 重新获取右侧应用列表
-    activeGroup.value = groupStructure.value.find(item => item.name === createGroupName.value);
-    ungroupedApp.value.isActive = false;
-
-    createGroupName.value = ''
-    createDialogVisible.value = false;
+      // 清除以前选中的nocode
+      selectedNocodes.value = []
+      panelContentGroupList.value = groupStructure.value.filter(item => item.isUngrouped !== true)
+      // 需要单选效果（只有一个激活项）
+      panelContentGroupList.value.forEach(item => {
+        if (item.name === createdGroupName) {
+          item.isActive = true;
+        } else {
+          item.isActive = false;
+        }
+      });
+      // 重新获取右侧应用列表
+      activeGroup.value = groupStructure.value.find(item => item.name === createdGroupName);
+      ungroupedApp.value.isActive = false;
+    } finally {
+      actionLoading.value = false;
+    }
   } else {
     ElMessage({
       message: `${i18next.t("projectGroupDialog.groupNameRepeat")}`,
@@ -470,21 +486,28 @@ async function handleCancelRenameGroup() {
 }
 
 async function handleSaveRenameGroup() {
+  if (actionLoading.value) return;
   // 分组名不允许重复
   const isNameDuplication =  groupStructure.value.some(item => item.name === newGroupName.value);
 
   if(!isNameDuplication) {
-    const res = await axios.get("/project/rename-nocode-group", {
-      params: {
-        id: popoverGroup.value.id,
-        name: newGroupName.value
-      }
-    }).then(({ data }) => data).catch(({ response }) => {
-      ElMessage.error(response.data.message);
-      return [];
-    });
-    await init()
-    renameDialogVisible.value = false;
+    actionLoading.value = true;
+    try {
+      const res = await axios.get("/project/rename-nocode-group", {
+        params: {
+          id: popoverGroup.value.id,
+          name: newGroupName.value
+        }
+      }).then(({ data }) => data).catch((error: unknown) => {
+        ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+        return null;
+      });
+      if (!res) return;
+      if (!await init()) return;
+      renameDialogVisible.value = false;
+    } finally {
+      actionLoading.value = false;
+    }
   } else {
     ElMessage({
       message: `${i18next.t("projectGroupDialog.groupNameRepeat")}`,
@@ -499,36 +522,43 @@ async function handleCancelMoveGroup() {
 }
 
 async function handleSaveMoveGroup() {
+  if (actionLoading.value) return;
   if (moveGroupId.value) {
-    const nocodeIds = selectedNocodes.value.map(nocode => nocode.id)
-    if(moveGroupId.value !== ungroupedApp.value.id) {
-      const res = await axios.post("/project/move-nocodes-to-group", {
-        nocodeIds: nocodeIds,
-        groupId: moveGroupId.value
-      }).then(({ data }) => data).catch(({ response }) => {
-        ElMessage.error(response.data.message);
-        return [];
-      })
-    } else { // 将nocode移到未分组
-      const res = await axios.post("/project/remove-nocodes-from-group", {
-        nocodeIds: nocodeIds,
-      }).then(({ data }) => data).catch(({ response }) => {
-        ElMessage.error(response.data.message);
-        return [];
-      })
+    actionLoading.value = true;
+    try {
+      const nocodeIds = selectedNocodes.value.map(nocode => nocode.id)
+      if(moveGroupId.value !== ungroupedApp.value.id) {
+        const res = await axios.post("/project/move-nocodes-to-group", {
+          nocodeIds: nocodeIds,
+          groupId: moveGroupId.value
+        }).then(({ data }) => data).catch((error: unknown) => {
+          ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+          return null;
+        })
+        if (!res) return;
+      } else { // 将nocode移到未分组
+        const res = await axios.post("/project/remove-nocodes-from-group", {
+          nocodeIds: nocodeIds,
+        }).then(({ data }) => data).catch((error: unknown) => {
+          ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+          return null;
+        })
+        if (!res) return;
+      }
+      shareNocodeCacheStore.markAllDirty()
+      if (!await init()) return;
+      selectedNocodes.value = []
+      moveToGroupDialogVisible.value = false
+      moveGroupId.value = null
+      // 重新获取右侧应用列表
+      activeGroup.value = groupStructure.value.find(item => item.name === activeGroup.value.name);
+      ungroupedApp.value.isActive = false;
+      if(activeGroup.value.isUngrouped){
+        ungroupedApp.value.isActive = true
+      }
+    } finally {
+      actionLoading.value = false;
     }
-    shareNocodeCacheStore.markAllDirty()
-    await init()
-    // 重新获取右侧应用列表
-    activeGroup.value = groupStructure.value.find(item => item.name === activeGroup.value.name);
-    ungroupedApp.value.isActive = false;
-    if(activeGroup.value.isUngrouped){
-      ungroupedApp.value.isActive = true
-    }
-    // 清除以前选中的nocode
-    selectedNocodes.value = []
-    moveToGroupDialogVisible.value = false
-    moveGroupId.value = null
   } else {
     ElMessage({
       message: `${i18next.t("projectGroupDialog.placeSelectGroup")}`,
@@ -542,36 +572,44 @@ async function handleCancelAddAppGroup() {
 }
 
 async function handleSaveAddAppGroup() {
-  // 拼接选中的未分组和已分组应用的id
-  const addNocodeIds = [...selectedUnGroupedAppsList.value, ...selectedGroupedAppIdList.value]
-  if(activeGroup.value.id !== ungroupedApp.value.id ) {
-    const res = await axios.post("/project/move-nocodes-to-group", {
-      nocodeIds: addNocodeIds,
-      groupId: activeGroup.value.id
-    }).then(({ data }) => data).catch(({ response }) => {
-      ElMessage.error(response.data.message);
-      return [];
-    })
-  } else {  // 移到未分组
-    const res = await axios.post("/project/remove-nocodes-from-group", {
-      nocodeIds: addNocodeIds,
-    }).then(({ data }) => data).catch(({ response }) => {
-      ElMessage.error(response.data.message);
-      return [];
-    })
+  if (actionLoading.value) return;
+  actionLoading.value = true;
+  try {
+    // 拼接选中的未分组和已分组应用的id
+    const addNocodeIds = [...selectedUnGroupedAppsList.value, ...selectedGroupedAppIdList.value]
+    if(activeGroup.value.id !== ungroupedApp.value.id ) {
+      const res = await axios.post("/project/move-nocodes-to-group", {
+        nocodeIds: addNocodeIds,
+        groupId: activeGroup.value.id
+      }).then(({ data }) => data).catch((error: unknown) => {
+        ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+        return null;
+      })
+      if (!res) return;
+    } else {  // 移到未分组
+      const res = await axios.post("/project/remove-nocodes-from-group", {
+        nocodeIds: addNocodeIds,
+      }).then(({ data }) => data).catch((error: unknown) => {
+        ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+        return null;
+      })
+      if (!res) return;
+    }
+    shareNocodeCacheStore.markAllDirty()
+    if (!await init()) return;
+    addApplicationDialogVisible.value = false
+    // 重新获取右侧应用列表
+    activeGroup.value = groupStructure.value.find(item => item.name === activeGroup.value.name);
+    ungroupedApp.value.isActive = false;
+  } finally {
+    actionLoading.value = false;
   }
-  shareNocodeCacheStore.markAllDirty()
-  await init()
-  // 重新获取右侧应用列表
-  activeGroup.value = groupStructure.value.find(item => item.name === activeGroup.value.name);
-  ungroupedApp.value.isActive = false;
-  addApplicationDialogVisible.value = false
 }
 
 function refreshDialog() {
   // 初始获取右侧应用列表
-  init().then(() => {
-    activeGroup.value = ungroupedApp.value;
+  init().then((initialized) => {
+    if (initialized) activeGroup.value = ungroupedApp.value;
   })
 }
 
@@ -600,27 +638,33 @@ function handleRename(group) {
 }
 
 async function handleDelete(group) {
-  const res = await axios.get("/project/delete-nocode-group", {
-    params: {
-      groupId: group.id
-    }
-  }).then(({ data }) => data).catch(({ response }) => {
-    ElMessage.error(response.data.message);
-    return [];
-  })
+  if (actionLoading.value) return;
+  actionLoading.value = true;
+  try {
+    const res = await axios.get("/project/delete-nocode-group", {
+      params: {
+        groupId: group.id
+      }
+    }).then(({ data }) => data).catch((error: unknown) => {
+      ElMessage.error(axios.isAxiosError(error) ? (error.response?.data?.message || String(error)) : String(error));
+      return null;
+    })
+    if (!res) return;
 
-  shareNocodeCacheStore.markAllDirty()
-  await init()
+    shareNocodeCacheStore.markAllDirty()
+    if (!await init()) return;
 
-  // 清除以前选中的nocode
-  selectedNocodes.value = []
-  // 需要单选效果（只有一个激活项）
-  groupStructure.value.forEach(i => {
-    i.isActive = false;
-  });
-  ungroupedApp.value.isActive = true;
-  // 重新获取右侧应用列表
-  activeGroup.value = ungroupedApp.value;
+    selectedNocodes.value = []
+    // 需要单选效果（只有一个激活项）
+    groupStructure.value.forEach(i => {
+      i.isActive = false;
+    });
+    ungroupedApp.value.isActive = true;
+    // 重新获取右侧应用列表
+    activeGroup.value = ungroupedApp.value;
+  } finally {
+    actionLoading.value = false;
+  }
 
 }
 

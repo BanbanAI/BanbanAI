@@ -20,8 +20,8 @@
           <el-icon size="16"><i-ven-form-preview /></el-icon>
           <span>{{ $t('formCreate.preview') }}</span>
         </el-button>
-        <el-button class="save" size="small" @click="saveProject()">{{ $t('projectEditor.save') }}</el-button>
-        <el-button class="publish" type="success" size="small" @click="handlePublish">{{ $t('projectEditor.published') }}</el-button>
+        <el-button class="save" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handleManualSave">{{ $t('projectEditor.save') }}</el-button>
+        <el-button class="publish" type="success" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handlePublish">{{ $t('projectEditor.published') }}</el-button>
       </div>
     </div>
     <teleport to="body">
@@ -323,6 +323,7 @@ const coEditingAccounts = ref<CoEditingAccount[]>([]);
 const curCoEditingAccount = ref<CoEditingAccount>();
 let projectSocket: Socket;
 const coordinationReadyGate = createCoordinationReadyGate();
+const saveButtonLoading = ref(false);
 
 type CopiedData = {
   copyType: "widget",
@@ -2984,9 +2985,25 @@ const checkAutoSaveProject = async () => { //检测自动保存功能是否开�
   setAutoSaveProjectTimer();
 }
 
+const handleManualSave = async () => {
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    await saveProject();
+  } finally {
+    saveButtonLoading.value = false;
+  }
+}
+
 const handlePublish = async () => {
-  saveProject(true);
-  emit('open-setting', SettingTab.PUBLISH);
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    const saved = await saveProject(true);
+    if (saved) emit('open-setting', SettingTab.PUBLISH);
+  } finally {
+    saveButtonLoading.value = false;
+  }
 }
 
 watch(() => settingState.autoSaveInterval, () => {

@@ -15,7 +15,7 @@
     </template>
     <template #footer>
       <div class="footer-content">
-        <el-button type="primary" @click="handleCompletedInit">{{ $t('WorkBenchAccount.completed') }}</el-button>
+        <el-button type="primary" :loading="submitLoading" :disabled="submitLoading" @click="handleCompletedInit">{{ $t('WorkBenchAccount.completed') }}</el-button>
       </div>
     </template>
   </guide-content>
@@ -81,6 +81,7 @@ const companyNameRules: FormItemRule[] = [
 ]
 
 const handleCompletedInit = async () => {
+  if (submitLoading.value) return;
   submitLoading.value = true;
 
   passwordFormRef.value.validate(async (valid) => {
@@ -96,6 +97,7 @@ const handleCompletedInit = async () => {
       }
     } else {
       ElMessage.warning(i18next.t('nocodeLoginDialog.errorPasswordTip'));
+      submitLoading.value = false;
     }
   });
 }

@@ -21,13 +21,13 @@
     </div>
 
     <workbench-add-role-group-dialog v-model="addRoleGroupDialogVisible"
-      @confirm="RoleGroupConfirm"></workbench-add-role-group-dialog>
+      @confirm="RoleGroupConfirm" :loading="roleActionLoading"></workbench-add-role-group-dialog>
     <workbench-add-role-dialog v-model="createRoleDialogVisible" @confirm="RoleConfirm" :roleTeam="roleTeam"
-      :activeGroup="activeRoleGroup"></workbench-add-role-dialog>
+      :activeGroup="activeRoleGroup" :loading="roleActionLoading"></workbench-add-role-dialog>
     <workbench-select-dialog v-model="selectRoleGroupDialogVisible" :title="$t('OrganizeMemberRoleAside.adjustGroup')" :label="$t('OrganizeMemberRoleAside.selectTargetGroup')" :roleTeam="roleTeam" :info="activeRole"
-      @confirm="regulateRoleGroup"></workbench-select-dialog>
-    <workbench-delete-dialog v-model="deleteDialogVisible" :title="$t('OrganizeMemberRoleAside.delete')" :category="architectureContext.category" @confirm="handleDeleteRole"></workbench-delete-dialog>
-    <department-rename-dialog v-model="renameRoleDialogVisible" :title="$t('OrganizeMemberRoleAside.rename')" :label="$t('OrganizeMemberRoleAside.newName')" :info="activeRole" @confirm="changeRoleName"></department-rename-dialog>
+      @confirm="regulateRoleGroup" :loading="roleActionLoading"></workbench-select-dialog>
+    <workbench-delete-dialog v-model="deleteDialogVisible" :title="$t('OrganizeMemberRoleAside.delete')" :category="architectureContext.category" @confirm="handleDeleteRole" :loading="roleActionLoading"></workbench-delete-dialog>
+    <department-rename-dialog v-model="renameRoleDialogVisible" :title="$t('OrganizeMemberRoleAside.rename')" :label="$t('OrganizeMemberRoleAside.newName')" :info="activeRole" @confirm="changeRoleName" :loading="roleActionLoading"></department-rename-dialog>
     <workbench-delete-tip-dialog v-model="deleteTipDialogVisible" :tip="$t('OrganizeMemberRoleAside.delRoleTip')"></workbench-delete-tip-dialog>
   </div>
 </template>
@@ -102,6 +102,7 @@ const renameRoleDialogVisible = ref(false);
 const selectRoleGroupDialogVisible = ref(false)
 const deleteDialogVisible = ref(false);
 const deleteTipDialogVisible = ref(false);
+const roleActionLoading = ref(false);
 
 const roleTeam = computed(() => {
   let list = <Team[]>([]);
@@ -157,13 +158,16 @@ const initRoleList = () => {
 initRoleList();
 
 const RoleGroupConfirm = async (name) => {
+  if (roleActionLoading.value) return;
+  roleActionLoading.value = true;
   try {
-    const res = await organizeUtil.addRole({ name, isGroup: true, nocodeId });
+    await organizeUtil.addRole({ name, isGroup: true, nocodeId });
     ElMessage.success(i18next.t('OrganizeMemberRoleAside.roleGroupCreateSuccess'));
     updateRoleList();
+    addRoleGroupDialogVisible.value = false;
   } catch (error) {
     ElMessage.error(error.response?.data?.message || i18next.t('OrganizeMemberRoleAside.roleGroupCreateFail'));
-  }
+  } finally { roleActionLoading.value = false; }
 }
 const editRole = () => {
 
@@ -181,13 +185,16 @@ const changeRoleGroup = (data) => {
 
 
 const RoleConfirm = async (data) => {
+  if (roleActionLoading.value) return;
+  roleActionLoading.value = true;
   try {
     await organizeUtil.addRole({ name: data.name, userIds: data.userIds, nocodeId });
     ElMessage.success(i18next.t('OrganizeMemberRoleAside.roleCreateSuccess'));
     updateRoleList();
+    createRoleDialogVisible.value = false;
   } catch (error) {
     ElMessage.error(error.response?.data?.message || i18next.t('OrganizeMemberRoleAside.roleCreateFail'));
-  }
+  } finally { roleActionLoading.value = false; }
 }
 
 const clickDelete = (data: Role) => {
@@ -203,25 +210,39 @@ const clickDelete = (data: Role) => {
 
 
 const regulateRoleGroup = async (roleId) => {
-  const newRole = Object.assign({nocodeId}, activeRole.value, {parent:roleId});
-  await organizeUtil.updateRole(newRole);
-  updateRoleList();
+  if (roleActionLoading.value) return;
+  roleActionLoading.value = true;
+  try {
+    const newRole = Object.assign({nocodeId}, activeRole.value, {parent:roleId});
+    await organizeUtil.updateRole(newRole);
+    updateRoleList();
+    selectRoleGroupDialogVisible.value = false;
+  } finally { roleActionLoading.value = false; }
 }
 
 const handleDeleteRole = async () => {
-  await organizeUtil.removeRole({...activeRole.value, nocodeId});
-  if (architectureContext.roleId === activeRole.value.id) {
-    architectureContext.roleId = '';
-  }
-  updateRoleList();
+  if (roleActionLoading.value) return;
+  roleActionLoading.value = true;
+  try {
+    await organizeUtil.removeRole({...activeRole.value, nocodeId});
+    if (architectureContext.roleId === activeRole.value.id) {
+      architectureContext.roleId = '';
+    }
+    updateRoleList();
+    deleteDialogVisible.value = false;
+  } finally { roleActionLoading.value = false; }
 }
 
 const changeRoleName = async (roleName) => {
-  renameRoleDialogVisible.value = false;
-  const newRole = Object.assign({}, activeRole.value, {name:roleName});
-  const option = {...newRole, nocodeId}
-  await organizeUtil.updateRole(option);
-  updateRoleList();
+  if (roleActionLoading.value) return;
+  roleActionLoading.value = true;
+  try {
+    const newRole = Object.assign({}, activeRole.value, {name:roleName});
+    const option = {...newRole, nocodeId}
+    await organizeUtil.updateRole(option);
+    updateRoleList();
+    renameRoleDialogVisible.value = false;
+  } finally { roleActionLoading.value = false; }
 }
 
 defineExpose({

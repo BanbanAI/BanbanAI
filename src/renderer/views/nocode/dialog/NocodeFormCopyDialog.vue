@@ -31,7 +31,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="handleCancel" style="margin-right: 10px;">{{ $t('nocodeFormCopyDialog.cancel') }}</el-button>
-          <el-button type="primary" @click="handleConfirm">{{ $t('nocodeFormCopyDialog.confirm') }}</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('nocodeFormCopyDialog.confirm') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -44,12 +44,16 @@ import i18next from 'i18next';
 import { ref, computed } from 'vue';
 import { getI18nLabelColon } from '@common/utils/i18n';
 
+// eslint-disable-next-line vue/valid-define-props
 const props = defineProps<{
   modelValue: boolean,
   tableName: string,
   pageName: string,
   copyType: string,
+  copyFormAction?: (value: string) => boolean | void | Promise<boolean | void>,
+  copyPageAction?: (value: string) => boolean | void | Promise<boolean | void>,
 }>();
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean),
   (event: 'confirmCopyForm', value: string)
@@ -59,6 +63,7 @@ const emit = defineEmits<{
 const inputRef = ref<InputInstance>();
 const newFormName = ref("");
 const newPageName = ref("");
+const loading = ref(false);
 
 const title = computed(() => {
   return props.copyType === 'form' ? i18next.t('nocodeFormCopyDialog.formTitle') : i18next.t('nocodeFormCopyDialog.pageTitle');
@@ -72,24 +77,43 @@ const handleOpened = () => {
 const handleCancel = () => {
   emit('update:modelValue', false);
 }
-const handleConfirm = () => {
+const handleConfirm = async () => {
+  if (loading.value) return;
+  let value = '';
+  let action: typeof props.copyFormAction | typeof props.copyPageAction;
   if(props.copyType === 'form') {
     if (!newFormName.value) {
       ElMessage.error(i18next.t('nocodeFormCopyDialog.emptyFormError'));
       return inputRef.value?.focus();
     }
 
-    emit('confirmCopyForm', newFormName.value);
+    value = newFormName.value;
+    action = props.copyFormAction;
   } else if(props.copyType === 'page') {
     if (!newPageName.value) {
       ElMessage.error(i18next.t('nocodeFormCopyDialog.emptyPageError'));
       return inputRef.value?.focus();
     }
 
-    emit('confirmCopyPage', newPageName.value);
+    value = newPageName.value;
+    action = props.copyPageAction;
   }
 
-  emit('update:modelValue', false);
+  loading.value = true;
+  try {
+    if (action) {
+      const result = await action(value);
+      if (result === false) return;
+    } else if (props.copyType === 'form') {
+      emit('confirmCopyForm', value);
+    } else {
+      emit('confirmCopyPage', value);
+    }
+    emit('update:modelValue', false);
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 
 </script>

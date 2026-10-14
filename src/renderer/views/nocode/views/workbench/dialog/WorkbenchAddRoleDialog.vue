@@ -14,7 +14,7 @@
       </div>
       <template #footer>
         <el-button class="cancel" @click="emit('update:modelValue', false)">{{ $t('WorkbenchAddRoleDialog.cancel') }}</el-button>
-        <el-button type="primary" class="confirm"  @click="handleConfirm">{{ $t('WorkbenchAddRoleDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="props.loading" :disabled="props.loading" @click="handleConfirm">{{ $t('WorkbenchAddRoleDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -30,6 +30,7 @@ const props = defineProps<{
   activeGroup: string;
   modelValue: boolean;
   roleTeam: Team[];
+  loading?: boolean;
 }>()
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)
@@ -50,6 +51,7 @@ const rules = reactive({
   }]
 })
 const handleConfirm = () => {
+  if (props.loading) return;
   if (!formRef.value) return;
   formRef.value.validate((valid) => {
     if (valid) {
@@ -58,7 +60,6 @@ const handleConfirm = () => {
         parent: roleInfo.value.group,
         userIds: [ ...userIds.value ],
       });
-      emit('update:modelValue', false);
     }
   })
 };

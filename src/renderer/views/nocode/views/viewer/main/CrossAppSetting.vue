@@ -100,7 +100,7 @@
     </div>
 
     <div class="bottom-container">
-      <el-button type="primary" class="save-btn" @click="handleSave">
+      <el-button type="primary" class="save-btn" :loading="saving" :disabled="saving" @click="handleSave">
         {{ $t('CrossAppSetting.save') }}
       </el-button>
     </div>
@@ -447,7 +447,11 @@ const handleNodeChange = (node: CrossAppVisibleNode, value: boolean) => {
   }
 };
 
+const saving = ref(false);
 const handleSave = async () => {
+  if (saving.value) return;
+  saving.value = true;
+  try {
   if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
 
   const buildSettingsByType = () => {
@@ -498,6 +502,9 @@ const handleSave = async () => {
   isChanged.value = false;
   emit('update-nocode');
   ElMessage.success(i18next.t('CrossAppSetting.saveSuccess'));
+  } finally {
+    saving.value = false;
+  }
 };
 
 const loadManageableApps = async () => {

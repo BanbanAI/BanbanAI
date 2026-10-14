@@ -69,7 +69,7 @@
       </div>
     </div>
     <hr>
-    <el-button class="save-button" type="primary" @click="savePermissions">{{ $t('NocodeProjectPermission.save') }}</el-button>
+    <el-button class="save-button" type="primary" :loading="isSaving" :disabled="isSaving" @click="savePermissions">{{ $t('NocodeProjectPermission.save') }}</el-button>
     <nocode-user-select-dialog ref="userSelectRef" @save="handleAdd"></nocode-user-select-dialog>
   </div>
 </template>
@@ -82,7 +82,6 @@ import { ElMessage } from 'element-plus';
 import { PermissionCategory, PermissionFilterMode } from '@common/types/nocode';
 import axios from "axios"
 import { checkNocodeSyncBeforeRequest, handleNocodeSyncConflictError } from '@renderer/utils/nocodeSyncMessage';
-import { debounce } from 'lodash';
 import i18next from 'i18next';
 import { getUserDisplayName } from '@renderer/utils/other';
 
@@ -135,7 +134,11 @@ const getUserName = (id: string) => {
   return getUserDisplayName(organizeUtil.findUserById(id), id);
 }
 
-const savePermissions = debounce(async () => {
+const isSaving = ref(false);
+const savePermissions = async () => {
+  if (isSaving.value) return;
+  isSaving.value = true;
+  try {
   if(!isChanged.value) {
     ElMessage(i18next.t('NocodeProjectPermission.noNeedSave'))
     return
@@ -162,7 +165,10 @@ const savePermissions = debounce(async () => {
     }
     isChanged.value = false
   }
-}, 500)
+  } finally {
+    isSaving.value = false;
+  }
+}
 
 watch(
   () => projectPermission.value,

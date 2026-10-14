@@ -31,7 +31,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="handleCancel">{{ $t("PcOrganizeManagerDialog.cancel") }}</el-button>
-          <el-button type="primary" @click="handleConfirm">{{ $t("PcOrganizeManagerDialog.confirm") }}</el-button>
+          <el-button type="primary" :loading="props.loading" :disabled="props.loading" @click="handleConfirm">{{ $t("PcOrganizeManagerDialog.confirm") }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -43,6 +43,7 @@ import { ref, computed, watch } from 'vue';
 import { NocodeUser, Department, Role } from '@common/types/account';
 import i18next from 'i18next';
 
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (e: 'confirm', userIds: string[]): void;
   (e: 'update', userIds: string[]): void;
@@ -55,6 +56,7 @@ const title = computed(() => type.value === 'add' ? i18next.t("PcOrganizeManager
 const selectUserCoreRef = ref();
 const firstOpen = ref(true)
 
+// eslint-disable-next-line vue/valid-define-props
 const props = withDefaults(defineProps<{
   modelValue?: boolean,
   isInWidget?: boolean;
@@ -88,6 +90,7 @@ const props = withDefaults(defineProps<{
   hideRoleTab?: boolean;
   hideDepartmentTab?: boolean;
   quickOptions?: Array<{ label: string, value: string }>;
+  loading?: boolean;
 }>(), {
   isInWidget: false,
   multiple: true,
@@ -100,7 +103,8 @@ const props = withDefaults(defineProps<{
   isShowQuick: true,
   hideRoleTab: false,
   hideDepartmentTab: false,
-  quickOptions: () => []
+  quickOptions: () => [],
+  loading: false,
 });
 
 const onClosed = () => {
@@ -115,11 +119,15 @@ const getTableList = computed(() => {
 
 
 const handleConfirm = () => {
-  dialogVisible.value = false;
+  if (props.loading) return;
   const selectedData = selectUserCoreRef.value?.getTabList();
   emit('confirm', selectedData);
   emit('update', selectedData);
   firstOpen.value = false
+}
+
+const close = () => {
+  dialogVisible.value = false;
 }
 
 const handleCancel = () => {
@@ -140,7 +148,8 @@ watch(
 );
 
 defineExpose({
-  show
+  show,
+  close,
 })
 
 </script>

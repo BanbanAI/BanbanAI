@@ -13,7 +13,7 @@
     </el-form>
       </div>
       <template #footer>
-        <el-button type="primary" class="confirm" @click="confirm">{{ $t('WorkbenchSelectDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="props.loading" :disabled="props.loading" @click="confirm">{{ $t('WorkbenchSelectDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -33,6 +33,7 @@ const props = defineProps<{
   label: string;
   info: any;
   roleTeam: Team[];
+  loading?: boolean;
 }>();
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)  
@@ -63,10 +64,10 @@ const inputRef = reactive({
   content: ''
 });
 const confirm = ()=> {
+  if (props.loading) return;
   formRef.value.validate((valid) => {
     if (valid) {
       emit('confirm', inputRef.content);
-      emit('update:modelValue', false);
     } else {
       console.log('输入为空，校验失败');
     }

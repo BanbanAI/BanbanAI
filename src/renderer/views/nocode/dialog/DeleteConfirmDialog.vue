@@ -14,34 +14,52 @@
       </div>
       <template #footer>
         <el-button @click="emit('update:modelValue', false)">{{ $t("deleteConfirmDialog.cancel") }}</el-button>
-        <el-button type="danger" @click="handleConfirm">{{ confirmText }}</el-button>
+        <el-button type="danger" :loading="loading" :disabled="loading" @click="handleConfirm">{{ confirmText }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script lang='ts' setup>
+import { ref } from 'vue';
 import i18next from 'i18next';
 
+// eslint-disable-next-line vue/valid-define-props
 const props = withDefaults(defineProps<{
   modelValue: boolean;
   title?: string;
   text: string,
   tip: string,
   confirmText?: string;
+  action?: () => Promise<boolean | void> | boolean | void;
 }>(), {
   title: () => i18next.t('deleteConfirmDialog.deletePrompt'),
   confirmText: () => i18next.t('deleteConfirmDialog.confirmDelete')
 });
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean),
   (event: 'confirm'),
 }>();
 
 
-const handleConfirm = () => {
-  emit('confirm');
-  emit('update:modelValue', false);
+const loading = ref(false);
+
+const handleConfirm = async () => {
+  if (loading.value) return;
+  if (!props.action) {
+    emit('confirm');
+    emit('update:modelValue', false);
+    return;
+  }
+  loading.value = true;
+  try {
+    const result = await props.action();
+    if (result !== false) emit('update:modelValue', false);
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 
 </script>

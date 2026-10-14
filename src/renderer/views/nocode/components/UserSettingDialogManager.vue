@@ -33,7 +33,7 @@
         <div class="footer">
           <el-button class="btn-forgetPassword" v-if="step === Step.Password && !passportState.user.noPassword" link type="primary" @click="forgetPassword()">{{ $t("nocodeLoginDialog.forgetPassword") }}</el-button>
           <el-button class="btn-cancel" @click="emit('update:modelValue', false)">{{ $t("AccountSettingDialog.cancel") }}</el-button>
-          <el-button class="btn-confirm" type="primary" @click="handleConfirmEdit">{{ $t("AccountSettingDialog.confirm") }}</el-button>
+          <el-button class="btn-confirm" type="primary" :loading="saving" :disabled="saving" @click="handleConfirmEdit">{{ $t("AccountSettingDialog.confirm") }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -72,6 +72,7 @@ const formAccountRef = ref()
 const editPasswordRef = ref()
 const retrievePasswordRef = ref()
 const step = ref<Step>(Step.Nickname)
+const saving = ref(false)
 const accountFormRules: FormRules = {
   nickname: [
     {
@@ -118,18 +119,24 @@ const editNickname = async () => {
   }
 }
 const handleConfirmEdit = async () => {
-  if (step.value === Step.Nickname) {
-    editNickname()
-  } else if (step.value === Step.Password) {
-    let res = await editPasswordRef.value.changePassword()
-    if (res) {
-      emit('update:modelValue', false)
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    if (step.value === Step.Nickname) {
+      await editNickname()
+    } else if (step.value === Step.Password) {
+      const res = await editPasswordRef.value.changePassword()
+      if (res) {
+        emit('update:modelValue', false)
+      }
+    } else {
+      const res = await retrievePasswordRef.value.changePassword()
+      if (res) {
+        emit('update:modelValue', false)
+      }
     }
-  } else {
-    let res = await retrievePasswordRef.value.changePassword()
-    if (res) {
-      emit('update:modelValue', false)
-    }
+  } finally {
+    saving.value = false;
   }
 }
 

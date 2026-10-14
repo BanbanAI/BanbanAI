@@ -86,7 +86,7 @@
                 ></nocode-form>
               </div>
               <div class="footer" v-if="!isViewing">
-                <el-button type="primary" @click="handleSubmit">{{ $t('BaseDataFormDialog.submit') }}</el-button>
+                <el-button type="primary" :loading="isSubmitting" :disabled="isSubmitting" @click="handleSubmit">{{ $t('BaseDataFormDialog.submit') }}</el-button>
                 <el-button v-if="formMode === FormMode.Edit" @click="handleCancel">{{ $t('BaseDataFormDialog.cancel') }}</el-button>
               </div>
             </div>
@@ -182,7 +182,7 @@
                 ></nocode-form>
               </div>
               <div class="footer" v-if="!isViewing">
-                <el-button type="primary" @click="handleSubmit">{{ $t('BaseDataFormDialog.submit') }}</el-button>
+                <el-button type="primary" :loading="isSubmitting" :disabled="isSubmitting" @click="handleSubmit">{{ $t('BaseDataFormDialog.submit') }}</el-button>
                 <el-button v-if="formMode === FormMode.Edit" @click="handleCancel">{{ $t('BaseDataFormDialog.cancel') }}</el-button>
               </div>
             </div>
@@ -194,7 +194,7 @@
 
   <table-delete-data-dialog
     v-model="deleteTipDialogVisible"
-    @deleteTableData="deleteCheckRowsData"
+    :action="deleteCheckRowsData"
     :title="$t('BaseDataFormDialog.delete')"
     :dataText="$t('DataFormDialog.currentRow')"
   />
@@ -450,30 +450,36 @@ const handleFormReady = (payload: {
   void getFilteredPrintTemplate();
 };
 
+const isSubmitting = ref(false);
 const handleSubmit = async () => {
-  if (!editingFormRef.value) return;
-  const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.();
-  if (!confirmed) {
-    editingFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
-  const loadingInstance = ElLoading.service({
-    target: ".iframe-wrap",
-    text: i18next.t("BaseDataFormDialog.submiting"),
-    background: "rgba(0, 0, 0, 0.2)",
-  });
+  if (isSubmitting.value || !editingFormRef.value) return;
+  isSubmitting.value = true;
   try {
-    const result = await editingFormRef.value.submit({
-      skipSubmitValidationNoticeConfirm: true,
-      skipSubmitSignSyncConfirm: true,
-    });
-    if (result) {
-      ElMessage.success(i18next.t(props.formMode === FormMode.Add ? "BaseDataFormDialog.addSuccess" : "BaseDataFormDialog.editSuccess"));
-      emit("submitted", props.formMode);
+    const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.();
+    if (!confirmed) {
+      editingFormRef.value?.clearSubmitValidationNotice?.();
+      return;
     }
-    return result;
+    const loadingInstance = ElLoading.service({
+      target: ".iframe-wrap",
+      text: i18next.t("BaseDataFormDialog.submiting"),
+      background: "rgba(0, 0, 0, 0.2)",
+    });
+    try {
+      const result = await editingFormRef.value.submit({
+        skipSubmitValidationNoticeConfirm: true,
+        skipSubmitSignSyncConfirm: true,
+      });
+      if (result) {
+        ElMessage.success(i18next.t(props.formMode === FormMode.Add ? "BaseDataFormDialog.addSuccess" : "BaseDataFormDialog.editSuccess"));
+        emit("submitted", props.formMode);
+      }
+      return result;
+    } finally {
+      loadingInstance.close();
+    }
   } finally {
-    loadingInstance.close();
+    isSubmitting.value = false;
   }
 };
 
@@ -485,7 +491,8 @@ const handleClose = async () => {
   if (props.formMode === FormMode.Edit && isFormModified()) {
     const isSave = await saveTipDialogRef.value?.confirm();
     if (isSave) {
-      await handleSubmit();
+      const submitted = await handleSubmit();
+      if (!submitted) return;
     }
   }
   emit("update:modelValue", false);
@@ -525,24 +532,28 @@ const resolveDeletePromise = () => {
 const deleteCheckRowsData = async () => {
   if (!canDeleteCurrentRow.value) {
     ElMessage.warning(i18next.t("InnerRowShareViewer.noPermission"));
-    return;
+    return false;
   }
   const deletePromise = resolveDeletePromise();
   if (!deletePromise) {
-    return;
+    return false;
   }
-  await deletePromise.then((result) => {
+  const result = await deletePromise.then((result) => {
     const message = getDeleteResultMessage(result, i18next.t("BaseDataFormDialog.delSuccess"));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
-      return;
+      return false;
     }
     ElMessage.success(message);
     emit("deleted");
+    return result;
   }).catch((err) => {
     ElMessage.error(err.message);
+    return false;
   });
+  if (!result || hasDeleteFailures(result)) return false;
   emit("update:modelValue", false);
+  return true;
 };
 
 const updateHiddenColumnIds = (value: string[]) => {

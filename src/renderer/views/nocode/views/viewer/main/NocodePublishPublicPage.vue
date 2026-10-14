@@ -399,7 +399,7 @@
     </div>
 
     <hr>
-    <el-button class="save-button" type="primary" @click="handleSave">{{ $t('NocodePublishPublicPage.confirm') }}</el-button>
+    <el-button class="save-button" type="primary" :loading="saveLoading" :disabled="saveLoading" @click="handleSave">{{ $t('NocodePublishPublicPage.confirm') }}</el-button>
     <nocode-update-tip-dialog ref="updateTipDialogRef"></nocode-update-tip-dialog>
     <nocode-update-tip-dialog ref="visitPageTipDialogRef"></nocode-update-tip-dialog>
   </div>
@@ -441,6 +441,7 @@ const publicQueryEmbedDialogVisible = ref(false);
 const searchVal = ref('');
 const treeRef = ref(null);
 const activePublishId = ref('');
+const saveLoading = ref(false);
 const publicQueryConditionCapabilityMap = ref<Record<string, boolean>>({});
 
 const {
@@ -1009,6 +1010,9 @@ const handleCopyPublicQueryIframeCode = async () => {
 };
 
 const handleSave = async () => {
+  if (saveLoading.value) return;
+  saveLoading.value = true;
+  try {
   const forceFormPublish = !!currentForm.value
     && formPublishEnabled.value
     && currentFormUpdateMethod.value === PublishUpdateMethod.MANUAL;
@@ -1036,6 +1040,9 @@ const handleSave = async () => {
   }
   const releaseTableUIDs = forcePublish && currentForm.value ? [currentForm.value.uid] : undefined;
   await handleConfirm(forcePublish, releaseTableUIDs);
+  } finally {
+    saveLoading.value = false;
+  }
 };
 
 defineExpose({

@@ -2,15 +2,15 @@
   <div class="nocode-editor-wrapper">
     <div class="dialog-wrapper">
       <nocode-rename-dialog ref="renameNocodeDialogRef" :nocode-id="nocodeId" @closed="renameNocode"></nocode-rename-dialog>
-      <nocode-node-rename-dialog ref="nodeRenameDialogRef" @confirm="handleNodeRenamed"></nocode-node-rename-dialog>
+      <nocode-node-rename-dialog ref="nodeRenameDialogRef" :action="handleNodeRenamed"></nocode-node-rename-dialog>
       <nocode-folder-create-dialog ref="nocodeFolderCreateDialogRef" :nocode-id="nocodeId" @create="handleFolderCreate" :groupData="parentOption"></nocode-folder-create-dialog>
       <save-as-dialog v-model="dialogStorage.saveAsDialogVisible" :args="dialogStorage.getArgs('saveAsDialogVisible')"></save-as-dialog>
-      <nocode-create-data-dialog :groupData="parentOption" :default-group-id="createDataDefaultGroupId" :lock-group-selection="createDataGroupLocked" v-model="dialogState.nocodeCreateDataDialogVisible" ref="createDataRef" @closed="handleCreateDataClosed" @confirmed="createFormData" @importExcel="showImportExcelDialog"/>
-      <nocode-form-copy-dialog v-model="nocodeFormCopyDialogVisible" :tableName="copyTableInfo?.table?.alias" :pageName="pageName" :showTip="hasSubForm(copyTableInfo.table)" :copyType="copyType" @confirmCopyForm="handleCopyTableConfirm" @confirmCopyPage="handleCopyPageConfirm" />
+      <nocode-create-data-dialog :groupData="parentOption" :default-group-id="createDataDefaultGroupId" :lock-group-selection="createDataGroupLocked" :loading="createDataLoading" v-model="dialogState.nocodeCreateDataDialogVisible" ref="createDataRef" @closed="handleCreateDataClosed" @confirmed="createFormData" @importExcel="showImportExcelDialog"/>
+      <nocode-form-copy-dialog v-model="nocodeFormCopyDialogVisible" :tableName="copyTableInfo?.table?.alias" :pageName="pageName" :showTip="hasSubForm(copyTableInfo.table)" :copyType="copyType" :copy-form-action="handleCopyTableConfirm" :copy-page-action="handleCopyPageConfirm" />
       <nocode-layer-create-dialog :groupData="parentOption" ref="nocodeCreateDialogRef" @create="onLayerCreate"></nocode-layer-create-dialog>
       <select-form-table-dialog v-model="dialogState.selectFormTableDialogVisible" :body="nocode?.body" :nocodeBody="nocode?.body" :organizeUtil="organizeUtil" @confirm="(...args: Parameters<SelectFormTableDialogArgs>) => dialogState.getArgs('selectFormTableDialogVisible')?.(...args)"></select-form-table-dialog>
       <nocode-preview v-model="nocodePreviewVisible" :nocodeId="nocodeId" :projectId="activeProjectId"></nocode-preview>
-      <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" @confirm="deleteConfirmContext.confirm"  />
+      <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" :action="deleteConfirmContext.confirm" />
       <import-excel-dialog
         v-if="importExcelDialogVisible"
         ref="importExcelDialogRef"
@@ -493,7 +493,7 @@
           <el-button v-if="showPreviewButton" class="header-action icon" text @click="handleMenuClicked('preview')">
             <el-icon :size="16"><i-ven-form-preview /></el-icon>
           </el-button>
-          <el-button v-if="showSaveButton" class="header-action" @click="handleSaveFromHeader">{{ $t('NocodeEditor.save') }}</el-button>
+          <el-button v-if="showSaveButton" class="header-action" :loading="headerSaveLoading" :disabled="headerSaveLoading" @click="handleSaveFromHeader">{{ $t('NocodeEditor.save') }}</el-button>
           <el-button class="header-action publish" type="success" @click="handleOpenSettingDrawer(SettingTab.PUBLISH)">{{ $t('NocodeEditor.published') }}</el-button>
         </div>
       </el-header>
@@ -1759,13 +1759,13 @@ const formData = computed(() => {
 })
 
 const handleNodeRenamed = async (name: string) => {
-  contextMenu.node.data.name = name;
   if(contextMenu.node.data.type === NocodeStructureType.FORM) {
     structureSaving.value = true;
     try {
-      await formCreateRef.value?.save?.(true);
+      const saved = await formCreateRef.value?.save?.(true);
+      if (saved === false || saved === 'blocked' || saved === 'failed') return false;
       structure.value = (appTreeRef.value?.data as NocodeStructure[]) || (treeRef.value?.data as NocodeStructure[]) || structure.value;
-      if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
+      if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return false;
 
       const data = await axios.post("project/rename-nocode-form", {
         nocodeId,
@@ -1785,20 +1785,33 @@ const handleNodeRenamed = async (name: string) => {
         handleNocodeSyncConflictError(error, nocodeSignIsLatest)
       });
       if (data) {
+        contextMenu.node.data.name = name;
         nocode.value.body = data;
         await formCreateRef.value?.syncConnection?.(data.formData)
         ElMessage.success(i18next.t('NocodeEditor.modifySuccess'));
+        return true;
       }
+      return false;
     } finally {
       structureSaving.value = false;
     }
   } else  {
+    const previousName = contextMenu.node.data.name;
+    contextMenu.node.data.name = name;
     if (contextMenu.node.data.type === NocodeStructureType.PAGE && activeProjectId.value) {
       activeProjectName.value = name;
     }
-    await saveStructure();
+    const saved = await saveStructure();
+    if (!saved) {
+      contextMenu.node.data.name = previousName;
+      if (contextMenu.node.data.type === NocodeStructureType.PAGE && activeProjectId.value) {
+        activeProjectName.value = previousName;
+      }
+      return false;
+    }
     ElMessage.success(i18next.t('NocodeEditor.modifySuccess'));
     handleUpdateNocodeInfo();
+    return true;
   }
 }
 
@@ -3201,16 +3214,43 @@ const deleteConfirmContext = reactive({
   text: "",
   tip: "",
   visible: false,
-  confirm: null as Function,
+  confirm: undefined as (() => Promise<boolean | void> | boolean | void) | undefined,
 })
 
 const handleDelete = async ()=>{
   const _delete = async () => {
+    const deletedData = contextMenu.node.data;
+    const parentNode = contextMenu.node.parent;
+    const nodeIndex = parentNode?.childNodes?.indexOf(contextMenu.node) ?? -1;
+    const nextSibling = nodeIndex >= 0 ? parentNode.childNodes[nodeIndex + 1] : undefined;
+    const restoreNode = () => {
+      if (nextSibling) treeRef.value.insertBefore(deletedData, nextSibling);
+      else treeRef.value.append(deletedData, parentNode);
+    };
     treeRef.value.remove(contextMenu.node);
     const res = await saveStructure();
+    if (!res) {
+      restoreNode();
+      return false;
+    }
     if (contextMenu.node.data.type === NocodeStructureType.FORM) {
       const delTable = formData.value?.tables?.find(table => table.uid === contextMenu.node.data.id);
-      handleDeleteTable(delTable)
+      if (!delTable) {
+        restoreNode();
+        if (!await saveStructure()) {
+          ElMessage.error(i18next.t('NocodeEditor.saveFailed'));
+        }
+        return false;
+      }
+      const deleted = await handleDeleteTable(delTable);
+      if (!deleted) {
+        restoreNode();
+        if (!await saveStructure()) {
+          ElMessage.error(i18next.t('NocodeEditor.saveFailed'));
+        }
+        return false;
+      }
+      return true;
     } else if (res) {
       ElMessage.success(i18next.t('NocodeEditor.deleteSuccess'));
       if (activeProjectId.value === contextMenu.node.data.id) {
@@ -3218,7 +3258,9 @@ const handleDelete = async ()=>{
         openFirstProject()
       }
       handleUpdateNocodeInfo()
+      return true;
     }
+    return false;
   }
   if (contextMenu.node.data.type === NocodeStructureType.GROUP) {
     if (!isEmpty(contextMenu.node?.data?.children)) {
@@ -3243,7 +3285,7 @@ const onDeleteTable = (connection: Connection, table: Table) => {
   deleteConfirmContext.text = i18next.t('NocodeEditor.confirmDeleteForm')
   deleteConfirmContext.tip = i18next.t('NocodeEditor.deleteFormWarn')
   deleteConfirmContext.visible = true;
-  deleteConfirmContext.confirm = handleDeleteTable.bind(null, connection, table);
+  deleteConfirmContext.confirm = handleDeleteTable.bind(null, table);
 }
 
 // #region 拖拽数据区域高度
@@ -3631,6 +3673,7 @@ const handleCopyPageConfirm = async (pageName: string) => {
   const originalNode = contextMenu.node.data;
   structureSaving.value = true;
   try {
+  if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return false;
   
   // 创建新的节点结构
   const newNode = {
@@ -3643,8 +3686,6 @@ const handleCopyPageConfirm = async (pageName: string) => {
   treeRef.value.insertAfter(newNode, contextMenu.node);
   
   structure.value = treeRef.value.data as NocodeStructure[];
-
-  if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
 
   const res = await axios.post('/project/copy-page', {
     nocodeId: nocodeId,
@@ -3666,7 +3707,11 @@ const handleCopyPageConfirm = async (pageName: string) => {
       handleUpdateNocodeSign(mainSign);
     }
     ElMessage.success(i18next.t('NocodeEditor.copySuccess'));
+    return true;
   }
+  treeRef.value.remove(newNode);
+  structure.value = treeRef.value.data as NocodeStructure[];
+  return false;
   } finally {
     structureSaving.value = false;
   }
@@ -3686,8 +3731,12 @@ const handleCopyTableConfirm = async (tableName: string) => {
     ElMessage.error(response?.data?.message);
   });
   if(res) {
+    const previousFormData = nocode.value.body.formData;
     nocode.value.body.formData = res.data.formData;
-    await saveNocodeConnections();
+    if (!await saveNocodeConnections()) {
+      nocode.value.body.formData = previousFormData;
+      return false;
+    }
     ElMessage.success(i18next.t('NocodeEditor.copySuccess'));
 
     // 构建structure
@@ -3699,10 +3748,17 @@ const handleCopyTableConfirm = async (tableName: string) => {
     };
     // 将新节点添加到与原节点同级的位置
     treeRef.value.insertAfter(newNode, contextMenu.node);
-    await saveStructure(false);
+    if (!await saveStructure(false)) {
+      treeRef.value.remove(newNode);
+      nocode.value.body.formData = previousFormData;
+      await saveNocodeConnections();
+      return false;
+    }
 
     formCreateRef.value?.syncConnection?.(formData.value);
+    return true;
   }
+  return false;
   } finally {
     structureSaving.value = false;
   }
@@ -3887,28 +3943,32 @@ const handleCreateDataClosed = () => {
 
 const createDataDefaultGroupId = ref('')
 const createDataGroupLocked = ref(false)
+const createDataLoading = ref(false)
 const createGoupId = ref('')
-const createFormData = (data) => {
+const createFormData = async (data) => {
   const {name, group} = data
   createGoupId.value = group
-  handleCreateDataConfirmed(name)
+  await handleCreateDataConfirmed(name)
 }
 
 const handleCreateDataConfirmed = async (tableName: string) => {
-  const { formData: newFormData, table } = await formDataApi.addTable({
-    formData: formData.value,
-    name: tableName,
-  });
-  const syncedFormData = await handleSyncFormTable(newFormData, table);
-  if (!syncedFormData) {
-    return;
+  if (createDataLoading.value) return;
+  createDataLoading.value = true;
+  try {
+    const { formData: newFormData, table } = await formDataApi.addTable({
+      formData: formData.value,
+      name: tableName,
+    });
+    const syncedFormData = await handleSyncFormTable(newFormData, table);
+    if (!syncedFormData) return;
+    ElMessage.success(i18next.t('NocodeEditor.addSuccess'));
+    await createForm(formData.value.tables?.at(-1).uid, tableName)
+    formCreateRef.value?.syncConnection?.(syncedFormData);
+    showFormCreate(formData.value.tables?.at(-1));
+    dialogState.nocodeCreateDataDialogVisible = false;
+  } finally {
+    createDataLoading.value = false;
   }
-  ElMessage.success(i18next.t('NocodeEditor.addSuccess'));
-  await createForm(formData.value.tables?.at(-1).uid, tableName)
-  formCreateRef.value?.syncConnection?.(syncedFormData);
-  // 进入表单模式
-  showFormCreate(formData.value.tables?.at(-1));
-  dialogState.nocodeCreateDataDialogVisible = false;
 }
 
 const handleCreateForm = async (
@@ -3993,19 +4053,21 @@ const handleCreateForm = async (
 }
 
 const handleDeleteTable = async (table: Table, options: { beforeWrite?: () => void } = {}) => {
+  const previousFormData = nocode.value.body.formData;
   const _formData = await formDataApi.deleteTable({
     nocodeId,
     formData: formData.value,
     table,
   })
-  if (!_formData) return;
+  if (!_formData) return false;
   options.beforeWrite?.();
   nocode.value.body.formData = _formData;
   const saved = await saveNocodeConnections({
     beforeWrite: options.beforeWrite,
   });
   if (!saved) {
-    return;
+    nocode.value.body.formData = previousFormData;
+    return false;
   }
   formCreateRef.value?.syncConnection?.(_formData);
   if (isShowFormCreate.value && activeFormId.value === table.uid) {
@@ -4013,6 +4075,7 @@ const handleDeleteTable = async (table: Table, options: { beforeWrite?: () => vo
     openFirstProject();
   }
   ElMessage.success(i18next.t('NocodeEditor.deleteSuccess'));
+  return true;
 }
 provide(HANDLE_DELETE_TABLE, handleDeleteTable);
 
@@ -4056,14 +4119,21 @@ const handleQuickCreate = (type: 'add-form' | 'add-page' | 'add-folder') => {
   void handleMenuClicked(type);
 }
 
+const headerSaveLoading = ref(false);
 const handleSaveFromHeader = async () => {
-  if (editorSelectionType.value === 'form') {
-    await formCreateRef.value?.save?.();
-    return;
-  }
+  if (headerSaveLoading.value) return;
+  headerSaveLoading.value = true;
+  try {
+    if (editorSelectionType.value === 'form') {
+      await formCreateRef.value?.save?.();
+      return;
+    }
 
-  if (editorSelectionType.value === 'board') {
-    await projectEditorRef.value?.saveProject?.();
+    if (editorSelectionType.value === 'board') {
+      await projectEditorRef.value?.saveProject?.();
+    }
+  } finally {
+    headerSaveLoading.value = false;
   }
 }
 
@@ -4114,6 +4184,7 @@ async function prepareExcelCreatePayload(data?: StartExcelFormCreatePayload) {
 }
 
 async function showImportExcelDialog(data?: StartExcelFormCreatePayload){
+  dialogState.nocodeCreateDataDialogVisible = false
   importExcelDialogMode.value = 'default'
   activeExcelCreateContext.value = {
     attachmentId: String(data?.attachmentId || '').trim() || undefined,

@@ -168,7 +168,7 @@
       </template>
     </el-drawer>
   </div>
-  <table-delete-data-dialog v-model="deleteTipDialogVisible" @deleteTableData="deleteCheckRowsData"
+  <table-delete-data-dialog v-model="deleteTipDialogVisible" :action="deleteCheckRowsData"
     :title="$t('DataFormDialog.delete')" :dataText="$t('DataFormDialog.currentRow')" />
   <form-save-tip-dialog ref="saveTipDialogRef" :title="$t('DataFormDialog.isSave')" />
   <tip-dialog ref="drawerExitTipDialogRef" :title="$t('DataFormDialog.tip')" :content="$t('DataFormDialog.isExit')"
@@ -496,11 +496,16 @@ async function saveDraftBeforeRefresh() {
 
 const handleSubmitDraft = async () => {
   if (!isFormReady.value || isSubmitting.value || !editingFormRef.value) return;
-  const res = await saveDraftBeforeRefresh();
-  if (res) {
-    ElMessage.success(i18next.t('DataFormDialog.saveDraftSuccess'));
-    await nextTick()
-    emit("draft-saved");
+  isSubmitting.value = true;
+  try {
+    const res = await saveDraftBeforeRefresh();
+    if (res) {
+      ElMessage.success(i18next.t('DataFormDialog.saveDraftSuccess'));
+      await nextTick()
+      emit("draft-saved");
+    }
+  } finally {
+    isSubmitting.value = false;
   }
 }
 
@@ -826,8 +831,8 @@ const confirmCloseModifiedForm = async (source: "button" | "drawer-before-close"
   if (props.formMode === FormMode.Edit && !isViewing.value) {
     const isSave = await saveTipDialogRef.value?.confirm();
     if (isSave) {
-      handleSubmit(false, false);
-      return false;
+      const submitted = await handleSubmit(false, false);
+      return submitted !== false && submitted !== undefined && submitted !== null;
     }
     return isSave === false;
   }
@@ -854,26 +859,30 @@ const runtime = useRuntime();
 const deleteCheckRowsData = async () => {
   if (!canDeleteCurrentRow.value) {
     ElMessage.warning(i18next.t('InnerRowShareViewer.noPermission'));
-    return;
+    return false;
   }
   const currentRow = props.modalOnly
     ? currentFormRow.value || mergedRow.value
     : table.selectedRow;
   if (!currentRow) {
-    return;
+    return false;
   }
-  await table.removeRows([currentRow], runtime).then((result) => {
+  const result = await table.removeRows([currentRow], runtime).then((result) => {
     const message = getDeleteResultMessage(result, i18next.t('DataFormDialog.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
-      return;
+      return false;
     }
     ElMessage.success(message);
     emit("deleted");
+    return result;
   }).catch((err) => {
     ElMessage.error(err.message);
-  });;
+    return false;
+  });
+  if (!result || hasDeleteFailures(result)) return false;
   emit("update:modelValue", false)
+  return true;
 }
 
 const updateHiddenColumnIds = (value: string[]) => {
