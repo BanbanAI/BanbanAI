@@ -1587,7 +1587,13 @@ export class FormDataService implements OnApplicationBootstrap {
       return null;
     }
 
-    const orQuery = await this.ownerGroupToQuery(permissionOwnerGroup, table, stage, {}, account);
+    const orQuery = await this.ownerGroupToQuery(
+      permissionOwnerGroup,
+      table,
+      stage,
+      stage === FormDataStage.DELETED ? { ignoreStageCondition: true } : {},
+      account,
+    );
     if (!isEmpty(orQuery)) {
       return orQuery.length > 1 ? {
         $or: orQuery,
@@ -11131,7 +11137,7 @@ export class FormDataService implements OnApplicationBootstrap {
     if (res === "all") return true;
 
     const orQuery = await this.ownerGroupToQuery(res, table, undefined, {
-      fallbackToPermissionStages: true,
+      ignoreStageCondition: true,
     });
     if (isEmpty(orQuery)) {
       throw new Error(global.i18next.t('formDataService.noPerm'));
@@ -11154,7 +11160,8 @@ export class FormDataService implements OnApplicationBootstrap {
             { $or: queryConditions },
           ]
         }]
-      }
+      },
+      stage: FormDataStage.DELETED,
     }, false);
     const count = value.reduce((prev, item) => prev + item.count, 0);
     if (count < rows.length) {
