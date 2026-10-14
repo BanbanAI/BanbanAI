@@ -150,6 +150,15 @@ const getDeduplicationKey = (value: any, widget?: FormElement | null) => {
   }));
 };
 
+const RUNTIME_LINKAGE_WAIT_MS = 5000;
+const waitForRuntimeLinkage = (runtime: SubFormRuntime) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    runtime.flush(),
+    new Promise<void>(resolve => { timer = setTimeout(resolve, RUNTIME_LINKAGE_WAIT_MS); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+};
+
 export class SubForm extends AbstractSubForm implements RelatedData {
   static resource = resource as any;
 
@@ -3418,6 +3427,8 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         });
         this.markSelectDataBatchFillPhase("transaction");
         await runtime.formulaEngine.flush();
+        await waitForRuntimeLinkage(runtime);
+        await runtime.formulaEngine.flush();
         this.markSelectDataBatchFillPhase("formula/aggregate/linkage");
         const compatibilityRow = (this._rows.value || []).find(row => String(row?.[UUID]) === address.rowId);
         if (compatibilityRow) Object.assign(compatibilityRow, values);
@@ -3433,6 +3444,8 @@ export class SubForm extends AbstractSubForm implements RelatedData {
           }
         });
         this.markSelectDataBatchFillPhase("transaction");
+        await runtime.formulaEngine.flush();
+        await waitForRuntimeLinkage(runtime);
         await runtime.formulaEngine.flush();
         this.markSelectDataBatchFillPhase("formula/aggregate/linkage");
         const compatibilityRow = (this._rows.value || []).find(row => String(row?.[UUID]) === address.rowId);
@@ -3473,6 +3486,8 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         }
       });
       this.markSelectDataBatchFillPhase("transaction");
+      await runtime.formulaEngine.flush();
+      await waitForRuntimeLinkage(runtime);
       await runtime.formulaEngine.flush();
       this.markSelectDataBatchFillPhase("formula/aggregate/linkage");
 
