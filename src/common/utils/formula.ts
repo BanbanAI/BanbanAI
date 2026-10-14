@@ -18,6 +18,7 @@ dayjs.extend(utc);
 dayjs.extend(isLeapYear);
 import i18next from "i18next";
 import { SystemField } from "./connection";
+import { normalizeNumberFieldValue } from "./fieldValue";
 
 type Formula = { name: string, subName: string, intro: string, usage: string, example: string, argOfNotTableCol?: number[], argStrOfdefault?: string, ignoreBlankReplace?: boolean, extraContext?: boolean }
 
@@ -2995,7 +2996,7 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
           if (!formula) continue;
           try {
             const formulaRuntime = createFormulaRuntimeByData(row, targetTable.fields);
-            row[_field.uid] = formulaRuntime.evaluate(formula);
+            row[_field.uid] = normalizeNumberFieldValue(formulaRuntime.evaluate(formula), _field);
           } catch (err) {
             console.log(`edit data evaluate formula error:`, err);
           }
@@ -3042,7 +3043,7 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
               const subField = targetTable.fields.find(f => f.uid == fieldId);
               const subTable = formData.tables.find(t => t.uid === subField.meta?.extra?.subTableUID?.[subField.meta?.extra?.subTableUID?.length - 1]);
               const formulaRuntime = createFormulaRuntimeByData(subRow, subTable.fields);
-              subRow[subFieldUID] = formulaRuntime.evaluate(formula);
+              subRow[subFieldUID] = normalizeNumberFieldValue(formulaRuntime.evaluate(formula));
             } catch (err) {
               console.log(`edit data evaluate formula error:`, err);
             }
