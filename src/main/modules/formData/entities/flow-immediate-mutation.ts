@@ -14,7 +14,7 @@ export type FlowImmediateRollbackPolicy = "keep" | "restore" | "cancel_delete" |
 })
 export class FlowImmediateMutation {
   @PrimaryKey({ mongoLike: global.mongoLike })
-  id: string = unique();
+  id: string = unique(32);
 
   @Property({ fieldName: "todo_id", type: "string" })
   todoId: string;

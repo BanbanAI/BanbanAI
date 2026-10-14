@@ -760,12 +760,49 @@ export class FormFlowService implements OnApplicationBootstrap {
       const firstRow = mutation.afterRows?.[0] || mutation.beforeRows?.[0];
       record.targetUuid = mutation.targetUuid || firstRow?.[SystemField.UUID];
       if (persist) {
-        await repository.persistAndFlush(record);
+        try {
+          await repository.persistAndFlush(record);
+        } catch (error) {
+          this.logDuplicateKeyInsertError("flow-immediate-mutation-id-collision", error, {
+            id: record.id,
+            todoId,
+            occurrenceId,
+            sequence,
+            source,
+            action: mutation.action,
+            targetNocodeId: mutation.targetNocodeId,
+            targetTableId: mutation.targetTableId,
+            targetUuid: record.targetUuid,
+          });
+          throw error;
+        }
       } else {
         repository.persist(record);
       }
       return record;
     });
+  }
+
+  private logDuplicateKeyInsertError(logTag: string, error: unknown, context: Record<string, unknown>) {
+    if (!(error instanceof UniqueConstraintViolationException)) return;
+    const details = error as UniqueConstraintViolationException & {
+      code?: number;
+      keyPattern?: unknown;
+      keyValue?: unknown;
+      errorResponse?: unknown;
+    };
+    this.logger.error(`[${logTag}] ${JSON.stringify({
+      ...context,
+      error: {
+        name: error.name,
+        message: error.message,
+        code: details.code,
+        keyPattern: details.keyPattern,
+        keyValue: details.keyValue,
+        errorResponse: details.errorResponse,
+        stack: error.stack,
+      },
+    })}`);
   }
 
   private async recordCrossTableImmediateMutations(
@@ -6370,7 +6407,23 @@ export class FormFlowService implements OnApplicationBootstrap {
       flowExecutionRecord.scheduledFor = scheduled.scheduledFor;
     }
     if (persist) {
-      await entityManager.persistAndFlush(flowExecutionRecord);
+      try {
+        await entityManager.persistAndFlush(flowExecutionRecord);
+      } catch (error) {
+        this.logDuplicateKeyInsertError("flow-execution-record-id-collision", error, {
+          id: flowExecutionRecord.id,
+          nocodeId: options.nocodeId,
+          tableId: options.tableId,
+          uuid: options.uuid,
+          todoId: options.todoId,
+          flowId: node.uid,
+          nodeType: node.type,
+          status,
+          processVersion: flowExecutionRecord.processVersion,
+          scheduledRunId: scheduled?.runId,
+        });
+        throw error;
+      }
     } else {
       entityManager.persist(flowExecutionRecord);
     }
