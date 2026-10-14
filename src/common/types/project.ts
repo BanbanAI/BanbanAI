@@ -777,6 +777,8 @@ export type AddDataOptions = {
   triggerTargetProcess?: boolean,
   sourceTables?: SourceTable[],
   primarySourceTable?: SourceTable,
+  currentSubTableFilters?: CurrentSubTableFilter[],
+  currentSubTableFilter?: CurrentSubTableFilter | null,
   targetFields?: TargetFieldFillRule[],
   batchEnabled?: boolean,
   batchNumber?: Pick<TargetFieldFillRule, "type"> & {
@@ -802,8 +804,6 @@ export enum EditDataTargetScope {
 export type EditDataOptions = AddDataOptions & {
   targetTableFilterRule?: FilterRule,
   targetTableDataScope?: EditDataTargetScope,
-  currentSubTableFilters?: CurrentSubTableFilter[],
-  currentSubTableFilter?: CurrentSubTableFilter | null,
 }
 
 export type DeleteDataOptions = {

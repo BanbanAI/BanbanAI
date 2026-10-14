@@ -7728,6 +7728,8 @@ export class FormFlowService implements OnApplicationBootstrap {
       targetTableUID,
       sourceTables = [],
       primarySourceTable,
+      currentSubTableFilter,
+      currentSubTableFilters = [],
       targetFields = [],
       batchEnabled,
       batchFields = [],
@@ -7760,12 +7762,24 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     const { currentRows, currentRow, hasPhysicalRow } = currentRowContext;
     this.ensureEmptyRowAutoRelatedSupported(node, hasPhysicalRow);
-    const sourceTableRows: Record<string, Row[]> = {
-      [options.tableId]: currentRows,
-    };
     const targetSourceUID = getProcessTargetSourceUID(targetTableUID, options.tableId);
+    const normalizedCurrentSubTableFilters = [
+      ...currentSubTableFilters,
+      ...(currentSubTableFilter ? [currentSubTableFilter] : []),
+    ].filter((item): item is CurrentSubTableFilter => !!item?.fieldUID);
+    const currentSourceRow = this.getCurrentSubTableSourceRow(
+      currentRow,
+      currentTable,
+      {},
+      targetSourceUID,
+      normalizedCurrentSubTableFilters,
+    );
+    const currentSourceRows = currentRows.length > 0 ? [currentSourceRow] : currentRows;
+    const sourceTableRows: Record<string, Row[]> = {
+      [options.tableId]: currentSourceRows,
+    };
     if (targetSourceUID !== targetTableUID) {
-      sourceTableRows[targetSourceUID] = currentRows;
+      sourceTableRows[targetSourceUID] = currentSourceRows;
     }
 
     await Promise.all(sourceTables.map(async (item) => {
@@ -7876,7 +7890,7 @@ export class FormFlowService implements OnApplicationBootstrap {
           const isSubTable = arr.length > 2; // 填充源是否是子表
           
           const fieldValue = mergedRow?.[`${sourceUID}.${sourceFieldUID}`]
-            ?? ((sourceUID === options.tableId || sourceTableRows[sourceUID] === currentRows) ? currentRow?.[sourceFieldUID] : undefined);
+            ?? ((sourceUID === options.tableId || sourceTableRows[sourceUID] === currentSourceRows) ? currentSourceRow?.[sourceFieldUID] : undefined);
           if (isEmpty(fieldValue)) continue;
 
           if(isFillSubTable) { // 子表被填�?
@@ -8107,7 +8121,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       if(batchNumber.type === TargetFieldFillType.FIELD) {
         const arr = (batchNumber.value as string)?.split(".");
         if (arr.length === 1) {
-          count = Number(currentRow[batchNumber.value] || 0);
+          count = Number(currentSourceRow[batchNumber.value] || 0);
         } else {
           const sourceUID = arr[0];
           const sourceFieldUID = arr[1];
@@ -8719,7 +8733,8 @@ export class FormFlowService implements OnApplicationBootstrap {
       if (currentTable && sourceUID === currentTable.uid) {
         return this.resolveFilterValueFromRow(currentRow, fieldPath, condition.func);
       }
-      return this.resolveFilterValueFromRow(currentRow, parts, condition.func);
+      const collectSubTableValues = [RuleFunc.EQUAL, RuleFunc.NOT_EQUAL].includes(condition.func);
+      return this.resolveFilterValueFromRow(currentRow, parts, condition.func, collectSubTableValues);
     }
 
     if (type === FormConditionValueType.FORMULA) {
