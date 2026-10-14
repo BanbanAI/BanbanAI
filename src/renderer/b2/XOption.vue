@@ -36,7 +36,7 @@
 <script lang="ts" setup>
 import { GET_OPTION_VALUE, OPTION_ELEMENT, UPDATE_OPTION, IS_OPTION_GROUP_UNFOLD, GET_DEFAULT_OPTION_VALUE, IS_OPTION_GROUP_DISABLE } from "./inject";
 import { SELECTED_WIDGETS, INPUT_ENTER_BLUR, SHOW_SAMPLE_CODE, OPTION_ROLE_MENU_INSTANCE, FORM_DESIGNER_OPTION_CHANGED, FORM_DESIGNER_ACTIVE_ISSUE_HIGHLIGHT } from '@renderer/types';
-import { computed, inject, markRaw, nextTick, provide, ref, toRaw, unref, watch } from 'vue';
+import { computed, inject, markRaw, nextTick, onBeforeUnmount, provide, ref, toRaw, unref, watch } from 'vue';
 import { DefinedOption, DefinedOptionWithParsedType, isCallableVisible, isCallableDisabled, OptionMenuRole, WidgetStatus, isOptionCluster } from './types';
 import { Element } from '@renderer/b2/controllers/element';
 import { deepClone, equals } from "@common/utils/object";
@@ -185,6 +185,11 @@ const getOptionValue = () => {
 const getDefaultOptionValue = () => {
   return props.element._getOptionDefault(currentPaths.value);
 }
+onBeforeUnmount(() => {
+  if (equals(props.element.getOption(currentPaths.value), props.element.getOption(currentPaths.value, { skipTransition: true }))) return;
+  props.element.commitTransientOptions();
+  handleFormDesignerOptionChanged?.();
+});
 provide(OPTION_ELEMENT, props.element);
 provide(UPDATE_OPTION, updateOption);
 provide(GET_OPTION_VALUE, getOptionValue);

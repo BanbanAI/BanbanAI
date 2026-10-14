@@ -21,6 +21,9 @@ import dayjs from "dayjs";
 const isString = (item: string | string[]): item is string => {
   return typeof item === "string";
 };
+const isSamePaths = (a: string[], b: string[]) => {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+};
 type ParsedLinkage = {
   data: {
     [alias: string]: LinkageValue,
@@ -522,6 +525,7 @@ export class Element {
   }
 
   private _transientOptions: Options = reactive({});
+  private _transientOptionPaths: string[][] = [];
 
   setTransientOption(paths: string | string[], value: any) {
     if (isString(paths)) {
@@ -530,6 +534,7 @@ export class Element {
     const pathsList = this.getBatchUpdatePathsList(paths);
     for (const paths of pathsList) {
       this.setOptionValue(this._transientOptions, paths, value);
+      this.recordTransientOptionPaths(paths);
     }
   }
 
@@ -540,6 +545,23 @@ export class Element {
     const pathsList = this.getBatchUpdatePathsList(paths);
     for (const paths of pathsList) {
       this.unsetOptionValue(this._transientOptions, paths);
+      this.forgetTransientOptionPaths(paths);
+    }
+  }
+
+  private recordTransientOptionPaths(paths: string[]) {
+    if (this._transientOptionPaths.some(item => isSamePaths(item, paths))) return;
+    this._transientOptionPaths.push([...paths]);
+  }
+
+  private forgetTransientOptionPaths(paths: string[]) {
+    this._transientOptionPaths = this._transientOptionPaths.filter(item => !isSamePaths(item, paths));
+  }
+
+  commitTransientOptions() {
+    for (const paths of [...this._transientOptionPaths]) {
+      const value = this.getOptionValue(this._transientOptions, paths);
+      this.setOption(paths, value);
     }
   }
 
