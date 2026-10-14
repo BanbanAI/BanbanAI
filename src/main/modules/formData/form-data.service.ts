@@ -491,10 +491,19 @@ export class FormDataService implements OnApplicationBootstrap {
     ));
   }
 
-  private getSubFormDuplicateMessage(fields: Field[]) {
-    const fieldTitles = fields.map(field => field?.alias || field?.meta?.name).filter(Boolean);
-    return global.i18next.t('form.subFormDuplicateFieldTips', {
-      field: fieldTitles.join(','),
+  private getDuplicateFieldsMessage(fields: Field[], issues: FormValidateDuplicateIssue[]) {
+    const issueCountByField = new Map<string, number>();
+    issues.forEach(issue => {
+      issueCountByField.set(issue.fieldId, (issueCountByField.get(issue.fieldId) ?? 0) + 1);
+    });
+
+    const fieldMessages = fields.map(field => global.i18next.t('form.duplicateFieldCountTips', {
+      field: field?.alias || field?.meta?.name,
+      count: issueCountByField.get(field.uid) ?? 0,
+    }));
+
+    return global.i18next.t('form.duplicateFieldsTips', {
+      fields: fieldMessages.join(global.i18next.t('form.duplicateFieldSeparator')),
     });
   }
 
@@ -2336,8 +2345,8 @@ export class FormDataService implements OnApplicationBootstrap {
   ): UniqueValidationError {
     const duplicateFields = table.fields.filter(field => issues.some(issue => issue.fieldId === field.uid));
     const error = new Error(
-      table?.meta?.extra?.primaryTable && duplicateFields.length > 0
-        ? this.getSubFormDuplicateMessage(duplicateFields)
+      duplicateFields.length > 0
+        ? this.getDuplicateFieldsMessage(duplicateFields, issues)
         : fallbackMessage,
     ) as UniqueValidationError;
     error.duplicateIssues = issues;

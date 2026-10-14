@@ -511,6 +511,12 @@
                   {{ $t("ImportExcelDialog.downloadErrorReport") }}
                 </el-button>
               </div>
+              <div v-else-if="importFailMessage" class="import-complete-container">
+                <div class="check-circle">
+                  <el-icon class="check-icon"><i-nocode-import-warning /></el-icon>
+                </div>
+                <p class="import-complete-text">{{ importFailMessage }}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -745,6 +751,7 @@ const fillDefaultValue = ref(true)
 
 let currentStep = ref(1);
 const importFinished = ref(false);
+const importFailMessage = ref<string | null>(null);
 const showImportProgress = computed(() => {
   return !importFinished.value && loading.value && (
     (isCreateMode.value && currentStep.value === 4) ||
@@ -1117,6 +1124,7 @@ async function importStep() {
   const importTaskId = unique();
   loading.value = true;
   importFinished.value = false;
+  importFailMessage.value = null;
   importErrorReport.value = null;
   importPercent.value = 0;
   currentStep.value = props.contentSource === 'nocodeCreateDataDialogValue' ? 4 : 5;
@@ -1233,7 +1241,9 @@ async function importStep() {
         emit('excelCreateCompleted', completionPayload);
       }
     } else {
-      ElMessage.error(`${i18next.t("ImportExcelDialog.importFail")}`);
+      const failMessage = res?.response?.data?.message || `${i18next.t("ImportExcelDialog.importFail")}`;
+      importFailMessage.value = failMessage;
+      ElMessage.error(failMessage);
       importErrorReport.value = null;
     }
   } finally {
@@ -2807,6 +2817,7 @@ async function resetDialogState(options: { cleanupImportSession: boolean }){
   importExcelAddCount.value = 0
   importErrorReport.value = null
   importFinished.value = false
+  importFailMessage.value = null
   importPercent.value = 0
 }
 
@@ -3596,6 +3607,8 @@ input {
         .import-complete-text {
           font-size: 14px;
           color: var(--text-color-regular);
+          padding: 0 24px;
+          text-align: center;
           .failed-count{
             color: var(--color-error);
           }
