@@ -183,7 +183,7 @@ import { useDialogStore, usePassportStore } from '@renderer/stores';
 import dayjs from 'dayjs';
 import { isSystemField, getFlowById, isTriggerNode, getCreateOwnerSystemField, SystemField } from '@common/utils';
 import { ProcessNodeStatus, ProcessNodeType } from '@common/types/project';
-import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo } from '@renderer/views/nocode/utils';
+import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo, isViewContextOnceNoFormDataTodo } from '@renderer/views/nocode/utils';
 import ProcessInitiateDialog from '@renderer/views/nocode/views/editor/form/dialogs/ProcessInitiateDialog.vue';
 import { elementPlusLocale } from '@renderer/utils/elementPlusLocale';
 import { ElMessage } from 'element-plus';
@@ -486,7 +486,9 @@ const renderData = (todo: TODO) => {
 }
 
 const shouldHideSingleOnceFormData = (todo?: TODO) => {
-  return isOperationEmptyRowDisplayTodo(todo) || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo))
+  return isViewContextOnceNoFormDataTodo(todo)
+    || isOperationEmptyRowDisplayTodo(todo)
+    || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo))
 }
 
 const getSingleOnceNoFormDataText = (todo: TODO) => {

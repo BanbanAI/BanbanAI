@@ -286,6 +286,9 @@ const flow = computed(() => {
 });
 const singleOnceNoFormDataText = computed(() => {
   if (!props.hideFormData) return '';
+  if (props.todo?.viewContextOnceNoFormData) {
+    return i18next.t('NocodeProcessDrawer.timeTaskSingleNoData');
+  }
   if (props.todo?.operationTriggerActionName) {
     return getOperationEmptyRowDisplayText(
       props.todo,

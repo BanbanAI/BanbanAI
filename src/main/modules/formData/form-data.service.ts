@@ -5320,7 +5320,41 @@ export class FormDataService implements OnApplicationBootstrap {
       },
     );
 
+    if (matchedCount > VIEW_ACTION_TRIGGER_MAX_COUNT) {
+      return {
+        type: action.behavior.type,
+        executionMode: "view_once",
+        matchedCount,
+        blockedByLimit: true,
+        message: this.getViewActionTriggerLimitMessage(matchedCount),
+      };
+    }
+
+    const requestedTargetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
+    const matchedRows = this.getUniqueViewActionRows(
+      table,
+      await this.getSubmittedRows(formData, request.nocodeId, table, viewCondition, {
+        applyGetPermission: true,
+      }),
+    );
+    const matchedUUIDs = matchedRows
+      .map(row => String(row?.[getUUIDSystemField(table.fields).uid] || "").trim())
+      .filter(Boolean);
+    const matchedUUIDSet = new Set(matchedUUIDs);
+    const triggerTargetUUIDs = requestedTargetUUIDs.length
+      ? requestedTargetUUIDs.filter(uuid => matchedUUIDSet.has(uuid))
+      : matchedUUIDs;
+
     await this.validateViewActionExecuteCondition(action, table, { currentCount: matchedCount });
+
+    if (isViewActionSelectedTarget(action.target) && matchedCount <= 0) {
+      return {
+        type: action.behavior.type,
+        executionMode: "view_once",
+        matchedCount: 0,
+        message: this.getViewActionTriggerEmptyMessage(),
+      };
+    }
 
     if (request.previewOnly) {
       return {
@@ -5337,7 +5371,10 @@ export class FormDataService implements OnApplicationBootstrap {
       triggerNodeId: triggerBehavior.config.triggerNodeId,
       operationId: action.id,
       actionDisplayName: this.getViewActionDisplayName(action),
-      triggerContext: this.buildViewActionTriggerContext(request, action, matchedCount),
+      triggerContext: this.buildViewActionTriggerContext({
+        ...request,
+        targetUUIDs: triggerTargetUUIDs,
+      }, action, matchedCount),
       flowWorkerContext: runtimeOptions.flowWorkerContext,
     });
 

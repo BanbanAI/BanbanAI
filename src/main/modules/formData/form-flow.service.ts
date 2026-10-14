@@ -3849,6 +3849,29 @@ export class FormFlowService implements OnApplicationBootstrap {
     return startMeta?.source === TODOTriggerType.OPERATION && Boolean(startMeta?.emptyRowTrigger);
   }
 
+  private async getViewContextOnceTargetUUIDs(
+    options: Pick<BaseTodoOptions, "todoId" | "tableId">,
+    startRecord?: FlowExecutionRecords | null,
+  ) {
+    if (!options.todoId) {
+      return null;
+    }
+    if (startRecord && !this.getOperationTriggerStartMeta(startRecord)) {
+      return null;
+    }
+    const context = await this.getFlowExecutionContext(options.todoId);
+    const triggerContext = context?.viewActionTriggerContext;
+    if (
+      triggerContext?.tableUID !== options.tableId
+      || triggerContext.triggerMode !== ViewActionTriggerMode.VIEW_CONTEXT_ONCE
+    ) {
+      return null;
+    }
+    return [...new Set((triggerContext.targetUUIDs || [])
+      .map(uuid => String(uuid || "").trim())
+      .filter(Boolean))];
+  }
+
   private async getDeleteTriggerRowSnapshot(todoId?: string) {
     if (!todoId) return null;
     const context = await this.flowExecutionContextRepository.findOne({ todoId });
@@ -5212,6 +5235,40 @@ export class FormFlowService implements OnApplicationBootstrap {
     return branch.uid;
   }
 
+  private async assertViewOperationTriggerRowsIdle(options: ViewOperationTriggerOptions) {
+    const targetUUIDs = [...new Set((options.triggerContext.targetUUIDs || [])
+      .map(uuid => String(uuid || "").trim())
+      .filter(Boolean))];
+    if (!targetUUIDs.length) {
+      return;
+    }
+
+    const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
+    const formData = nocodeBody?.formData;
+    const table = formData?.tables?.find(item => item.uid === options.tableId);
+    const uuidField = table ? getUUIDSystemField(table.fields) : null;
+    const statusField = table?.fields?.find(item => item.meta.name === SystemField.STATUS);
+    if (!formData || !table || !uuidField?.uid || !statusField?.uid) {
+      return;
+    }
+
+    const buckets = await this.formDataService._getData(formData, [options.tableId], options.nocodeId, {
+      filters: {
+        [options.tableId]: [{
+          [uuidField.uid]: { $in: targetUUIDs },
+        }],
+      },
+      enabledStage: false,
+    });
+    const hasActiveRow = (buckets?.[0]?.rows || []).some(row => {
+      const status = row[statusField.uid] !== undefined ? row[statusField.uid] : row[SystemField.STATUS];
+      return status === ProcessNodeStatus.QUEUED || status === ProcessNodeStatus.IN_PROGRESS;
+    });
+    if (hasActiveRow) {
+      throw new Error(global.i18next.t('formFlowService.operationTriggerActiveRecordExists'));
+    }
+  }
+
   private getOperationTriggerLockKey(options: OperationTriggerOptions) {
     return [
       "operation-trigger",
@@ -5291,6 +5348,125 @@ export class FormFlowService implements OnApplicationBootstrap {
       rowSnapshot[field.uid] = deepClone(row[field.uid]);
     }
     return rowSnapshot;
+  }
+
+  private async getViewOperationTriggerRowSnapshots(options: ViewOperationTriggerOptions) {
+    const targetUUIDs = [...new Set((options.triggerContext.targetUUIDs || [])
+      .map(uuid => String(uuid || "").trim())
+      .filter(Boolean))];
+    if (!targetUUIDs.length) {
+      return [];
+    }
+
+    const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
+    const formData = nocodeBody?.formData;
+    const table = formData?.tables?.find(item => item.uid === options.tableId);
+    if (!formData || !table) {
+      return [];
+    }
+
+    const uuidField = getUUIDSystemField(table.fields);
+    if (!uuidField?.uid) {
+      return [];
+    }
+
+    const buckets = await this.formDataService._getData(formData, [options.tableId], options.nocodeId, {
+      filters: {
+        [options.tableId]: [{
+          [uuidField.uid]: { $in: targetUUIDs },
+        }],
+      },
+      enabledStage: false,
+    });
+    const rows = buckets?.[0]?.rows || [];
+    const systemFieldNames = [
+      SystemField.STATUS,
+      SystemField.CURRENT_NODE,
+      SystemField.DATA_STAGE,
+      SystemField.TODO_ID,
+      SystemField.TODO_VERSION,
+      SystemField.UPDATE_TIME,
+      SystemField.UPDATE_OWNER,
+    ];
+
+    return rows.map(row => {
+      const rowSnapshot: Row = {
+        [uuidField.uid]: row[uuidField.uid],
+      };
+      for (const fieldName of systemFieldNames) {
+        const field = table.fields.find(item => item.meta.name === fieldName);
+        const fieldUID = field?.uid || fieldName;
+        if (Object.prototype.hasOwnProperty.call(row, fieldUID)) {
+          rowSnapshot[fieldUID] = deepClone(row[fieldUID]);
+        } else if (fieldUID !== fieldName && Object.prototype.hasOwnProperty.call(row, fieldName)) {
+          rowSnapshot[fieldName] = deepClone(row[fieldName]);
+        }
+      }
+      return rowSnapshot;
+    });
+  }
+
+  private async restoreViewOperationTriggerRowSnapshots(
+    options: ViewOperationTriggerOptions,
+    todoId: string,
+    rowSnapshots: Row[],
+  ) {
+    if (!rowSnapshots.length) {
+      return;
+    }
+
+    const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
+    const formData = nocodeBody?.formData;
+    const table = formData?.tables?.find(item => item.uid === options.tableId);
+    const uuidField = table ? getUUIDSystemField(table.fields) : null;
+    if (!formData || !table || !uuidField?.uid) {
+      return;
+    }
+
+    const targetUUIDs = rowSnapshots
+      .map(row => String(row[uuidField.uid] || "").trim())
+      .filter(Boolean);
+    if (!targetUUIDs.length) {
+      return;
+    }
+
+    const buckets = await this.formDataService._getData(formData, [options.tableId], options.nocodeId, {
+      filters: {
+        [options.tableId]: [{
+          [uuidField.uid]: { $in: targetUUIDs },
+        }],
+      },
+      enabledStage: false,
+    });
+    const currentRows = buckets?.[0]?.rows || [];
+    const currentTodoField = table.fields.find(item => item.meta.name === SystemField.TODO_ID);
+    const currentRowsByUUID = new Map(
+      currentRows.map(row => [String(row[uuidField.uid] || ""), row]),
+    );
+    const ownedSnapshots = rowSnapshots.filter(row => {
+      const uuid = String(row[uuidField.uid] || "");
+      const currentRow = currentRowsByUUID.get(uuid);
+      const currentTodoId = currentRow?.[SystemField.TODO_ID]
+        ?? (currentTodoField ? currentRow?.[currentTodoField.uid] : undefined);
+      return currentTodoId && String(currentTodoId) === todoId;
+    });
+    if (!ownedSnapshots.length) {
+      return;
+    }
+
+    await this.formDataService.restoreRowsFromSnapshot(
+      formData,
+      options.nocodeId,
+      options.tableId,
+      deepClone(ownedSnapshots),
+      [[formData.uid, table.uid, uuidField.uid]],
+      "main",
+      {
+        triggerTodo: false,
+        allowDataOwnerUpdate: true,
+        ignoreUpdatePermissionDataStatus: true,
+      },
+    );
   }
 
   private async createOperationTriggerCompensationContext(
@@ -5458,10 +5634,12 @@ export class FormFlowService implements OnApplicationBootstrap {
   async triggerViewOperation(options: ViewOperationTriggerOptions) {
     const { flows, branch, triggerNode, processVersion } = await this.resolveViewOperationTriggerContext(options);
     await this.assertViewOperationTriggerAvailable(options);
+    await this.assertViewOperationTriggerRowsIdle(options);
 
     const account = await this.formDataService.getAccount();
     const todoId = unique(32);
     const uuid = unique(32);
+    const rowSnapshots = await this.getViewOperationTriggerRowSnapshots(options);
 
     try {
       const startNode = flows[0];
@@ -5485,6 +5663,16 @@ export class FormFlowService implements OnApplicationBootstrap {
       await this.updateFlowExecutionContext(todoId, {
         viewActionTriggerContext: options.triggerContext,
       });
+      await this.updateFlowData({
+        nocodeId: options.nocodeId,
+        tableId: options.tableId,
+        uuid,
+        todoId,
+      }, {
+        status: ProcessNodeStatus.IN_PROGRESS,
+        todoId,
+        version: processVersion,
+      });
 
       const nextNode = getNextFlow(flows, triggerNode.uid);
       if (nextNode) {
@@ -5500,6 +5688,11 @@ export class FormFlowService implements OnApplicationBootstrap {
       await this.throwIfOperationTriggerImmediatelyFailed(todoId);
     } catch (error) {
       const rollbackErrors: string[] = [];
+      try {
+        await this.restoreViewOperationTriggerRowSnapshots(options, todoId, rowSnapshots);
+      } catch (rollbackError) {
+        rollbackErrors.push(this.getFlowErrorMessage(rollbackError));
+      }
       try {
         await this.clearOperationTriggerExecutionState(todoId);
       } catch (rollbackError) {
@@ -10210,6 +10403,10 @@ export class FormFlowService implements OnApplicationBootstrap {
       return;
     }
     const uuidField = getUUIDSystemField(table.fields);
+    const viewContextOnceTargetUUIDs = await this.getViewContextOnceTargetUUIDs(options, startRecord);
+    if (viewContextOnceTargetUUIDs && !viewContextOnceTargetUUIDs.length) {
+      return;
+    }
     const isDeleteTriggered = this.isDeleteTriggeredStartRecord(startRecord);
     const deleteStage = isDeleteTriggered ? [FormDataStage.DELETED] : [];
     let stageFilter: FormDataStageWhereCondition = {
@@ -10228,7 +10425,9 @@ export class FormFlowService implements OnApplicationBootstrap {
     const buckets = await this.formDataService._getData(formData, [options.tableId], options.nocodeId, {
       filters: {
         [options.tableId]: [{
-          [uuidField.uid]: options.uuid,
+          [uuidField.uid]: viewContextOnceTargetUUIDs
+            ? { $in: viewContextOnceTargetUUIDs }
+            : options.uuid,
         }]
       },
       stage: stageFilter,
@@ -11218,7 +11417,14 @@ export class FormFlowService implements OnApplicationBootstrap {
     const contexts = await this.flowExecutionContextRepository.find({
       todoId: { $in: missingRecords.map(record => record.todoId).filter(Boolean) },
     });
-    const snapshotTodoIds = new Set(contexts.filter(context => context.displayRowSnapshot).map(context => context.todoId));
+    const snapshotTodoIds = new Set(contexts
+      .filter(context => (
+        context.displayRowSnapshot
+        || (
+          context.viewActionTriggerContext?.triggerMode === ViewActionTriggerMode.VIEW_CONTEXT_ONCE
+        )
+      ))
+      .map(context => context.todoId));
     return [
       ...physicalUUIDs,
       ...missingRecords.filter(record => snapshotTodoIds.has(record.todoId)).map(record => record.uuid),
@@ -11767,9 +11973,10 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
 
     const startRecord = await this.getStartRecord(options);
-    const canViewCurrentData = await this.canUserViewTodoData(options, userId, {
-      startRecord,
-    });
+    const isViewContextOnce = (await this.getViewContextOnceTargetUUIDs(options, startRecord)) !== null;
+    const canViewCurrentData = isViewContextOnce
+      ? true
+      : await this.canUserViewTodoData(options, userId, { startRecord });
     const canForceTransfer = !canViewCurrentData
       && [ProcessNodeType.APPROVAL, ProcessNodeType.TRANSACT].includes(flow.type);
     if (!flow.options?.allowTransfer && !canForceTransfer) {
@@ -12261,6 +12468,9 @@ export class FormFlowService implements OnApplicationBootstrap {
       }, flows, startRecord);
       const flow = getFlowById(flows, item.flowId);
       const currentFlow = getFlowById(flows, (item as any).currentFlowId);
+      const executionContext = await getCachedFlowExecutionContext(item.todoId);
+      const viewContextOnceNoFormData = executionContext?.viewActionTriggerContext?.tableUID === tableId
+        && executionContext.viewActionTriggerContext.triggerMode === ViewActionTriggerMode.VIEW_CONTEXT_ONCE;
       const flowFieldAuth = currentFlow?.options?.fieldAuth || flow?.options?.fieldAuth || "all";
       const fieldPermissionAuthCacheKey = `${nocodeId}:${tableId}`;
       let permissionFieldAuth = fieldPermissionAuthCache.get(fieldPermissionAuthCacheKey);
@@ -12296,6 +12506,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       if (
         [ProcessNodeType.APPROVAL, ProcessNodeType.TRANSACT].includes(item.type)
         && item.status === ProcessNodeStatus.IN_PROGRESS
+        && !viewContextOnceNoFormData
       ) {
         const canViewCacheKey = `${nocodeId}:${tableId}:${uuid}:${userId}:${readableStageKey}`;
         const cachedCanViewCurrentData = canViewCurrentDataCache.get(canViewCacheKey);
@@ -12320,7 +12531,6 @@ export class FormFlowService implements OnApplicationBootstrap {
         const flowAuthValue = this.getFieldAuthValue(flowFieldAuth, field, 0);
         return Math.min(permissionAuthValue, flowAuthValue) > 0;
       }) || [];
-      const executionContext = await getCachedFlowExecutionContext(item.todoId);
       const upstreamContext = executionContext?.causedByTodoId
         ? await getCachedFlowExecutionContext(executionContext.causedByTodoId).catch(() => null)
         : null;
@@ -12415,6 +12625,10 @@ export class FormFlowService implements OnApplicationBootstrap {
           }
         }
       }
+      if (viewContextOnceNoFormData) {
+        todoData = {};
+        reportData = null;
+      }
       return {
         flowName: flow?.options?.name || global.i18next.t('formFlowService.unknownNode'),
         formName,
@@ -12436,6 +12650,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         canViewCurrentData,
         requireComments,
         singleOnceTimeTask: startMeta?.singleOnceTimeTask,
+        viewContextOnceNoFormData,
         operationTriggerActionName,
         processingTime: this.buildTodoProcessingTime(item, currentFlow || flow),
         ...(!isCompletedTodo && executionContext?.causedByTodoId && upstreamTermination ? {
@@ -12492,6 +12707,30 @@ export class FormFlowService implements OnApplicationBootstrap {
           uuid: options.uuid,
           todoId: options.todoId,
         });
+      }
+    }
+
+    if (!record && options.todoId) {
+      const executionContext = await this.getFlowExecutionContext(options.todoId);
+      const triggerContext = executionContext?.viewActionTriggerContext;
+      if (
+        triggerContext?.tableUID === options.tableUID
+        && triggerContext.triggerMode === ViewActionTriggerMode.VIEW_CONTEXT_ONCE
+        && (triggerContext.targetUUIDs || []).some(uuid => String(uuid) === String(options.uuid))
+      ) {
+        record = await findLatestRecord({
+          nocodeId: options.nocodeId,
+          tableId: options.tableUID,
+          todoId: options.todoId,
+          status: ProcessNodeStatus.IN_PROGRESS,
+        });
+        if (!record) {
+          record = await findLatestRecord({
+            nocodeId: options.nocodeId,
+            tableId: options.tableUID,
+            todoId: options.todoId,
+          });
+        }
       }
     }
 
@@ -12850,16 +13089,42 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (options.todoId) {
       query.todoId = options.todoId;
     }
-    const flowRecords = await this.flowExecutionRecordsRepository.find(query, {
+    let flowRecords = await this.flowExecutionRecordsRepository.find(query, {
       orderBy: {
         startTime: "ASC",
       }
     })
+    let flowRecordOptions = options;
+    if (!flowRecords.length && options.todoId) {
+      const executionContext = await this.getFlowExecutionContext(options.todoId);
+      const triggerContext = executionContext?.viewActionTriggerContext;
+      if (
+        triggerContext?.tableUID === options.tableId
+        && triggerContext.triggerMode === ViewActionTriggerMode.VIEW_CONTEXT_ONCE
+        && (triggerContext.targetUUIDs || []).some(uuid => String(uuid) === String(options.uuid))
+      ) {
+        flowRecords = await this.flowExecutionRecordsRepository.find({
+          nocodeId: options.nocodeId,
+          tableId: options.tableId,
+          todoId: options.todoId,
+        }, {
+          orderBy: {
+            startTime: "ASC",
+          },
+        });
+        if (flowRecords.length) {
+          flowRecordOptions = {
+            ...options,
+            uuid: flowRecords[0].uuid,
+          };
+        }
+      }
+    }
     const startRecord = flowRecords.find(item => item.type === ProcessNodeType.START);
     const {
       entryFlows = [],
       flows: displayTemplateFlows,
-    } = await this.getAllFlows(options);
+    } = await this.getAllFlows(flowRecordOptions);
     const displayFlows: ProcessFlow[] = [];
     const activeParallelTails: ActiveParallelTail[] = [];
 
@@ -13594,7 +13859,8 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
 
     const startRecord = await this.getStartRecord(options);
-    if (!this.isEmptyRowTrigger(startRecord)) {
+    const viewContextOnceTargetUUIDs = await this.getViewContextOnceTargetUUIDs(options, startRecord);
+    if (!this.isEmptyRowTrigger(startRecord) && viewContextOnceTargetUUIDs === null) {
       const stageField = table.fields.find(f => f.meta.name === SystemField.DATA_STAGE);
       const stage = stageField ? options.row[stageField.uid] : undefined;
       await this.formDataService.updateData(
@@ -13838,9 +14104,14 @@ export class FormFlowService implements OnApplicationBootstrap {
     const uuidFiled = getUUIDSystemField(table.fields);
     const startRecord = await this.getStartRecord(options);
     const triggerSource = this.getStartRecordSource(startRecord);
+    const viewContextOnceTargetUUIDs = await this.getViewContextOnceTargetUUIDs(options, startRecord);
     let submittedMutation: FlowImmediateMutation | null = null;
     const writeCurrentRowIfNeeded = async () => {
-      if (flow.type === ProcessNodeType.REPORT_DATA || this.isEmptyRowTrigger(startRecord)) {
+      if (
+        flow.type === ProcessNodeType.REPORT_DATA
+        || this.isEmptyRowTrigger(startRecord)
+        || viewContextOnceTargetUUIDs !== null
+      ) {
         return;
       }
       const stageField = table.fields.find(f => f.meta.name === SystemField.DATA_STAGE);
@@ -14714,6 +14985,7 @@ export class FormFlowService implements OnApplicationBootstrap {
 
   async getTransferTodoUsers(options: GetTransferTodoUsersOptions, userId: string) {
     const { flow, owners, startRecord } = await this.getTransferTodoContext(options, userId);
+    const isViewContextOnce = (await this.getViewContextOnceTargetUUIDs(options, startRecord)) !== null;
     const baseUsers = await this.getTransferBaseUsers(flow.options?.transferRange);
     const candidateUsers = baseUsers.filter(user => (
       user?.id
@@ -14722,9 +14994,9 @@ export class FormFlowService implements OnApplicationBootstrap {
     ));
     const readableUsers = await Promise.all(candidateUsers.map(async user => ({
       id: user.id,
-      canViewCurrentData: await this.canUserViewTodoData(options, user.id, {
-        startRecord,
-      }),
+      canViewCurrentData: isViewContextOnce
+        ? true
+        : await this.canUserViewTodoData(options, user.id, { startRecord }),
     })));
     return readableUsers
       .filter(item => item.canViewCurrentData)

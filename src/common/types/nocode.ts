@@ -1343,6 +1343,7 @@ export type TODO = {
   fields?: Field[],
   canViewCurrentData?: boolean,
   singleOnceTimeTask?: boolean,
+  viewContextOnceNoFormData?: boolean,
   deleted?: boolean,
   processingTime?: {
     deadlineAt?: number | null,

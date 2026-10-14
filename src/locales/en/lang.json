@@ -9589,6 +9589,7 @@
     "adminWhenEmpty": "Send to admin if empty",
     "currentRecordOnly": "Current record only",
     "historicalRecords": "Historical records",
+    "selectedRecords": "Selected records",
     "fieldMapping": "Field mapping",
     "fixedValue": "Fixed value",
     "clearValue": "Clear",

@@ -218,6 +218,9 @@ const flow = computed(() => {
 const activeName = ref('data');
 const singleOnceNoFormDataText = computed(() => {
   if (!props.hideFormData) return '';
+  if (props.todo?.viewContextOnceNoFormData) {
+    return i18next.t('MobileNocodeProcessDialog.timeTaskSingleNoData');
+  }
   if (props.todo?.operationTriggerActionName) {
     return getOperationEmptyRowDisplayText(
       props.todo,

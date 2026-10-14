@@ -9574,6 +9574,7 @@
     "adminWhenEmpty": "無人時轉管理員",
     "currentRecordOnly": "僅目前資料",
     "historicalRecords": "歷史資料",
+    "selectedRecords": "選中資料",
     "fieldMapping": "欄位對應",
     "fixedValue": "固定值",
     "clearValue": "清空",

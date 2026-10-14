@@ -1538,7 +1538,8 @@ const buildExecuteViewActionRequest = async (
   const targetUUIDs = normalizeTargetUUIDs(options.targetUUIDs?.length ? options.targetUUIDs : selectedTargetUUIDs);
   const hasTargetUUIDs = targetUUIDs.length > 0;
   const isSingleRecordExecution = isViewActionRecordTarget(action.target) || hasTargetUUIDs || !!actionRow?.[widget.rowKey];
-  const shouldIncludeRuntimeViewContext = isViewActionViewTarget(action.target) && !isSingleRecordExecution;
+  const shouldIncludeRuntimeViewContext = isViewActionViewTarget(action.target)
+    && (!isSingleRecordExecution || isViewContextOnceTriggerProcessAction(action));
   const displayFilters = shouldIncludeRuntimeViewContext
     ? (options.filters ? deepClone(options.filters) : await widget.getDisplayFilters())
     : undefined;
