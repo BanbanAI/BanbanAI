@@ -796,7 +796,7 @@ export class FormFlowService implements OnApplicationBootstrap {
           targetUuid: uuid,
           beforeRows: beforeRow ? [beforeRow] : [],
           afterRows: afterRow ? [afterRow] : [],
-        }, occurrenceId, triggerTargetProcess);
+        }, occurrenceId, true, void 0, void 0, triggerTargetProcess);
         if (record) records.push(record);
       }
       return records;
@@ -2232,7 +2232,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       const record = await this.createRecord(todoOptions, startNode, ProcessNodeStatus.FINISHED, version, {
         runId: options.runId,
         scheduledFor: options.scheduledFor,
-      }, false);
+      }, false, em);
       record.flowId = ProcessNodeType.START;
       record.operators = [accountId];
       record.metas = metas;
