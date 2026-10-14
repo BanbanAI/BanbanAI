@@ -935,7 +935,7 @@ export class Element {
   getTable(uid: OptionTableUID) {
     if (uid[0] === PrivateDataConnectionUID) return;
     const connections = this.getBoard().getConnections();
-    const connection = connections.find(item => item.uid === uid[0]);
+    const connection = connections?.find(item => item.uid === uid[0]);
     const table = connection?.tables?.find(table => table.uid === uid[1]);
     return table;
   }
