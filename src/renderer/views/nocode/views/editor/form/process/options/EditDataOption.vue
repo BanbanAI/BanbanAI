@@ -747,13 +747,17 @@ const defaultFormInfo = computed(() => {
 const defaultTables = computed(() => {
   const targetTableUID = props.options.targetTableUID;
   const targetSourceUID = getProcessTargetSourceUID(targetTableUID, table.value.uid);
+  const targetFormAlias = targetTable.value?.alias || table.value.alias;
+  const targetScopeLabel = getScopeLabel(targetTableScope.value);
   return [
     {
       ...table.value,
       label: `${i18next.t('EditDataOption.currentForm')}-${i18next.t('EditDataOption.thisData')}`,
+      formSelectLabel: `${table.value.alias}-${getScopeLabel(EditDataTargetScope.CURRENT)}`,
     },
     {
-      label: `${i18next.t('EditDataOption.targetForm')}-${getScopeLabel(targetTableScope.value)}`,
+      label: `${i18next.t('EditDataOption.targetForm')}-${targetScopeLabel}`,
+      formSelectLabel: `${targetFormAlias}-${targetScopeLabel}`,
       ...(targetTable.value || {}),
       uid: targetSourceUID,
     }
