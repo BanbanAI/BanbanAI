@@ -593,8 +593,10 @@ export class TreeSelect extends FormElement {
   // fieldId转换elementId
   private findElementByField(field, tableUID) {
     let element: string = ""
-    const connection = this.getOtherTableConnection();
-    const table = connection?.tables?.find(t => t.uid === tableUID);
+    const currentTable = this.form.tableUID ? this.getTable(this.form.tableUID) : undefined;
+    const table = currentTable?.fields?.some(item => item.uid === field)
+      ? currentTable
+      : this.getOtherTableConnection()?.tables?.find(t => t.uid === tableUID);
 
     if (table) {
       element = table.fields.find(f => f.uid === field)?.meta?.uid
