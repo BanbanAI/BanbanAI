@@ -6696,6 +6696,7 @@
   },
   "ProcessList": {
     "initiateProcess": "Start Workflow",
+    "timingTrigger": "Scheduled trigger",
     "noProcess": "No workflows available"
   },
   "TodoEmpty": {

@@ -6684,6 +6684,7 @@
   },
   "ProcessList": {
     "initiateProcess": "發起流程",
+    "timingTrigger": "定時觸發",
     "noProcess": "暫無流程"
   },
   "TodoEmpty": {
