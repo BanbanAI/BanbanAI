@@ -123,7 +123,7 @@
             v-if="editable || buttonMenuData.length"
           >
             <template v-if="editable || buttonMenuData.length">
-              <ul v-if="buttonMenuData.length">
+              <ul v-if="buttonMenuData.length" :class="{ 'is-continuing': continueLoading }">
                 <li v-for="button in buttonMenuData" :key="button.name" :class="[button.className, { 'is-disabled': actionLoading }]" @click="!actionLoading && button.click()">
                   <el-icon>
                     <i-ep-loading v-if="actionLoading" class="is-loading" />
@@ -230,7 +230,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { OptionTableUID, ProcessNodeStatus, ProcessNodeType, Row } from '@common/types/project';
 import { TODO, TodoCategory } from '@common/types/nocode';
 import { formFlowApi, getOperationEmptyRowDisplayText, getTodoDataTitle } from '../utils';
-import { canRollbackFlow, getFlowById } from "@common/utils";
+import { canRollbackFlow, getFlowById, isDataProcessingNode } from "@common/utils";
 import i18next from "i18next";
 import NocodeSelectTransferUserDialog from "../dialog/NocodeSelectTransferUserDialog.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -263,6 +263,7 @@ const emit = defineEmits<{
   (event: "closed"),
   (event: "opened"),
   (event: "submit"),
+  (event: "continue"),
   (event: "stash"),
   (event: "back"),
   (event: "toDialog", row?: Row),
@@ -310,7 +311,14 @@ const formPlaceholderText = computed(() => {
   return singleOnceNoFormDataText.value;
 });
 const canSubmitTodo = computed(() => {
-  return canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+  return !isDataProcessingNode(props.todo?.type)
+    && canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+});
+const isShowContinueFlow = computed(() => {
+  return !transferOnly.value
+    && props.editable
+    && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
+    && props.todo?.canHandleStuckDataProcessing === true;
 });
 const isShowStash = computed(() => {
   return !transferOnly.value && props.editable && !!flow.value?.options?.allowStash;
@@ -380,6 +388,7 @@ const isBackNode = ref(false);
 const requireComment = ref(false);
 const drawerExitTipDialogRef = ref();
 const finishFlowTipDialogRef = ref();
+const continueLoading = ref(false);
 const todoDataTitle = computed(() => getTodoDataTitle(props.todo));
 const drawerTitle = computed(() => {
   return [todoDataTitle.value, props.todo?.formName].filter(Boolean).join(' | ');
@@ -537,6 +546,29 @@ const finishFlow = async () => {
   }
 }
 
+const continueFlow = async () => {
+  if (continueLoading.value) {
+    return;
+  }
+  continueLoading.value = true;
+  try {
+    await formFlowApi.continueTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      flowId: resolvedFlowId.value,
+      id: props.todo.id,
+      todoId: props.todo.todoId,
+    });
+    emit("update:modelValue", false);
+    emit("continue");
+  } catch (err) {
+    ElMessage.error(err?.message || i18next.t('formFlowService.statusChangedRefreshTips'));
+  } finally {
+    continueLoading.value = false;
+  }
+}
+
 const transfer = () => {
   nocodeSelectTransferUserDialogShow.value = true
 }
@@ -678,11 +710,14 @@ const isShowCanceled = computed(() => {
 })
 
 const isShowFinishFlow = computed(() => {
-  const flow = getFlowById(props.todo?.flows || [], props.todo?.flowId || '');
+  const flow = getFlowById(props.todo?.flows || [], resolvedFlowId.value);
   return !transferOnly.value
     && props.editable
     && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
-    && !!flow?.options?.allowFinishFlow;
+    && (
+      props.todo?.canHandleStuckDataProcessing === true
+      || (!isDataProcessingNode(props.todo?.type) && !!flow?.options?.allowFinishFlow)
+    );
 })
 
 const isShowDelete = computed(() => {
@@ -803,6 +838,15 @@ const buttonData = computed(() => {
       className: 'danger',
       click: () => {
         finishFlow()
+      },
+    },
+    {
+      name: i18next.t('NocodeProcessDrawer.continueFlow'),
+      icon: INocodeProcessFlowGoOn,
+      visible: isShowContinueFlow.value,
+      className: 'primary',
+      click: () => {
+        continueFlow()
       },
     },
     {
@@ -1087,6 +1131,15 @@ const handleDrawerBeforeClose = async (done) => {
             &.danger {
               color: #f9484e;
             }
+
+            &.primary {
+              color: var(--color-primary);
+            }
+          }
+
+          &.is-continuing {
+            pointer-events: none;
+            opacity: 0.6;
           }
         }
       }

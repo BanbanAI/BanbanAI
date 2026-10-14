@@ -1,4 +1,4 @@
-import { AddTodoOptions, AggregationType, BackTodoOptions, BaseTodoOptions, CancelTodoOptions, DeleteTodoOptions, FieldAuthValue, FilterRule, FinishTodoOptions, FlowTriggerContext, FlowTriggerSkipReason, FormCondition, FormConditionValueType, FormLinkageCondition, FormLinkageRule, FormWidgetType, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, LogicalOperator, NocodeBody, NocodeFormData, PermissionCategory, PermissionRangeType, RejectTodoOptions, RuleFunc, SelectIdOfForm, SubmitTodoOptions, TODO, TodoCategory, TodoProcess, TransferTodoOptions, ViewActionTriggerContext, ViewActionTriggerMode, TodoSubCategory } from "@common/types/nocode";
+import { AddTodoOptions, AggregationType, BackTodoOptions, BaseTodoOptions, CancelTodoOptions, ContinueTodoOptions, DeleteTodoOptions, FieldAuthValue, FilterRule, FinishTodoOptions, FlowTriggerContext, FlowTriggerSkipReason, FormCondition, FormConditionValueType, FormLinkageCondition, FormLinkageRule, FormWidgetType, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, LogicalOperator, NocodeBody, NocodeFormData, PermissionCategory, PermissionRangeType, RejectTodoOptions, RuleFunc, SelectIdOfForm, SubmitTodoOptions, TODO, TodoCategory, TodoProcess, TransferTodoOptions, ViewActionTriggerContext, ViewActionTriggerMode, TodoSubCategory } from "@common/types/nocode";
 import { OwnerEmptyHandle, CurrentSubTableFilter, CrossTableExecutionMode, DataChangeType, EditDataTargetScope, FLOW_DATA_OWNER_SOURCE_SUBMITTER, FlowOpinionFile, OrganizeOptionValue, ProcessBranch, ProcessFlow, ProcessNodeOwner, ProcessNodeOwnerType, ProcessNodeStatus, ProcessNodeType, SubmitRecord, TableUID, ApprovalCategory, NocodeProcess, ApproverType, ApprovalCategoryRule, OptionFieldUID, Row, TargetFieldFillType, TODOTriggerType, FormDataStageWhereCondition, ConditionBranchCondition, ConditionBranchConditionGroup, TimeTaskOptions, TimeTaskRepeat, Table, TargetFieldFillRule, TriggerMode, WhereCondition, SortType, QueryOptions, FormOption, FormValidRule, Field, getAllowCancel, getCrossTableExecutionMode, getWaitCrossTableFlowCompletion, getProcessTargetSourceUID, isDataChangeTriggerConditionsEnabled, isTimeTaskSingleTriggerMode, isTimeTaskTriggerConditionsEnabled, OperationTriggerMode, getOperationTriggerMode, ProcessVersionStatus, ProcessTimeoutActionType, ProcessTimeoutRule, FieldUID } from "@common/types/project";
 import { FormDataStage, canRollbackFlow, filterCircularLinkageRules, getCreateOwnerSystemField, getDueTimeoutRules, getFlowById, getFlows, getFollowingFlows, getLastFlowById, getLastOwnerBranchFlow, getLinkageFillData, getLinkageFillValue, getNextFlow, getNocodeDataSourceTableByUID, getOwnerBranchFlow, getRollbackReplayPlan, getRollbackTargetFlows, getUUIDSystemField, hasConfiguredValue, isBranchNode, isDataProcessingNode, isMeetConditionsByRow, isProcessTable, isRollbackSubmitNode, isSystemField, isTriggerNode, resolveTimeoutDeadlineAt, SystemField, transformCondition, transformFilterRule, getProcessVersionStatus } from "@common/utils";
 import { getNocodeDataSourceByUID, isDataOwnerEnabledTable } from "@common/utils/connection";
@@ -12,7 +12,7 @@ import { FormDataService } from "./form-data.service";
 import { evaluateCondition, transformFormDataRow } from "./utils";
 import { equals, isEmpty } from "@common/utils/object";
 import { cloneDeep as deepClone } from "lodash";
-import { FlowExecutionRecordsRepository, FlowExecutionRecords, FlowBranchRecordsRepository, FlowBranchRecords, FlowExecutionContextRepository, FlowExecutionContext, FlowExecutionRecordMeta, FlowPostFinishPlan, FlowPostFinishPlanRepository, FlowPostFinishTask, FlowPostFinishTaskRepository, FlowImmediateMutation, FlowImmediateMutationRepository, FlowImmediateMutationSource, FlowScheduleDefinition, FlowScheduledRun, FlowTaskStepExecution, ViewActionTriggerTask } from "./entities";
+import { FlowExecutionRecordsRepository, FlowExecutionRecords, FlowBranchRecordsRepository, FlowBranchRecords, FlowExecutionContextRepository, FlowExecutionContext, FlowDataProcessingMeta, FlowDataProcessingStage, FlowExecutionRecordMeta, FlowPostFinishPlan, FlowPostFinishPlanRepository, FlowPostFinishTask, FlowPostFinishTaskRepository, FlowImmediateMutation, FlowImmediateMutationRepository, FlowImmediateMutationSource, FlowScheduleDefinition, FlowScheduledRun, FlowTaskStepExecution, ViewActionTriggerTask } from "./entities";
 import { Nocode, NocodeRepository } from "../project/entities";
 import { getFormulaStr, getFormulaFields, replaceByFormula, replaceColFieldsByFormula, rowsDefaultValueCalculation, createFormulaRuntimeByData, evaluateFormulaWithRuntime, normalizeFormulaNumericValue, getFormulaEmptyCheckReferenceKeys, type FormulaRuntime } from "@common/utils/formula";
 import { evaluateImportBatchAggregationFormula } from "@common/utils/flow-import-aggregation";
@@ -292,6 +292,8 @@ type PostFinishRuntimeTodoOptions = BaseTodoOptions & {
   deferCurrentFormTrigger?: boolean,
   causedByTaskId?: string,
   mutationOccurrenceId?: string,
+  previousDataProcessingRecordId?: string,
+  dataProcessingRecord?: FlowExecutionRecords,
 }
 const IMMEDIATE_CROSS_TABLE_RETRY_LIMIT = 5;
 const IMMEDIATE_CROSS_TABLE_RETRY_DELAY_MS = 60 * 1000;
@@ -336,6 +338,7 @@ export class FormFlowService implements OnApplicationBootstrap {
   private flowImmediateMutationRepository: FlowImmediateMutationRepository;
   private nocodeRepository: NocodeRepository;
   private readonly scheduledLeaseByTodo = new Map<string, ScheduledLeaseContext>();
+  private readonly activeDataProcessingExecutions = new Set<string>();
   private readonly activeWorkerNodeSteps = new Map<string, Map<string, FlowNodeExecutionStep>>();
   private timeoutTaskRunning = false;
   private workerFallbackCount = 0;
@@ -487,7 +490,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     this.formDataService.migrateLegacyDeletingStagesOnce()
       .catch(err => this.logger.error("form data stage migration failed", err))
       .finally(() => {
-        this.compatibleTodos();
+        this.compatibleTodos().catch(err => this.logger.error("flow todo compatibility migration failed", err));
         setImmediate(() => {
           this.recoverPostFinishPlans().catch(err => this.logger.error("recover post finish plans failed", err));
           this.recoverImmediateCrossTableTriggers().catch(err => this.logger.error("recover async cross-table flow triggers failed", err));
@@ -633,6 +636,295 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (type === ProcessNodeType.ADD_DATA) return DataChangeType.ADD;
     if (type === ProcessNodeType.EDIT_DATA) return DataChangeType.EDIT;
     return DataChangeType.DELETE;
+  }
+
+  private async getFlowInitiatorId(options: Partial<BaseTodoOptions>) {
+    if (!options.todoId) return undefined;
+    const query: FilterQuery<FlowExecutionRecords> = {
+      type: ProcessNodeType.START,
+    };
+    if (options.nocodeId) query.nocodeId = options.nocodeId;
+    if (options.tableId) query.tableId = options.tableId;
+    if (options.uuid) query.uuid = options.uuid;
+    if (options.todoId) query.todoId = options.todoId;
+    const startRecord = await this.flowExecutionRecordsRepository.findOne(query, {
+      orderBy: { startTime: "ASC" },
+    });
+    return startRecord?.operators?.find(operatorId => (
+      typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+    ));
+  }
+
+  private async getFlowInitiatorAccount(options: Partial<BaseTodoOptions>) {
+    if (!options.todoId) return null;
+    const initiatorId = await this.getFlowInitiatorId(options);
+    if (initiatorId) {
+      const account = await this.workbenchService.getUserById(initiatorId).catch(() => null);
+      if (account) return account;
+    }
+    return await this.workbenchService.getAdmin().catch(() => null);
+  }
+
+  private hasValidDataProcessingOwners(record: FlowExecutionRecords) {
+    return Array.isArray(record.paddingOperators)
+      && record.paddingOperators.some(operatorId => (
+        typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+      ));
+  }
+
+  private getDataProcessingExecutionKey(
+    options: Pick<BaseTodoOptions, "nocodeId" | "tableId" | "uuid" | "todoId">,
+    flowId: string,
+  ) {
+    return `${options.todoId || `${options.nocodeId}:${options.tableId}:${options.uuid}`}:${flowId}`;
+  }
+
+  private isDataProcessingExecutionActive(record: FlowExecutionRecords) {
+    return this.activeDataProcessingExecutions.has(this.getDataProcessingExecutionKey(record, record.flowId));
+  }
+
+  private getDataProcessingMeta(record: FlowExecutionRecords): FlowDataProcessingMeta {
+    return (record.metas?.__data_processing__ || {}) as FlowDataProcessingMeta;
+  }
+
+  private async updateDataProcessingMeta(
+    record: FlowExecutionRecords,
+    updates: Partial<FlowDataProcessingMeta>,
+  ) {
+    const currentMeta = this.getDataProcessingMeta(record);
+    record.metas = {
+      ...(record.metas || {}),
+      __data_processing__: {
+        ...currentMeta,
+        ...updates,
+      },
+    };
+    await this.flowExecutionRecordsRepository.persistAndFlush(record);
+  }
+
+  private async updateDataProcessingMetaPreserving(
+    record: FlowExecutionRecords,
+    updates: Partial<FlowDataProcessingMeta>,
+  ) {
+    try {
+      await this.updateDataProcessingMeta(record, updates);
+    } catch (err) {
+      const stateError = err instanceof Error ? err : new Error(String(err));
+      (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+      throw stateError;
+    }
+  }
+
+  private async hasDataProcessingChildRecord(record: FlowExecutionRecords) {
+    if (!record.todoId) return false;
+    const records = await this.flowExecutionRecordsRepository.find({ todoId: record.todoId });
+    return records.some(item => (
+      item.id !== record.id
+      && item.metas?.__data_processing__?.previousDataProcessingRecordId === record.id
+    ));
+  }
+
+  private async linkDataProcessingPostFinishTasks(record: FlowExecutionRecords, taskIds: string[]) {
+    if (!taskIds.length) return;
+    const tasks = await this.flowPostFinishTaskRepository.find({ id: { $in: taskIds } });
+    for (const task of tasks) {
+      if (task.executionRecordId === record.id) continue;
+      task.executionRecordId = record.id;
+    }
+    if (tasks.length) await this.flowPostFinishTaskRepository.persistAndFlush(tasks);
+  }
+
+  private getDataProcessingMutation(meta: FlowDataProcessingMeta): FlowNodeMutationResult | null {
+    const mutation = meta.mutation;
+    if (!mutation || !mutation.targetNocodeId || !mutation.targetTableId) {
+      return null;
+    }
+    return {
+      action: mutation.action,
+      targetNocodeId: mutation.targetNocodeId,
+      targetTableId: mutation.targetTableId,
+      targetUuid: mutation.targetUuid,
+      beforeRows: deepClone(mutation.beforeRows || []),
+      afterRows: deepClone(mutation.afterRows || []),
+      changedFieldUids: mutation.changedFieldUids,
+    };
+  }
+
+  private async loadActiveDataProcessingRow(
+    formData: NocodeFormData,
+    nocodeId: string,
+    table: Table,
+    uuid: string,
+  ) {
+    const uuidField = getUUIDSystemField(table.fields);
+    if (!uuidField?.uid || !uuid) return null;
+    const [bucket] = await this.formDataService._getData(formData, [table.uid], nocodeId, {
+      filters: {
+        [table.uid]: [{ [uuidField.uid]: uuid }],
+      },
+      stage: this.getDefaultReadableStageCondition(),
+    });
+    const rows = await this.formDataService.fillSubFormField(bucket?.rows || [], nocodeId, table, formData);
+    return rows?.[0] || null;
+  }
+
+  private async isDataProcessingMutationApplied(
+    meta: FlowDataProcessingMeta,
+    resolvedTarget: ResolvedProcessTargetTable,
+  ) {
+    const mutation = this.getDataProcessingMutation(meta);
+    if (!mutation) return false;
+    const snapshots = mutation.action === DataChangeType.DELETE
+      ? mutation.beforeRows
+      : mutation.afterRows;
+    if (!snapshots.length) return true;
+
+    for (const snapshot of snapshots) {
+      const uuid = String(this.getRowUUID(resolvedTarget.targetTable, snapshot) || "");
+      if (!uuid) return false;
+      const currentRow = await this.loadActiveDataProcessingRow(
+        resolvedTarget.targetFormData,
+        mutation.targetNocodeId,
+        resolvedTarget.targetTable,
+        uuid,
+      );
+      if (mutation.action === DataChangeType.DELETE) {
+        if (currentRow) return false;
+        continue;
+      }
+      if (!currentRow) return false;
+      if (mutation.action === DataChangeType.EDIT) {
+        const changedRootUIDs = Array.from(new Set(
+          (mutation.changedFieldUids || [])
+            .map(fieldUID => fieldUID.split(".")[0])
+            .filter(Boolean),
+        ));
+        const fieldUIDs = changedRootUIDs.length
+          ? changedRootUIDs
+          : Object.keys(snapshot).filter(fieldUID => !isSystemField(resolvedTarget.targetTable.fields.find(field => field.uid === fieldUID)));
+        if (fieldUIDs.some(fieldUID => !equals(currentRow[fieldUID], snapshot[fieldUID]))) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private async hydrateDataProcessingMutation(
+    mutation: FlowNodeMutationResult,
+    resolvedTarget: ResolvedProcessTargetTable,
+  ) {
+    if (mutation.action === DataChangeType.DELETE) return mutation;
+    const rows = await Promise.all(mutation.afterRows.map(async row => {
+      const uuid = String(this.getRowUUID(resolvedTarget.targetTable, row) || "");
+      return uuid
+        ? await this.loadActiveDataProcessingRow(
+          resolvedTarget.targetFormData,
+          mutation.targetNocodeId,
+          resolvedTarget.targetTable,
+          uuid,
+        ) || row
+        : row;
+    }));
+    return {
+      ...mutation,
+      afterRows: rows,
+    };
+  }
+
+  private async findPostFinishTriggerTask(
+    options: BaseTodoOptions,
+    node: ProcessFlow,
+    resolvedTarget: ResolvedProcessTargetTable,
+    uuid: string,
+    action: DataChangeType,
+  ) {
+    if (!options.todoId || !uuid) return null;
+    const tasks = await this.flowPostFinishTaskRepository.find({
+      todoId: options.todoId,
+      flowId: node.uid,
+      taskType: "trigger_event",
+      action,
+      targetNocodeId: resolvedTarget.targetNocodeId,
+      targetTableId: resolvedTarget.targetTable.uid,
+    });
+    return tasks.find(task => (
+      String(this.getRowUUID(resolvedTarget.targetTable, task.inputSnapshot) || "") === String(uuid)
+    )) || null;
+  }
+
+  private async finishDataProcessingNode(
+    options: BaseTodoOptions,
+    record: FlowExecutionRecords,
+    node: ProcessFlow,
+    startResult: DataProcessingNodeStartResult,
+  ) {
+    await this.updateFlowData(options, {
+      node: { type: "delete", value: [node.uid] },
+    });
+    await this.finishDataProcessingRecord(
+      record,
+      node,
+      ProcessNodeStatus.FINISHED,
+      "",
+      startResult.messages.join('\n'),
+      startResult.recordMeta,
+    );
+    const postFinishTaskId = startResult.recordMeta?.postFinishTaskId;
+    const taskIds = Array.from(new Set([
+      ...(Array.isArray(startResult.recordMeta?.postFinishTaskIds)
+        ? startResult.recordMeta.postFinishTaskIds.filter((id): id is string => typeof id === "string" && !!id)
+        : []),
+      ...(typeof postFinishTaskId === "string" && postFinishTaskId ? [postFinishTaskId] : []),
+    ]));
+    await this.linkDataProcessingPostFinishTasks(record, taskIds);
+  }
+
+  private async advanceDataProcessingNode(
+    options: BaseTodoOptions,
+    nodes: ProcessFlow[],
+    node: ProcessFlow,
+    initiatorId: string,
+    compensationContext: FlowCompensationContext | undefined,
+    record: FlowExecutionRecords,
+    startResult: DataProcessingNodeStartResult,
+    recovering = false,
+  ) {
+    const processingMeta = this.getDataProcessingMeta(record);
+    if (recovering && (processingMeta.next_node_created || await this.hasDataProcessingChildRecord(record))) {
+      await this.updateDataProcessingMeta(record, { next_node_created: true });
+      await this.finishDataProcessingNode(options, record, node, startResult);
+      return;
+    }
+    const branchFlow = getOwnerBranchFlow(nodes, node.uid);
+    if (branchFlow && branchFlow.type === ProcessNodeType.PARALLEL_BRANCH) {
+      const branch = branchFlow.branches.find(item => getFlowById(item.flows, node.uid));
+      const lastFlow = branch?.flows?.at(-1);
+      if (lastFlow?.uid === node.uid) {
+        const branchFinished = await this.completeParallelBranch(options, branchFlow, branch.flows[0].uid);
+        if (!branchFinished) {
+          await this.updateDataProcessingMeta(record, { next_node_created: true });
+          await this.finishDataProcessingNode(options, record, node, startResult);
+          return;
+        }
+      }
+    }
+
+    const nextNode = getNextFlow(nodes, node.uid);
+    if (nextNode) {
+      await this.addNextNode(
+        {
+          ...options,
+          previousDataProcessingRecordId: record.id,
+        } as PostFinishRuntimeTodoOptions,
+        nodes,
+        nextNode,
+        initiatorId,
+        compensationContext,
+      );
+    }
+    await this.updateDataProcessingMeta(record, { next_node_created: true });
+    await this.finishDataProcessingNode(options, record, node, startResult);
   }
 
   private findFlowSequencePath(flows: ProcessFlow[], flowId: string, prefix: number[] = []): number[] {
@@ -817,12 +1109,27 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     const rows = mutation.action === DataChangeType.ADD ? mutation.afterRows : mutation.beforeRows;
     const records: FlowImmediateMutation[] = [];
+    const existingRecords = await this.flowImmediateMutationRepository.find({
+      todoId,
+      occurrenceId,
+      source: "cross_table_node",
+    });
+    const existingByUUID = new Map(
+      existingRecords
+        .filter(record => !!record.targetUuid)
+        .map(record => [String(record.targetUuid), record]),
+    );
     try {
       for (let index = 0; index < rows.length; index++) {
         const row = rows[index];
         const uuid = String(this.getRowUUID(targetTable, row) || "");
         if (!uuid) {
           throw new Error("cross-table immediate mutation target UUID is empty");
+        }
+        const existingRecord = existingByUUID.get(uuid);
+        if (existingRecord) {
+          records.push(existingRecord);
+          continue;
         }
         const beforeRow = mutation.beforeRows.find(item => String(this.getRowUUID(targetTable, item) || "") === uuid)
           || mutation.beforeRows[index];
@@ -2446,15 +2753,74 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
   }
 
+  private applyMyTodoOwnerCondition(qb: any, userId: string) {
+    const paddingOperatorsCondition = this.buildJsonArrayContainsCondition('r.padding_operators', userId, true);
+    const dataProcessingTypes = [
+      ProcessNodeType.ADD_DATA,
+      ProcessNodeType.EDIT_DATA,
+      ProcessNodeType.DELETE_DATA,
+    ];
+    if (paddingOperatorsCondition.__rawSql) {
+      const dbType = this.entityManager.config.get("type");
+      const invalidDataProcessingCondition = dbType === "sqlite" || dbType === "better-sqlite"
+        ? `r.type IN (?, ?, ?) AND (
+            r.padding_operators IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM json_each(r.padding_operators)
+              WHERE CAST(json_each.value AS TEXT) NOT IN ('', '0')
+            )
+          )`
+        : dbType === "postgresql"
+          ? `r.type IN (?, ?, ?) AND (
+              r.padding_operators IS NULL
+              OR NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(r.padding_operators::jsonb) AS owner(value)
+                WHERE value <> '' AND value <> '0'
+              )
+            )`
+          : dbType === "mysql" || dbType === "mariadb"
+            ? `r.type IN (?, ?, ?) AND (
+                r.padding_operators IS NULL
+                OR JSON_LENGTH(r.padding_operators) = 0
+                OR (JSON_LENGTH(r.padding_operators) = 1 AND JSON_CONTAINS(r.padding_operators, '"0"') = 1)
+              )`
+        : `r.type IN (?, ?, ?)`;
+      qb.andWhere(
+        `(r.padding_operators IS NOT NULL AND ${paddingOperatorsCondition.__rawSql}) OR ${invalidDataProcessingCondition}`,
+        [...paddingOperatorsCondition.__params, ...dataProcessingTypes],
+      );
+      return;
+    }
+    qb.andWhere({
+      $or: [
+        {
+          $and: [
+            { paddingOperators: { $exists: true, $ne: null } },
+            paddingOperatorsCondition,
+          ],
+        },
+        { type: { $in: dataProcessingTypes } },
+      ],
+    });
+  }
+
   private async compatibleTodos() {
-    const qb = this.entityManager.createQueryBuilder<FlowExecutionRecords>("FlowExecutionRecords", "r");
-    qb.where({
+    const legacyRecords = await this.entityManager.find(FlowExecutionRecords, {
       status: ProcessNodeStatus.IN_PROGRESS,
-    })
-    qb.andWhere(`
-      r.padding_operators IS NULL
-    `)
-    const records = await qb.getResult();
+      paddingOperators: null,
+    });
+    const dataProcessingRecords = await this.flowExecutionRecordsRepository.find({
+      status: ProcessNodeStatus.IN_PROGRESS,
+      type: {
+        $in: [ProcessNodeType.ADD_DATA, ProcessNodeType.EDIT_DATA, ProcessNodeType.DELETE_DATA],
+      },
+    });
+    const records = Array.from(new Map([
+      ...legacyRecords.map(record => [record.id, record] as const),
+      ...dataProcessingRecords
+        .filter(record => !this.hasValidDataProcessingOwners(record))
+        .map(record => [record.id, record] as const),
+    ]).values());
     if (isEmpty(records)) return;
     const recordGroups = records.reduce((prev, item) => {
       if (!prev[item.nocodeId]) prev[item.nocodeId] = { };
@@ -2494,12 +2860,30 @@ export class FormFlowService implements OnApplicationBootstrap {
             deletedRecords.push(record);
             continue;
           }
-          let owners = await this.getOwnersByNode({
-            nocodeId,
-            tableId: tableId as TableUID,
-            uuid: record.uuid,
-            todoId: record.todoId,
-          }, flow);
+          let owners: string[];
+          if (isDataProcessingNode(flow.type)) {
+            const initiatorId = await this.getFlowInitiatorId({
+              nocodeId,
+              tableId: tableId as TableUID,
+              uuid: record.uuid,
+              todoId: record.todoId,
+            });
+            owners = initiatorId
+              ? [initiatorId]
+              : await this.getOwnersByNode({
+                nocodeId,
+                tableId: tableId as TableUID,
+                uuid: record.uuid,
+                todoId: record.todoId,
+              }, flow);
+          } else {
+            owners = await this.getOwnersByNode({
+              nocodeId,
+              tableId: tableId as TableUID,
+              uuid: record.uuid,
+              todoId: record.todoId,
+            }, flow);
+          }
           if (record.transfer) {
             owners = owners.map(item => record.transferRecords[item]);
           }
@@ -2679,9 +3063,12 @@ export class FormFlowService implements OnApplicationBootstrap {
   }
 
   private getRecordOwners(record: FlowExecutionRecords) {
-    return Array.isArray(record?.paddingOperators)
+    const owners = Array.isArray(record?.paddingOperators)
       ? record.paddingOperators.filter((item): item is string => typeof item === "string" && !!item)
       : [];
+    return isDataProcessingNode(record.type)
+      ? owners.filter(item => item !== "0")
+      : owners;
   }
 
   private buildFlowRecordStashSnapshot(record: FlowExecutionRecords) {
@@ -2704,7 +3091,8 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (operatorId && record.metas[operatorId]) {
       return record.metas[operatorId];
     }
-    return Object.values(record.metas)[0] || null;
+    return Object.entries(record.metas)
+      .find(([key]) => !key.startsWith("__"))?.[1] || null;
   }
 
   private canOperateFlowRecord(record: FlowExecutionRecords, userId: string, owners?: string[]) {
@@ -6083,7 +6471,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       const formData = formDataMap.get(record.nocodeId);
       const process = formData?.formOptions?.[record.tableId]?.process;
       if (!process) {
-        return { record };
+        return isDataProcessingNode(record.type) ? null : { record };
       }
 
       const flows = await this.getInstanceFlows(process, {
@@ -6094,7 +6482,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       }, record);
       const flow = getFlowById(flows, record.flowId);
       if (!flow) {
-        return { record };
+        return isDataProcessingNode(record.type) ? null : { record };
       }
 
       // A running automatic node (data change, branch, plugin...) keeps the
@@ -6102,11 +6490,24 @@ export class FormFlowService implements OnApplicationBootstrap {
       // node owner. While the flow waits in the execution queue that record is
       // IN_PROGRESS but nobody can act on it, so it must not show up as a todo;
       // stashed records keep their node until their submitter commits.
-      if (record.isStashed !== true && !this.isPendingOperatorFlow(flow)) {
+      if (record.isStashed !== true && !this.isPendingOperatorFlow(flow) && !isDataProcessingNode(flow.type)) {
         return null;
       }
 
-      return this.getActivePendingOperatorIds(flow, record.paddingOperators, record.operators).includes(userId)
+      let owners = this.getRecordOwners(record);
+      if (!owners.length && isDataProcessingNode(flow.type)) {
+        const startRecord = await this.getStartRecord({
+          nocodeId: record.nocodeId,
+          tableId: record.tableId,
+          uuid: record.uuid,
+          todoId: record.todoId,
+        });
+        const initiatorId = startRecord?.operators?.find(operatorId => (
+          typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+        ));
+        owners = initiatorId ? [initiatorId] : [];
+      }
+      return this.getActivePendingOperatorIds(flow, owners, record.operators).includes(userId)
         ? { record, flow }
         : null;
     }));
@@ -6366,7 +6767,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         ? r.paddingOperators.filter((item): item is string => typeof item === "string" && item.length > 0)
         : [];
       if (!operatorIds.length && isDataProcessingNode(r.type)) {
-        operatorIds = Object.keys(r.metas || {}).filter(Boolean);
+        operatorIds = Object.keys(r.metas || {}).filter(item => item && item !== "0" && !item.startsWith("__"));
       }
       if (operatorIds.length) {
         p[r.flowId] = operatorIds;
@@ -6405,6 +6806,14 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (scheduled) {
       flowExecutionRecord.scheduledRunId = scheduled.runId;
       flowExecutionRecord.scheduledFor = scheduled.scheduledFor;
+    }
+    const previousDataProcessingRecordId = (options as PostFinishRuntimeTodoOptions).previousDataProcessingRecordId;
+    if (previousDataProcessingRecordId) {
+      flowExecutionRecord.metas = {
+        __data_processing__: {
+          previousDataProcessingRecordId,
+        },
+      };
     }
     if (persist) {
       try {
@@ -8293,10 +8702,34 @@ export class FormFlowService implements OnApplicationBootstrap {
     );
     const targetUUidField = getUUIDSystemField(targetTable.fields);
     const postFinishTaskId = (options as PostFinishRuntimeTodoOptions).causedByTaskId;
+    const dataProcessingRecord = (options as PostFinishRuntimeTodoOptions).dataProcessingRecord;
+    const dataProcessingMeta = dataProcessingRecord ? this.getDataProcessingMeta(dataProcessingRecord) : null;
+    const stableUUIDPrefix = postFinishTaskId || dataProcessingRecord?.id;
     const existingAddedRows: Row[] = [];
-    if (postFinishTaskId && targetUUidField?.uid) {
+    if (stableUUIDPrefix && targetUUidField?.uid) {
+      const savedTargetUUIDs = dataProcessingMeta?.target_uuids || [];
       for (let index = 0; index < rows.length; index++) {
-        rows[index][targetUUidField.uid] ||= `${postFinishTaskId}:${index}`;
+        rows[index][targetUUidField.uid] ||= savedTargetUUIDs[index] || `${stableUUIDPrefix}:${index}`;
+      }
+      if (dataProcessingRecord) {
+        await this.updateDataProcessingMetaPreserving(dataProcessingRecord, {
+          stage: "write_started",
+          mutation_occurrence_id: (options as PostFinishRuntimeTodoOptions).mutationOccurrenceId
+            || dataProcessingMeta?.mutation_occurrence_id,
+          target_nocode_id: targetNocodeId,
+          target_table_id: targetTable.uid,
+          target_uuids: rows
+            .map(row => row[targetUUidField.uid])
+            .filter((uuid): uuid is string => typeof uuid === "string" && !!uuid),
+          mutation: {
+            action: DataChangeType.ADD,
+            targetNocodeId,
+            targetTableId: targetTable.uid,
+            beforeRows: [],
+            afterRows: deepClone(rows),
+            changedFieldUids: [...targetFields, ...batchFields].map(item => item.fieldUID),
+          },
+        });
       }
       for (let index = rows.length - 1; index >= 0; index--) {
         const existed = await this.loadRollbackRowByUUID(
@@ -8312,6 +8745,29 @@ export class FormFlowService implements OnApplicationBootstrap {
       }
     }
     if (!rows.length && existingAddedRows.length) {
+      if (dataProcessingRecord) {
+        await this.updateDataProcessingMetaPreserving(dataProcessingRecord, {
+          mutation: {
+            action: DataChangeType.ADD,
+            targetNocodeId,
+            targetTableId: targetTable.uid,
+            beforeRows: [],
+            afterRows: deepClone(existingAddedRows),
+            changedFieldUids: [...targetFields, ...batchFields].map(item => item.fieldUID),
+          },
+        });
+        return {
+          messages: [],
+          mutation: {
+            action: DataChangeType.ADD,
+            targetNocodeId,
+            targetTableId: targetTable.uid,
+            beforeRows: [],
+            afterRows: existingAddedRows,
+            changedFieldUids: [...targetFields, ...batchFields].map(item => item.fieldUID),
+          },
+        };
+      }
       const retryTriggerContext = await this.getCurrentFlowTriggerContext(options);
       await this.formDataService.runPostMutationTasks(
         targetNocodeId,
@@ -9182,6 +9638,15 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     const { targetNocodeId, targetFormData, targetTable, isCrossAppTarget } = resolvedTarget;
     const shouldTriggerTargetProcess = this.shouldTriggerTargetProcess(node, options, resolvedTarget);
+    const dataProcessingRecord = (options as PostFinishRuntimeTodoOptions).dataProcessingRecord;
+    const savedDataProcessingMutation = dataProcessingRecord
+      ? this.getDataProcessingMutation(this.getDataProcessingMeta(dataProcessingRecord))
+      : null;
+    const savedEditMutation = savedDataProcessingMutation?.action === DataChangeType.EDIT
+      && savedDataProcessingMutation.targetNocodeId === targetNocodeId
+      && savedDataProcessingMutation.targetTableId === targetTable.uid
+      ? savedDataProcessingMutation
+      : null;
     const isSubTargetTable = !!targetTable?.meta?.extra?.primaryTable && !!primarySourceTable;
     const primaryTable = formData.tables.find(t => t.uid === primarySourceTable?.tableUID);
     const normalizedTargetTableFilterRule = targetTableFilterRule || {
@@ -9264,7 +9729,9 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     const isEditingSubField = targetFields.some(item => item.fieldUID?.split(".")?.length > 1);
     let targetRows: Row[] = [];
-    if (isSelectedDataTarget) {
+    if (savedEditMutation) {
+      targetRows = deepClone(savedEditMutation.beforeRows);
+    } else if (isSelectedDataTarget) {
       if (selectedTargetUUIDs.length) {
         targetRows = await this.getTableRows(
           nocodeBody,
@@ -9354,7 +9821,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         messages: [],
       };
     }
-    const originalTargetRows = deepClone(targetRows);
+    const originalTargetRows = deepClone(savedEditMutation?.beforeRows || targetRows);
     const targetStageField = targetTable.fields.find(field => field.meta.name === SystemField.DATA_STAGE);
     const targetSourceUID = getProcessTargetSourceUID(targetTableUID, options.tableId);
     const sourceTableRows: Record<string, Row[]> = {
@@ -9401,7 +9868,9 @@ export class FormFlowService implements OnApplicationBootstrap {
 
     const mergedRows = this.mergeTableRows(deepClone(sourceTableRows), targetFields.filter(item => item.type === TargetFieldFillType.FIELD))
     const editDefaultSubRowIndexesByRow: Array<Record<string, number[]>> = [];
-    const rows = targetRows.map((targetRow, index) => {
+    const rows = savedEditMutation
+      ? deepClone(savedEditMutation.afterRows)
+      : targetRows.map((targetRow, index) => {
       const normalizedCurrentSubTableFilters = [
         ...currentSubTableFilters,
         ...(currentSubTableFilter ? [currentSubTableFilter] : []),
@@ -9825,53 +10294,80 @@ export class FormFlowService implements OnApplicationBootstrap {
       }
       editDefaultSubRowIndexesByRow[index] = { ...matchedSubRowIndexCache };
       return row;
-    });
-
-    await this.applyProcessDesignDefaults({
-      rows,
-      fieldUIDs: defaultValueTargetFields.map(item => item.fieldUID),
-      targetNocodeId,
-      targetFormData,
-      targetTable,
-      initiatorId,
-      subRowIndexesByRow: editDefaultSubRowIndexesByRow,
-    });
+      });
 
     let linkageFieldUIDs = new Set<string>();
-    if (node.options?.allowLinkageFill && !isSelectedDataTarget) {
-      const explicitFieldUIDs = new Set(
-        targetFields.filter(item => item.type !== TargetFieldFillType.EMPTY).map(item => String(item.fieldUID)),
+    let formulaFields: any[] = [];
+    if (!savedEditMutation) {
+      await this.applyProcessDesignDefaults({
+        rows,
+        fieldUIDs: defaultValueTargetFields.map(item => item.fieldUID),
+        targetNocodeId,
+        targetFormData,
+        targetTable,
+        initiatorId,
+        subRowIndexesByRow: editDefaultSubRowIndexesByRow,
+      });
+
+      if (node.options?.allowLinkageFill && !isSelectedDataTarget) {
+        const explicitFieldUIDs = new Set(
+          targetFields.filter(item => item.type !== TargetFieldFillType.EMPTY).map(item => String(item.fieldUID)),
+        );
+        linkageFieldUIDs = await this.applyProcessLinkageFill(rows, targetFormData, targetNocodeId, targetTable, explicitFieldUIDs);
+      }
+      const linkageFields = [...linkageFieldUIDs]
+        .map(fieldUID => resolveProcessTargetField(fieldUID, targetTable, targetFormData))
+        .filter((field): field is Field => !!field);
+
+      const isUseField = [
+        ...targetFields
+          .filter(item => item.type !== TargetFieldFillType.EMPTY)
+          .map(item => resolveProcessTargetField(item.fieldUID, targetTable, targetFormData))
+          .filter((field): field is Field => !!field),
+        ...linkageFields,
+      ];
+
+      formulaFields = getFormulaFields(isUseField, targetTable.fields, targetFormData.tables);
+
+      try {
+        rowsDefaultValueCalculation(rows, {formulaFields, defaultFields: []}, targetTable, targetFormData);
+      } catch (err) {
+        this.logger.error(`edit data formula calculation error:`, err);
+      }
+      this.normalizeProcessNumberFieldValues(
+        rows,
+        targetTable,
+        formData,
+        this.getProcessNumberNormalizationFieldUIDs(targetFields, [...formulaFields, ...linkageFields]),
       );
-      linkageFieldUIDs = await this.applyProcessLinkageFill(rows, targetFormData, targetNocodeId, targetTable, explicitFieldUIDs);
     }
-    const linkageFields = [...linkageFieldUIDs]
-      .map(fieldUID => resolveProcessTargetField(fieldUID, targetTable, targetFormData))
-      .filter((field): field is Field => !!field);
-
-    const isUseField = [
-      ...targetFields
-        .filter(item => item.type !== TargetFieldFillType.EMPTY)
-        .map(item => resolveProcessTargetField(item.fieldUID, targetTable, targetFormData))
-        .filter((field): field is Field => !!field),
-      ...linkageFields,
-    ];
-
-    const formulaFields = getFormulaFields(isUseField, targetTable.fields, targetFormData.tables);
-
-    try {
-      rowsDefaultValueCalculation(rows, {formulaFields, defaultFields: []}, targetTable, targetFormData);
-    } catch (err) {
-      this.logger.error(`edit data formula calculation error:`, err);
-    }
-    this.normalizeProcessNumberFieldValues(
-      rows,
-      targetTable,
-      formData,
-      this.getProcessNumberNormalizationFieldUIDs(targetFields, [...formulaFields, ...linkageFields]),
-    );
 
     const targetUUidField = getUUIDSystemField(targetTable.fields);
     const key: OptionFieldUID = [targetFormData.uid, targetTable.uid, targetUUidField.uid];
+    if (dataProcessingRecord && targetUUidField?.uid) {
+      try {
+        await this.updateDataProcessingMeta(dataProcessingRecord, {
+          stage: "write_started",
+          target_nocode_id: targetNocodeId,
+          target_table_id: targetTable.uid,
+          target_uuids: originalTargetRows
+            .map(row => String(this.getRowUUID(targetTable, row) || ""))
+            .filter(Boolean),
+          mutation: {
+            action: DataChangeType.EDIT,
+            targetNocodeId,
+            targetTableId: targetTable.uid,
+            beforeRows: deepClone(originalTargetRows),
+            afterRows: deepClone(rows),
+            changedFieldUids: targetFields.map(item => item.fieldUID),
+          },
+        });
+      } catch (err) {
+        const stateError = err instanceof Error ? err : new Error(String(err));
+        (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+        throw stateError;
+      }
+    }
     await this.formDataService.validateTableUniqueRows(targetFormData, targetNocodeId, targetTable.uid, rows);
     const submitCheckResult = await this.checkSubmitRows(targetFormData, targetNocodeId, primaryTable, targetTable, rows);
     const skipReTrigger = await this.shouldSkipCurrentTableReTrigger(options, targetNocodeId, targetTable.uid);
@@ -10107,7 +10603,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         }]
       };
     }
-    const targetRows = await this.getTableRows(nocodeBody, options.nocodeId, targetTableUID, targetTableFilterRule, row, {
+    let targetRows = await this.getTableRows(nocodeBody, options.nocodeId, targetTableUID, targetTableFilterRule, row, {
       fillSubTable: false,
       formulaRuntime: createFormulaRuntimeByData(row, currentTable.fields),
       stage: this.getDefaultReadableStageCondition(),
@@ -10118,7 +10614,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         messages: [],
       };
     }
-    const originalTargetRows = await this.formDataService.fillSubFormField(
+    let originalTargetRows = await this.formDataService.fillSubFormField(
       deepClone(targetRows),
       targetNocodeId,
       targetTable,
@@ -10131,8 +10627,49 @@ export class FormFlowService implements OnApplicationBootstrap {
       undefined,
       this.getDefaultReadableStageCondition(),
     );
+    const dataProcessingRecord = (options as PostFinishRuntimeTodoOptions).dataProcessingRecord;
+    const savedProcessingMutation = dataProcessingRecord
+      ? this.getDataProcessingMutation(this.getDataProcessingMeta(dataProcessingRecord))
+      : null;
+    if (savedProcessingMutation?.action === DataChangeType.DELETE) {
+      const currentRowsByUUID = new Map(
+        originalTargetRows
+          .map(row => [String(this.getRowUUID(targetTable, row) || ""), row] as const)
+          .filter(([uuid]) => !!uuid),
+      );
+      const savedUUIDs = new Set(savedProcessingMutation.beforeRows.map(row => (
+        String(this.getRowUUID(targetTable, row) || "")
+      )).filter(Boolean));
+      targetRows = targetRows.filter(row => savedUUIDs.has(String(this.getRowUUID(targetTable, row) || "")));
+      originalTargetRows = savedProcessingMutation.beforeRows.map(row => (
+        currentRowsByUUID.get(String(this.getRowUUID(targetTable, row) || "")) || row
+      ));
+    }
     const targetUUidField = getUUIDSystemField(targetTable.fields);
     const key: OptionFieldUID = [targetFormData.uid, targetTable.uid, targetUUidField.uid];
+    if (dataProcessingRecord && targetUUidField?.uid) {
+      try {
+        await this.updateDataProcessingMeta(dataProcessingRecord, {
+          stage: "write_started",
+          target_nocode_id: targetNocodeId,
+          target_table_id: targetTable.uid,
+          target_uuids: originalTargetRows
+            .map(row => String(this.getRowUUID(targetTable, row) || ""))
+            .filter(Boolean),
+          mutation: {
+            action: DataChangeType.DELETE,
+            targetNocodeId,
+            targetTableId: targetTable.uid,
+            beforeRows: deepClone(originalTargetRows),
+            afterRows: [],
+          },
+        });
+      } catch (err) {
+        const stateError = err instanceof Error ? err : new Error(String(err));
+        (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+        throw stateError;
+      }
+    }
     const skipReTrigger = await this.shouldSkipCurrentTableReTrigger(options, targetNocodeId, targetTable.uid);
     const deferCurrentFormTrigger = (options as PostFinishRuntimeTodoOptions).deferCurrentFormTrigger === true;
     const queueDerivedBatch = !deferCurrentFormTrigger && targetRows.length > 1;
@@ -10349,11 +10886,13 @@ export class FormFlowService implements OnApplicationBootstrap {
     status: ProcessNodeStatus,
     comment = "",
     extraMeta: Record<string, unknown> = {},
+    operatorId?: string,
   ) {
     const record = await this.createRecord(options, node, status);
     const account = await this.formDataService.getAccount();
+    const recordOperatorId = operatorId && operatorId !== "0" ? operatorId : account.id;
     if (status === ProcessNodeStatus.IN_PROGRESS && isDataProcessingNode(node.type)) {
-      record.paddingOperators = [account.id];
+      record.paddingOperators = [recordOperatorId];
       record.operators = [];
     }
     const meta: Record<string, unknown> = {
@@ -10364,7 +10903,8 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     if (!isEmpty(meta)) {
       record.metas = {
-        [account.id]: meta as any,
+        ...(record.metas || {}),
+        [recordOperatorId]: meta as any,
       };
     }
     await this.flowExecutionRecordsRepository.persistAndFlush(record);
@@ -10378,13 +10918,14 @@ export class FormFlowService implements OnApplicationBootstrap {
     comment = "",
     tip = "",
     extraMeta: Record<string, unknown> = {},
+    operatorId?: string,
   ) {
     const { targetTableUID } = node.options || {};
     return await this.createNodeCommentRecord(options, node, status, comment, {
       targetTableUID,
       ...(tip ? { tip } : {}),
       ...extraMeta,
-    });
+    }, operatorId);
   }
 
   private async finishDataProcessingRecord(
@@ -10902,6 +11443,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     node: ProcessFlow,
     initiatorId: string,
     compensationContext?: FlowCompensationContext,
+    existingDataProcessingRecord?: FlowExecutionRecords,
   ) {
     if (!node) return;
     await this.assertScheduledLease(options);
@@ -11008,115 +11550,248 @@ export class FormFlowService implements OnApplicationBootstrap {
         throw err;
       }
     } else if (isDataProcessingNode(node.type)) {
-      let startResult: DataProcessingNodeStartResult = {
-        messages: [],
-      };
-      let processingRecord: FlowExecutionRecords | null = null;
+      let startResult: DataProcessingNodeStartResult = { messages: [] };
+      let processingRecord = existingDataProcessingRecord || null;
+      const isRecoveringDataProcessing = !!existingDataProcessingRecord;
+      const executionKey = this.getDataProcessingExecutionKey(options, node.uid);
+      this.activeDataProcessingExecutions.add(executionKey);
       try {
-        const nocodeBody = await this.getFlowNocodeBody(options.nocodeId);
-        const resolvedTarget = this.resolveProcessTargetTable(options.nocodeId, nocodeBody, node.options?.targetTableUID);
-        const isCurrentFormTarget = this.isCurrentProcessFormTarget(options, nocodeBody.formData, resolvedTarget);
+        try {
+          const nocodeBody = await this.getFlowNocodeBody(options.nocodeId);
+          const resolvedTarget = this.resolveProcessTargetTable(options.nocodeId, nocodeBody, node.options?.targetTableUID);
+          const isCurrentFormTarget = this.isCurrentProcessFormTarget(options, nocodeBody.formData, resolvedTarget);
         const shouldTriggerTargetProcess = node.options?.triggerTargetProcess ?? !isCurrentFormTarget;
-        const crossTableExecutionMode = isCurrentFormTarget
-          ? CrossTableExecutionMode.IMMEDIATE
-          : await this.getInstanceCrossTableExecutionMode(options, nodes);
+          const crossTableExecutionMode = isCurrentFormTarget
+            ? CrossTableExecutionMode.IMMEDIATE
+            : await this.getInstanceCrossTableExecutionMode(options, nodes);
         const waitCrossTableFlowCompletion = !isCurrentFormTarget && crossTableExecutionMode === CrossTableExecutionMode.IMMEDIATE
           ? await this.getInstanceWaitCrossTableFlowCompletion(options, nodes)
           : false;
-        if (!isCurrentFormTarget && crossTableExecutionMode !== CrossTableExecutionMode.IMMEDIATE) {
-          await this.assertCrossAppWritePermission(nocodeBody, resolvedTarget, this.getDataProcessingAction(node.type));
-          const task = await this.queuePostFinishTask(options, nodes, node, resolvedTarget, "data_action");
-          startResult.recordMeta = {
-            postFinishTaskId: task?.id,
-            postFinishTaskStatus: task?.status,
-          };
-        } else {
-          processingRecord = await this.createDataProcessingRecord(
-            options,
-            node,
-            ProcessNodeStatus.IN_PROGRESS,
-          );
-          await this.updateFlowData(options, {
-            status: ProcessNodeStatus.IN_PROGRESS,
-            node: { type: "add", value: [node.uid] },
-          });
-          const occurrenceId = unique(32);
-          const immediateOptions: PostFinishRuntimeTodoOptions = {
-            ...options,
-            deferCurrentFormTrigger: true,
-            mutationOccurrenceId: occurrenceId,
-          };
-          if (node.type === ProcessNodeType.ADD_DATA) {
-            startResult = await this.startAddDataNode(immediateOptions, node, initiatorId, compensationContext);
-          } else if (node.type === ProcessNodeType.EDIT_DATA) {
-            startResult = await this.startEditDataNode(immediateOptions, node, initiatorId, compensationContext);
-          } else if (node.type === ProcessNodeType.DELETE_DATA) {
-            startResult = await this.startDeleteDataNode(immediateOptions, node, compensationContext);
-          }
-          if (startResult.mutation && isCurrentFormTarget) {
-            const mutationRecord = await this.recordImmediateMutation(options.todoId, "current_form_node", startResult.mutation, occurrenceId);
-            const triggerRows = startResult.mutation.action === DataChangeType.DELETE
-              ? startResult.mutation.beforeRows
-              : startResult.mutation.afterRows;
-            for (let index = 0; index < triggerRows.length && shouldTriggerTargetProcess; index++) {
-              const triggerRow = triggerRows[index];
-              const triggerUUID = this.getRowUUID(resolvedTarget.targetTable, triggerRow);
-              const beforeRow = startResult.mutation.beforeRows.find(row => (
-                String(this.getRowUUID(resolvedTarget.targetTable, row) || "") === String(triggerUUID || "")
-              )) || startResult.mutation.beforeRows[index];
-              await this.queuePostFinishTask(
-                options,
-                nodes,
-                node,
-                resolvedTarget,
-                "trigger_event",
-                triggerRow,
-                startResult.mutation.action,
-                beforeRow,
-              );
-            }
+          if (!isCurrentFormTarget && crossTableExecutionMode !== CrossTableExecutionMode.IMMEDIATE) {
+            await this.assertCrossAppWritePermission(nocodeBody, resolvedTarget, this.getDataProcessingAction(node.type));
+            const task = await this.queuePostFinishTask(options, nodes, node, resolvedTarget, "data_action");
             startResult.recordMeta = {
-              ...(startResult.recordMeta || {}),
-              immediateMutationId: mutationRecord?.id,
+              postFinishTaskId: task?.id,
+              postFinishTaskStatus: task?.status,
             };
-          } else if (startResult.mutation) {
-            let mutationRecords: FlowImmediateMutation[];
-            try {
-              mutationRecords = await this.recordCrossTableImmediateMutations(
-                options.todoId,
-                resolvedTarget.targetTable,
-                startResult.mutation,
-                occurrenceId,
-                shouldTriggerTargetProcess,
-              );
-            } catch (err) {
+          } else {
+            processingRecord ||= await this.createDataProcessingRecord(
+              options,
+              node,
+              ProcessNodeStatus.IN_PROGRESS,
+              "",
+              "",
+              {},
+              initiatorId,
+            );
+            const processingMeta = this.getDataProcessingMeta(processingRecord);
+            if (!isRecoveringDataProcessing || !processingMeta.data_completed) {
               try {
-                await this.compensateCrossTableMutationBeforeTrigger(resolvedTarget, startResult.mutation);
-                const persistedMutationRecords = (err as Error & {
-                  persistedMutationRecords?: FlowImmediateMutation[],
-                }).persistedMutationRecords || [];
-                if (persistedMutationRecords.length) {
-                  for (const mutationRecord of persistedMutationRecords) {
-                    mutationRecord.status = "rolled_back";
-                    mutationRecord.rolledBackAt = Date.now();
-                    mutationRecord.conflictDetail = { reason: "mutation_record_persistence_failed" };
-                  }
-                  await this.flowImmediateMutationRepository.persistAndFlush(persistedMutationRecords);
-                }
-              } catch (compensationErr) {
-                this.logger.error("compensate cross-table mutation before derived flow trigger failed", compensationErr);
-                throw new Error(`${this.getFlowErrorMessage(err)}; ${this.getFlowErrorMessage(compensationErr)}`);
+                const now = Date.now();
+                const processingMeta = this.getDataProcessingMeta(processingRecord);
+                await this.updateDataProcessingMetaPreserving(processingRecord, {
+                  data_started: true,
+                  execution_started_at: processingMeta.execution_started_at || now,
+                  execution_heartbeat_at: now,
+                });
+              } catch (err) {
+                const stateError = err instanceof Error ? err : new Error(String(err));
+                (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+                throw stateError;
               }
-              await this.formDataService.failFlowDerivedPostMutation(startResult.mutation.preparedTaskId, err);
-              throw err;
             }
-            let triggerResult: FlowTriggerResult = { triggered: false };
+            await this.updateFlowData(options, {
+              status: ProcessNodeStatus.IN_PROGRESS,
+              node: { type: "add", value: [node.uid] },
+            });
+            if (isRecoveringDataProcessing && processingMeta.data_completed) {
+              startResult = {
+                messages: Array.isArray(processingMeta.messages) ? processingMeta.messages : [],
+                recordMeta: processingMeta.record_meta,
+              };
+            } else {
+              const occurrenceId = processingMeta.mutation_occurrence_id || unique(32);
+              const resumableStages: FlowDataProcessingStage[] = [
+                "data_written",
+                "mutation_recorded",
+                "trigger_created",
+                "completed",
+              ];
+              let recoveredMutation = isRecoveringDataProcessing
+                && processingMeta.stage
+                && resumableStages.includes(processingMeta.stage)
+                ? this.getDataProcessingMutation(processingMeta)
+                : null;
+              if (
+                !recoveredMutation
+                && isRecoveringDataProcessing
+                && processingMeta.stage === "write_started"
+                && processingMeta.mutation
+                && await this.isDataProcessingMutationApplied(processingMeta, resolvedTarget)
+              ) {
+                recoveredMutation = await this.hydrateDataProcessingMutation(
+                  this.getDataProcessingMutation(processingMeta) as FlowNodeMutationResult,
+                  resolvedTarget,
+                );
+              }
+              if (recoveredMutation) {
+                startResult = {
+                  messages: Array.isArray(processingMeta.messages) ? processingMeta.messages : [],
+                  recordMeta: processingMeta.record_meta,
+                  mutation: recoveredMutation,
+                };
+              } else {
+                try {
+                  await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "write_started",
+                    mutation_occurrence_id: occurrenceId,
+                  });
+                } catch (err) {
+                  const stateError = err instanceof Error ? err : new Error(String(err));
+                  (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+                  throw stateError;
+                }
+                const immediateOptions: PostFinishRuntimeTodoOptions = {
+                  ...options,
+                  deferCurrentFormTrigger: true,
+                  mutationOccurrenceId: occurrenceId,
+                  dataProcessingRecord: processingRecord,
+                };
+                if (node.type === ProcessNodeType.ADD_DATA) {
+                  startResult = await this.startAddDataNode(immediateOptions, node, initiatorId, compensationContext);
+                } else if (node.type === ProcessNodeType.EDIT_DATA) {
+                  startResult = await this.startEditDataNode(immediateOptions, node, initiatorId, compensationContext);
+                } else if (node.type === ProcessNodeType.DELETE_DATA) {
+                  startResult = await this.startDeleteDataNode(immediateOptions, node, compensationContext);
+                }
+                if (startResult.mutation) {
+                  const mutationRows = startResult.mutation.action === DataChangeType.DELETE
+                    ? startResult.mutation.beforeRows
+                    : startResult.mutation.afterRows;
+                   await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "data_written",
+                    mutation_occurrence_id: occurrenceId,
+                    target_nocode_id: startResult.mutation.targetNocodeId,
+                    target_table_id: startResult.mutation.targetTableId,
+                    target_uuids: mutationRows
+                      .map(row => String(this.getRowUUID(resolvedTarget.targetTable, row) || ""))
+                      .filter(Boolean),
+                    mutation: startResult.mutation,
+                  });
+                }
+              }
+
+              if (startResult.mutation && isCurrentFormTarget) {
+                const mutationRecord = options.todoId
+                  ? await this.flowImmediateMutationRepository.findOne({
+                    todoId: options.todoId,
+                    occurrenceId,
+                    source: "current_form_node",
+                  })
+                  : null;
+                const persistedMutationRecord = mutationRecord || await this.recordImmediateMutation(
+                  options.todoId,
+                  "current_form_node",
+                  startResult.mutation,
+                  occurrenceId,
+                );
+                startResult.recordMeta = {
+                  ...(startResult.recordMeta || {}),
+                  immediateMutationId: persistedMutationRecord?.id,
+                };
+                if (processingMeta.stage !== "trigger_created" && processingMeta.stage !== "completed") {
+                  await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "mutation_recorded",
+                    record_meta: startResult.recordMeta,
+                    immediate_mutation_ids: persistedMutationRecord?.id ? [persistedMutationRecord.id] : [],
+                  });
+                  const triggerRows = startResult.mutation.action === DataChangeType.DELETE
+                    ? startResult.mutation.beforeRows
+                    : startResult.mutation.afterRows;
+                  const postFinishTaskIds: string[] = [];
+                  for (let index = 0; index < triggerRows.length && shouldTriggerTargetProcess; index++) {
+                    const triggerRow = triggerRows[index];
+                    const triggerUUID = String(this.getRowUUID(resolvedTarget.targetTable, triggerRow) || "");
+                    const beforeRow = startResult.mutation.beforeRows.find(row => (
+                      String(this.getRowUUID(resolvedTarget.targetTable, row) || "") === triggerUUID
+                    )) || startResult.mutation.beforeRows[index];
+                    const existingTask = await this.findPostFinishTriggerTask(
+                      options,
+                      node,
+                      resolvedTarget,
+                      triggerUUID,
+                      startResult.mutation.action,
+                    );
+                    const triggerTask = existingTask || await this.queuePostFinishTask(
+                      options,
+                      nodes,
+                      node,
+                      resolvedTarget,
+                      "trigger_event",
+                      triggerRow,
+                      startResult.mutation.action,
+                      beforeRow,
+                    );
+                    if (triggerTask?.id) postFinishTaskIds.push(triggerTask.id);
+                  }
+                  startResult.recordMeta = {
+                    ...(startResult.recordMeta || {}),
+                    postFinishTaskIds,
+                  };
+                   await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "trigger_created",
+                    record_meta: startResult.recordMeta,
+                    post_finish_task_ids: postFinishTaskIds,
+                  });
+                }
+              } else if (startResult.mutation) {
+                let mutationRecords: FlowImmediateMutation[];
+                try {
+                  mutationRecords = await this.recordCrossTableImmediateMutations(
+                    options.todoId,
+                    resolvedTarget.targetTable,
+                    startResult.mutation,
+                    occurrenceId,
+                shouldTriggerTargetProcess,
+                  );
+                } catch (err) {
+                  try {
+                    await this.compensateCrossTableMutationBeforeTrigger(resolvedTarget, startResult.mutation);
+                    const persistedMutationRecords = (err as Error & {
+                      persistedMutationRecords?: FlowImmediateMutation[],
+                    }).persistedMutationRecords || [];
+                    if (persistedMutationRecords.length) {
+                      for (const mutationRecord of persistedMutationRecords) {
+                        mutationRecord.status = "rolled_back";
+                        mutationRecord.rolledBackAt = Date.now();
+                        mutationRecord.conflictDetail = { reason: "mutation_record_persistence_failed" };
+                      }
+                      await this.flowImmediateMutationRepository.persistAndFlush(persistedMutationRecords);
+                    }
+                  } catch (compensationErr) {
+                    this.logger.error("compensate cross-table mutation before derived flow trigger failed", compensationErr);
+                    throw new Error(`${this.getFlowErrorMessage(err)}; ${this.getFlowErrorMessage(compensationErr)}`);
+                  }
+                  await this.formDataService.failFlowDerivedPostMutation(startResult.mutation.preparedTaskId, err);
+                  throw err;
+                }
+                startResult.recordMeta = {
+                  ...(startResult.recordMeta || {}),
+                  immediateMutationIds: mutationRecords.map(item => item.id),
+                };
+                if (processingMeta.stage !== "trigger_created" && processingMeta.stage !== "completed") {
+                  await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "mutation_recorded",
+                    record_meta: startResult.recordMeta,
+                    immediate_mutation_ids: mutationRecords.map(item => item.id),
+                  });
+                  let triggerResult: FlowTriggerResult = { triggered: false };
             if (waitCrossTableFlowCompletion) {
               triggerResult = await this.runImmediateCrossTableTriggers(
-                options,
-                resolvedTarget,
-                startResult.mutation,
-                mutationRecords,
+                      options,
+                      resolvedTarget,
+                      startResult.mutation,
+                      mutationRecords,
                 shouldTriggerTargetProcess,
               );
             } else {
@@ -11126,74 +11801,109 @@ export class FormFlowService implements OnApplicationBootstrap {
                 startResult.mutation,
                 mutationRecords,
                 shouldTriggerTargetProcess,
-              );
+                    );
             }
-            startResult.recordMeta = {
-              ...(startResult.recordMeta || {}),
-              immediateMutationIds: mutationRecords.map(item => item.id),
+                  startResult.recordMeta = {
+                    ...(startResult.recordMeta || {}),
               ...(waitCrossTableFlowCompletion ? {} : { crossAppTriggerAsync: true }),
-              ...this.buildCrossAppTriggerMeta(resolvedTarget, startResult.mutation.action, triggerResult),
-            };
+                    ...this.buildCrossAppTriggerMeta(resolvedTarget, startResult.mutation.action, triggerResult),
+                  };
+                  await this.updateDataProcessingMetaPreserving(processingRecord, {
+                    stage: "trigger_created",
+                    record_meta: startResult.recordMeta,
+                  });
+                }
+              }
+              try {
+                await this.updateDataProcessingMetaPreserving(processingRecord, {
+                  stage: "completed",
+                  data_completed: true,
+                  execution_heartbeat_at: Date.now(),
+                  record_meta: startResult.recordMeta,
+                  messages: startResult.messages,
+                });
+              } catch (err) {
+                const stateError = err instanceof Error ? err : new Error(String(err));
+                (stateError as Error & { preserveDataProcessingRecord?: boolean }).preserveDataProcessingRecord = true;
+                throw stateError;
+              }
+            }
           }
+        } catch (err) {
+          this.logger.error(`start data processing node error: ${node.type}`, err);
+          if (
+            isRecoveringDataProcessing
+            || (err as Error & { preserveDataProcessingRecord?: boolean })?.preserveDataProcessingRecord
+          ) {
+            throw err;
+          }
+          const referenceMeta = err instanceof FlowFieldReferenceValidationError
+            ? {
+              errorCode: err.code,
+              issues: err.issues,
+              nodeUID: node.uid,
+              nodeName: err.issues[0]?.nodeName || node.meta?.name,
+              referenceKind: err.issues[0]?.kind,
+              reason: err.issues[0]?.reason,
+              tableUID: err.issues[0]?.tableUID || err.issues[0]?.sourceTableUID,
+              tableName: err.issues[0]?.tableName || err.issues[0]?.sourceTableName,
+              fieldUID: err.issues[0]?.fieldUID || err.issues[0]?.sourceFieldUID,
+              fieldName: err.issues[0]?.fieldName || err.issues[0]?.sourceFieldName,
+              detectedAt: new Date().toISOString(),
+            }
+            : {};
+          await this.rejectDataProcessingNode(
+            options,
+            nodes,
+            node,
+            this.getFlowErrorMessage(err),
+            referenceMeta,
+            processingRecord,
+          );
+          return;
         }
-      } catch (err) {
-        this.logger.error(`start data processing node error: ${node.type}`, err);
-        const referenceMeta = err instanceof FlowFieldReferenceValidationError
-          ? {
-            errorCode: err.code,
-            issues: err.issues,
-            nodeUID: node.uid,
-            nodeName: err.issues[0]?.nodeName || node.meta?.name,
-            referenceKind: err.issues[0]?.kind,
-            reason: err.issues[0]?.reason,
-            tableUID: err.issues[0]?.tableUID || err.issues[0]?.sourceTableUID,
-            tableName: err.issues[0]?.tableName || err.issues[0]?.sourceTableName,
-            fieldUID: err.issues[0]?.fieldUID || err.issues[0]?.sourceFieldUID,
-            fieldName: err.issues[0]?.fieldName || err.issues[0]?.sourceFieldName,
-            detectedAt: new Date().toISOString(),
-          }
-          : {};
-        await this.rejectDataProcessingNode(
+
+        if (processingRecord) {
+          await this.advanceDataProcessingNode(
+            options,
+            nodes,
+            node,
+            initiatorId,
+            compensationContext,
+            processingRecord,
+            startResult,
+            isRecoveringDataProcessing,
+          );
+          return;
+        }
+
+        const finishedRecord = await this.createDataProcessingRecord(
           options,
-          nodes,
-          node,
-          this.getFlowErrorMessage(err),
-          referenceMeta,
-          processingRecord,
-        );
-        return;
-      }
-      if (processingRecord) {
-        await this.finishDataProcessingRecord(
-          processingRecord,
           node,
           ProcessNodeStatus.FINISHED,
           "",
           startResult.messages.join('\n'),
           startResult.recordMeta,
+          initiatorId,
         );
-        await this.updateFlowData(options, {
-          node: { type: "delete", value: [node.uid] },
-        });
-      } else {
-        processingRecord = await this.createDataProcessingRecord(
-          options,
-          node,
-          ProcessNodeStatus.FINISHED,
-          "",
-          startResult.messages.join('\n'),
-          startResult.recordMeta,
+        const postFinishTaskId = startResult.recordMeta?.postFinishTaskId;
+        await this.linkDataProcessingPostFinishTasks(
+          finishedRecord,
+          typeof postFinishTaskId === "string" && postFinishTaskId ? [postFinishTaskId] : [],
         );
-      }
-      const postFinishTaskId = startResult.recordMeta?.postFinishTaskId as string;
-      if (postFinishTaskId) {
-        const postFinishTask = await this.flowPostFinishTaskRepository.findOne({ id: postFinishTaskId });
-        if (postFinishTask) {
-          postFinishTask.executionRecordId = processingRecord.id;
-          await this.flowPostFinishTaskRepository.persistAndFlush(postFinishTask);
+        toNext = true;
+      } finally {
+        this.activeDataProcessingExecutions.delete(executionKey);
+        if (processingRecord?.status === ProcessNodeStatus.IN_PROGRESS) {
+          try {
+            await this.updateDataProcessingMeta(processingRecord, {
+              execution_heartbeat_at: undefined,
+            });
+          } catch (err) {
+            this.logger.error(`clear data processing execution heartbeat failed: ${processingRecord.id}`, err);
+          }
         }
       }
-      toNext = true;
     } else if (node.type === ProcessNodeType.CONDITION_BRANCH) {
       await this.enterConditionBranch(options, nodes, node, initiatorId, compensationContext);
       return;
@@ -11250,7 +11960,9 @@ export class FormFlowService implements OnApplicationBootstrap {
       return await this.stashDataChangeTriggerTodo(options);
     }
 
-    const account = runtimeContext?.account || await this.formDataService.getAccount();
+    const account = runtimeContext?.account
+      || await this.getFlowInitiatorAccount({ todoId: mutationOptions.causedByTodoId })
+      || await this.formDataService.getAccount();
     const nocodeBody = runtimeContext?.nocodeBody || await getNocodeBody(this.nocodesDir, options.nocodeId);
     const formData = nocodeBody.formData;
     const currentTable = formData.tables.find(item => item.uid === options.tableId);
@@ -11579,21 +12291,11 @@ export class FormFlowService implements OnApplicationBootstrap {
       const deletedUsersCondition = this.buildJsonArrayContainsCondition('r.deleted_users', userId, false);
       this.applyJsonArrayCondition(qb, deletedUsersCondition, 'r.deleted_users IS NULL OR');
       
-      const paddingOperatorsCondition = this.buildJsonArrayContainsCondition('r.padding_operators', userId, true);
-      if (paddingOperatorsCondition.__rawSql) {
-        qb.andWhere(`r.padding_operators IS NOT NULL AND ${paddingOperatorsCondition.__rawSql}`, paddingOperatorsCondition.__params);
-      } else {
-        qb.andWhere({
-          $and: [
-            { paddingOperators: { $exists: true, $ne: null } },
-            paddingOperatorsCondition
-          ]
-        });
-      }
+      this.applyMyTodoOwnerCondition(qb, userId);
       
       const operatorsCondition = this.buildJsonArrayContainsCondition('r.operators', userId, false);
       this.applyJsonArrayCondition(qb, operatorsCondition, 'r.operators IS NULL OR');
-      records = await qb.getResult();
+      records = (await this.filterMyTodoRecordsByCurrentOperator(await qb.getResult(), formDatas, userId)).map(match => match.record);
     } else {
       if (category === TodoCategory.MY_PROCESSED) {
         query = {
@@ -11799,7 +12501,18 @@ export class FormFlowService implements OnApplicationBootstrap {
       // node record of the user.
       qb.andWhere({
         $or: [
-          { type: { $in: [ProcessNodeType.APPROVAL, ProcessNodeType.TRANSACT, ProcessNodeType.REPORT_DATA] } },
+          {
+            type: {
+              $in: [
+                ProcessNodeType.APPROVAL,
+                ProcessNodeType.TRANSACT,
+                ProcessNodeType.REPORT_DATA,
+                ProcessNodeType.ADD_DATA,
+                ProcessNodeType.EDIT_DATA,
+                ProcessNodeType.DELETE_DATA,
+              ],
+            },
+          },
           { isStashed: true },
         ],
       });
@@ -11808,17 +12521,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       const deletedUsersCondition = this.buildJsonArrayContainsCondition('r.deleted_users', userId, false);
       this.applyJsonArrayCondition(qb, deletedUsersCondition, 'r.deleted_users IS NULL OR');
       
-      const paddingOperatorsCondition = this.buildJsonArrayContainsCondition('r.padding_operators', userId, true);
-      if (paddingOperatorsCondition.__rawSql) {
-        qb.andWhere(`r.padding_operators IS NOT NULL AND ${paddingOperatorsCondition.__rawSql}`, paddingOperatorsCondition.__params);
-      } else {
-        qb.andWhere({
-          $and: [
-            { paddingOperators: { $exists: true, $ne: null } },
-            paddingOperatorsCondition
-          ]
-        });
-      }
+      this.applyMyTodoOwnerCondition(qb, userId);
       
       const operatorsCondition = this.buildJsonArrayContainsCondition('r.operators', userId, false);
       this.applyJsonArrayCondition(qb, operatorsCondition, 'r.operators IS NULL OR');
@@ -12558,14 +13261,27 @@ export class FormFlowService implements OnApplicationBootstrap {
       } else if (flow?.type === ProcessNodeType.TRANSACT) {
         requireComments = !!flow.options?.requireTransactComments;
       }
-      let paddingOperators: string[] = item.paddingOperators;
+      let paddingOperators: string[] = Array.isArray(item.paddingOperators)
+        ? item.paddingOperators.filter(operatorId => (
+          typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+        ))
+        : [];
       const startMeta = Object.values(startRecord?.metas || {}).find(meta => typeof meta?.singleOnceTimeTask === "boolean");
       const emptyRowStartMeta = this.getEmptyRowTriggerStartMeta(startRecord);
       const operationTriggerActionName = this.isOperationEmptyRowTrigger(startRecord)
         ? String(emptyRowStartMeta?.operationDisplayName || "").trim()
         : undefined;
-      if (flow && (item.status === ProcessNodeStatus.IN_PROGRESS) && !paddingOperators) {
-        paddingOperators = await this.getOwnersByNode({ nocodeId: nocodeId, tableId, uuid, todoId: item.todoId }, flow, startRecord?.operators?.[0]);
+      if (flow && item.status === ProcessNodeStatus.IN_PROGRESS && !paddingOperators.length) {
+        if (isDataProcessingNode(flow.type)) {
+          const initiatorId = startRecord?.operators?.find(operatorId => (
+            typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+          ));
+          paddingOperators = initiatorId
+            ? [initiatorId]
+            : await this.getOwnersByNode({ nocodeId: nocodeId, tableId, uuid, todoId: item.todoId }, flow, initiatorId);
+        } else {
+          paddingOperators = await this.getOwnersByNode({ nocodeId: nocodeId, tableId, uuid, todoId: item.todoId }, flow, startRecord?.operators?.[0]);
+        }
       }
       const activePaddingOperators = flow && item.status === ProcessNodeStatus.IN_PROGRESS
         ? this.getActivePendingOperatorIds(flow, paddingOperators, item.operators)
@@ -12721,6 +13437,9 @@ export class FormFlowService implements OnApplicationBootstrap {
         viewContextOnceNoFormData,
         operationTriggerActionName,
         processingTime: this.buildTodoProcessingTime(item, currentFlow || flow),
+        canHandleStuckDataProcessing: isDataProcessingNode(item.type)
+          && item.status === ProcessNodeStatus.IN_PROGRESS
+          && !this.isDataProcessingExecutionActive(item),
         ...(!isCompletedTodo && executionContext?.causedByTodoId && upstreamTermination ? {
           upstream: {
             todoId: executionContext.causedByTodoId,
@@ -14855,15 +15574,86 @@ export class FormFlowService implements OnApplicationBootstrap {
     return await this.withTodoOperationLock(options.todoId, () => this.finishTodoInternal(options, userId, isAdmin));
   }
 
+  async continueTodo(options: ContinueTodoOptions, userId: string) {
+    if (!options.todoId) {
+      throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
+    }
+    return await this.withTodoOperationLock(options.todoId, () => this.continueTodoInternal(options, userId));
+  }
+
+  private async continueTodoInternal(options: ContinueTodoOptions, userId: string) {
+    const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
+    const formData = nocodeBody.formData;
+    const process = formData.formOptions[options.tableId]?.process;
+    const recordQuery: FilterQuery<FlowExecutionRecords> = {
+      nocodeId: options.nocodeId,
+      tableId: options.tableId,
+      uuid: options.uuid,
+      id: options.id,
+      status: ProcessNodeStatus.IN_PROGRESS,
+    };
+    recordQuery.todoId = options.todoId;
+    const record = await this.flowExecutionRecordsRepository.findOne(recordQuery);
+    if (!record) {
+      throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
+    }
+
+    const continueOptions: ContinueTodoOptions = {
+      ...options,
+      todoId: record.todoId || options.todoId,
+    };
+    const flows = await this.getInstanceFlows(process, continueOptions, record);
+    const flow = getFlowById(flows, options.flowId);
+    if (!flow) {
+      throw new Error(global.i18next.t('formFlowService.processNodeNotFound'));
+    }
+    if (
+      record.flowId !== options.flowId
+      || record.type !== flow.type
+      || !isDataProcessingNode(flow.type)
+    ) {
+      throw new Error(global.i18next.t('formFlowService.nodeNotSupportContinue'));
+    }
+
+    const startRecord = await this.getStartRecord(continueOptions);
+    let owners = this.getRecordOwners(record);
+    if (!owners.length) {
+      const initiatorId = startRecord?.operators?.find(operatorId => (
+        typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+      ));
+      owners = isDataProcessingNode(flow.type) && initiatorId
+        ? [initiatorId]
+        : await this.getOwnersByNode(continueOptions, flow, initiatorId);
+    }
+    if (!this.canOperateFlowRecord(record, userId, owners)) {
+      throw new Error(global.i18next.t('formDataService.noPerm'));
+    }
+    if (this.isDataProcessingExecutionActive(record)) {
+      throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
+    }
+
+    const initiatorId = startRecord?.operators?.find(operatorId => (
+      typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+    )) || owners[0];
+    if (!initiatorId) {
+      throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
+    }
+
+    await this.addNextNode(continueOptions, flows, flow, initiatorId, undefined, record);
+    return { success: true };
+  }
+
   private async finishTodoInternal(options: FinishTodoOptions, userId: string, isAdmin = false) {
     const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
     const formData = nocodeBody.formData;
     const process = formData.formOptions[options.tableId]?.process;
     const record = await this.flowExecutionRecordsRepository.findOne({
       nocodeId: options.nocodeId,
+      tableId: options.tableId,
       uuid: options.uuid,
       id: options.id,
       status: ProcessNodeStatus.IN_PROGRESS,
+      ...(options.todoId ? { todoId: options.todoId } : {}),
     });
     if (!record) throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
     const flows = await this.getInstanceFlows(process, options, record);
@@ -14872,15 +15662,23 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (record.flowId !== options.flowId) {
       throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
     }
+    const startRecord = await this.getStartRecord(options);
     let owners = this.getRecordOwners(record);
     if (!owners.length) {
-      const startRecord = await this.getStartRecord(options);
-      owners = await this.getOwnersByNode(options, flow, startRecord?.operators?.[0]);
+      const initiatorId = startRecord?.operators?.find(operatorId => (
+        typeof operatorId === "string" && operatorId.length > 0 && operatorId !== "0"
+      ));
+      owners = isDataProcessingNode(flow.type) && initiatorId
+        ? [initiatorId]
+        : await this.getOwnersByNode(options, flow, initiatorId);
     }
     if (!isAdmin && !this.canOperateFlowRecord(record, userId, owners)) {
       throw new Error(global.i18next.t('formDataService.noPerm'));
     }
-    if (!isAdmin && !flow.options?.allowFinishFlow) {
+    if (isDataProcessingNode(flow.type) && this.isDataProcessingExecutionActive(record)) {
+      throw new Error(global.i18next.t('formFlowService.statusChangedRefreshTips'));
+    }
+    if (!isAdmin && !isDataProcessingNode(flow.type) && !flow.options?.allowFinishFlow) {
       throw new Error(global.i18next.t('formFlowService.finishFlowNotEnabled'));
     }
 

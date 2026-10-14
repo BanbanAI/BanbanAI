@@ -138,6 +138,7 @@
         :category="activeCategory"
         :hideFormData="shouldHideSingleOnceFormData(dialogState.getArgs('todoDialogVisible'))"
         @submit="handleRefresh"
+        @continue="handleRefresh"
         @stash="handleRefresh"
         @back="handleRefresh"
         @cancel="handleRefresh"

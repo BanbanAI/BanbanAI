@@ -1,4 +1,4 @@
-import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, CheckProcessVersionDeletableResult, DeleteTodoOptions, DeleteTodosOptions, FinishTodoOptions, GetAllProcessParams, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TODO, TodoCategory, TransferTodoOptions } from '@common/types/nocode';
+import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, CheckProcessVersionDeletableResult, ContinueTodoOptions, DeleteTodoOptions, DeleteTodosOptions, FinishTodoOptions, GetAllProcessParams, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TODO, TodoCategory, TransferTodoOptions } from '@common/types/nocode';
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
 import i18next from 'i18next';
@@ -158,6 +158,15 @@ export const formFlowApi = {
     } catch (err) {
       console.error(err);
       return null;
+    }
+  },
+  async continueTodo(options: ContinueTodoOptions) {
+    try {
+      const { data } = await axios.post("/form-flow/continue-todo", options);
+      return data;
+    } catch (err) {
+      console.error(err);
+      throw new Error(err?.response?.data?.message || err?.response?.data?.errorMessage || err?.message || "request failed");
     }
   },
   async getProcessNocodeSimplifyDatas() {
