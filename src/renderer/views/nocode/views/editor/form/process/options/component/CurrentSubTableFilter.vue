@@ -2,10 +2,10 @@
   <div class="current-subtable-filter">
     <div class="title">
       <span class="title-left">
-        {{ $t('CurrentSubTableFilter.title') }}
+        {{ props.title || $t('CurrentSubTableFilter.title') }}
         <el-tooltip
           effect="light"
-          :content="$t('CurrentSubTableFilter.tip')"
+          :content="props.tip || $t('CurrentSubTableFilter.tip')"
           placement="bottom"
         >
           <el-icon>
@@ -43,10 +43,10 @@
         v-if="filter?.tableUID"
         :filterRule="filter.filterRule"
         :tableUID="filter.tableUID"
-        :currentFields="currentFields"
+        :currentFields="props.currentFields"
         :targetTitle="$t('CurrentSubTableFilter.currentSubTableField')"
-        :currentFieldTitle="$t('CurrentSubTableFilter.targetFieldOrCustom')"
-        :formFieldTypeLabel="$t('EditDataOption.targetFormField')"
+        :currentFieldTitle="props.currentFieldTitle || $t('CurrentSubTableFilter.targetFieldOrCustom')"
+        :formFieldTypeLabel="props.formFieldTypeLabel || $t('CurrentSubTableFilter.targetFormField')"
         :filterTitle="$t('CurrentSubTableFilter.filterCurrentSubTableCondition')"
         :disableAddCondition="props.disableAddCondition"
         :disableLogicSelect="true"
@@ -76,8 +76,12 @@ type CurrentSubTableOption = {
 const props = withDefaults(defineProps<{
   filter: CurrentSubTableFilter,
   options: CurrentSubTableOption[],
-  currentFields: Field[],
+  currentFields?: Field[] | null,
   disableAddCondition?: boolean,
+  title?: string,
+  tip?: string,
+  currentFieldTitle?: string,
+  formFieldTypeLabel?: string,
 }>(), {
   disableAddCondition: false,
 })

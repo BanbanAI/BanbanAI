@@ -6078,7 +6078,14 @@
     "batchAddCountNotEmpty": "批量添加数量不得为空",
     "saveConfigInvalid": "请先完善必填配置后再保存",
     "triggerConditionDesc": "添加数据时支持: 主表->主表/子表, 子表->主表/子表, 主子表混合->主表/子表。",
-    "noFieldData": "无匹配字段（仅支持数字字段）"
+    "noFieldData": "无匹配字段（仅支持数字字段）",
+    "addCurrentSubTableFilter": "添加子表单筛选",
+    "currentSubTableFilterAddDisabledTip": "当前表单的子表单已添加完毕",
+    "currentSubTableFilterTitle": "本条数据的子表单筛选",
+    "currentSubTableFilterTip": "设置后，添加数据使用的本条数据子表单行将按筛选条件进行过滤",
+    "currentFormFieldOrCustom": "当前表单字段/自定义值",
+    "currentSubTableDeleted": "子表单已删除，请重新选择",
+    "duplicateCurrentSubTable": "相同子表单不能重复选择"
   },
   "ApprovalOption": {
     "approvalType": "审批类型",
@@ -6203,13 +6210,14 @@
   },
   "CurrentSubTableFilter": {
     "title": "本条数据的子表单筛选",
-    "tip": "设置后，会根据筛选条件将筛选后的子表行与目标子表行进行匹配，并将匹配到的子表行值写入对应的目标子表行",
+    "tip": "设置后，会根据筛选条件将筛选后的子表单行与目标子表单行进行匹配，并将匹配到的子表单行值写入对应的目标子表单行",
     "currentSubTable": "请选择子表单",
     "selectCurrentSubTable": "请选择子表单",
     "noCurrentSubTable": "暂无子表单",
     "subTableDeleted": "子表单已删除，请重新选择",
     "duplicateCurrentSubTable": "相同子表单不能重复选择",
-    "conditionRequired": "请至少设置一条子表筛选条件",
+    "conditionRequired": "请至少设置一条子表单筛选条件",
+    "targetFormField": "目标表单字段",
     "currentSubTableField": "子表单字段",
     "targetOrCurrentFieldOrCustom": "目标表单字段/自定义值",
     "targetFieldOrCustom": "目标表单字段/自定义值",

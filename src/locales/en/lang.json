@@ -6066,7 +6066,14 @@
     "batchAddCountNotEmpty": "Batch add count cannot be empty",
     "saveConfigInvalid": "Complete the required settings before saving",
     "triggerConditionDesc": "Add Data Time: Main Form->Main Form/Subform, Subform->Main Form/Subform, Mixed main/subform->Main Form/Subform.",
-    "noFieldData": "No Field(Only supports Number Field)"
+    "noFieldData": "No Field(Only supports Number Field)",
+    "addCurrentSubTableFilter": "Add Subform Filter",
+    "currentSubTableFilterAddDisabledTip": "All subforms in the current form have been added",
+    "currentSubTableFilterTitle": "Subform Filter for This Record",
+    "currentSubTableFilterTip": "After setup, subform rows from this record used to add data are filtered by these conditions.",
+    "currentFormFieldOrCustom": "Current Form Field / Custom Value",
+    "currentSubTableDeleted": "Subform deleted. Select again.",
+    "duplicateCurrentSubTable": "A subform can only be selected once."
   },
   "ApprovalOption": {
     "approvalType": "Approval Type",
@@ -6198,6 +6205,7 @@
     "subTableDeleted": "Subform deleted. Select again.",
     "duplicateCurrentSubTable": "A subform can only be selected once.",
     "conditionRequired": "Add at least one subform filter condition.",
+    "targetFormField": "Target Form Field",
     "currentSubTableField": "Subform Field",
     "targetOrCurrentFieldOrCustom": "Target Form Field / Custom Value",
     "targetFieldOrCustom": "Target Form Field / Custom Value",
