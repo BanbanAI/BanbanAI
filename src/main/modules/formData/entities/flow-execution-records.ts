@@ -46,7 +46,7 @@ export type FlowExecutionRecordMeta = {
 export class FlowExecutionRecords {
   
   @PrimaryKey({mongoLike: global.mongoLike})
-  id: string = unique();
+  id: string = unique(32);
 
   /** 节点uid */
   @Property({ type: "string" })
