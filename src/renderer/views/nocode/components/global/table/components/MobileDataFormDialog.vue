@@ -144,7 +144,7 @@ import i18next from 'i18next';
 import { isEmpty } from '@common/utils/object';
 import { FieldAuthValue, FormTableRuntime, NocodeBody, NocodeFormData, ViewAction } from '@common/types/nocode';
 import { OptionTableUID, Row, Table as ProjectTable } from '@common/types/project';
-import { getUUIDSystemField } from '@common/utils';
+import { getUUIDSystemField, SystemField } from '@common/utils';
 import { getDeleteResultMessage, hasDeleteFailures } from '../delete-result-message';
 import { isDataChangeTriggerStashEnabled } from '@common/utils';
 import { DataChangeType, ProcessNodeStatus } from '@common/types/project';
@@ -340,7 +340,7 @@ const handleFormReady = (payload: {
   runtimeFormData.value = payload.formData;
   runtimeOtherDataSources.value = payload.otherDataSources || [];
 };
-const todoRecordKey = computed(() => `${detailRuntimeContext.value.nocodeId || ''}:${detailRuntimeContext.value.tableUID || ''}:${props.nocodeFormProps?.uuid || ''}`);
+const todoRecordKey = computed(() => `${detailRuntimeContext.value.nocodeId || ''}:${detailRuntimeContext.value.tableUID || ''}:${props.nocodeFormProps?.uuid || ''}:${mergedRow.value?.[SystemField.TODO_ID] || ''}`);
 
 const closeDialog = () => {
   emit('update:modelValue', false);
@@ -535,6 +535,7 @@ const getTodo = async () => {
     nocodeId: detailRuntimeContext.value.nocodeId,
     tableUID: detailRuntimeContext.value.tableUID,
     uuid: props.nocodeFormProps.uuid,
+    todoId: mergedRow.value?.[SystemField.TODO_ID],
   });
 }
 const deleteCheckRowsData = async () => {
@@ -670,7 +671,7 @@ watch(() => ({
   visible: props.modelValue,
   recordKey: todoRecordKey.value,
 }), async (value, oldValue) => {
-  if (value.visible && value.recordKey && value.recordKey !== '::' && (value.recordKey !== oldValue?.recordKey || !oldValue?.visible)) {
+  if (value.visible && props.nocodeFormProps?.uuid && (value.recordKey !== oldValue?.recordKey || !oldValue?.visible)) {
     activeName.value = 'data';
     todo.value = null;
     await getTodo();

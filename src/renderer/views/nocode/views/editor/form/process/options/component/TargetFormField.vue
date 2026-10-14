@@ -579,21 +579,42 @@ const isDataOwnerTargetField = (field?: Pick<TargetFieldFillRule, 'fieldUID'> | 
   return targetField?.meta?.name === SystemField.DATA_OWNER;
 }
 
+const isDataOwnerFieldMappingAllowed = () => {
+  return !props.allowedFillTypes?.length || props.allowedFillTypes.includes(TargetFieldFillType.FIELD);
+}
+
 const isAvailableFillType = (field: TargetFieldFillRule, value: TargetFieldFillType) => {
   if (!isShowFillType(value)) {
     return false;
   }
   if (isDataOwnerTargetField(field)) {
     if (value === TargetFieldFillType.FIELD) {
-      return true;
+      return isDataOwnerFieldMappingAllowed();
     }
-    return value === TargetFieldFillType.CUSTOM;
+    return props.allowedFillTypes?.length
+      ? [TargetFieldFillType.CUSTOM, TargetFieldFillType.EMPTY, TargetFieldFillType.DEFAULT].includes(value)
+      : value === TargetFieldFillType.CUSTOM;
   }
   return true;
 }
 
 const normalizeTargetFieldFillType = (field?: TargetFieldFillRule | null) => {
-  if (!field || !isDataOwnerTargetField(field) || [TargetFieldFillType.CUSTOM, TargetFieldFillType.FIELD].includes(field.type)) {
+  if (!field || !isDataOwnerTargetField(field)) {
+    return false;
+  }
+  if (
+    field.type === TargetFieldFillType.CUSTOM
+    || (!isDataOwnerFieldMappingAllowed()
+      && [TargetFieldFillType.EMPTY, TargetFieldFillType.DEFAULT].includes(field.type))
+  ) {
+    return false;
+  }
+  if (!isDataOwnerFieldMappingAllowed()) {
+    field.type = TargetFieldFillType.CUSTOM;
+    field.value = null;
+    return true;
+  }
+  if (field.type === TargetFieldFillType.FIELD) {
     return false;
   }
   field.type = TargetFieldFillType.FIELD;
@@ -661,6 +682,11 @@ const normalizeDataOwnerTargetField = (field?: TargetFieldFillRule | null) => {
   }
   const fieldOptions = getDataOwnerFormFieldOptions();
   if (field.type === TargetFieldFillType.FIELD) {
+    if (!isDataOwnerFieldMappingAllowed()) {
+      field.type = TargetFieldFillType.CUSTOM;
+      field.value = null;
+      return true;
+    }
     const currentValue = field.value;
     const hasValidValue = fieldOptions.some(item => item.uid === currentValue);
     if (hasValidValue) {
@@ -670,6 +696,9 @@ const normalizeDataOwnerTargetField = (field?: TargetFieldFillRule | null) => {
   }
   if (field.type === TargetFieldFillType.CUSTOM) {
     if (!hasConfiguredValue(field.value)) {
+      if (!isDataOwnerFieldMappingAllowed()) {
+        return false;
+      }
       field.type = TargetFieldFillType.FIELD;
       field.value = getDataOwnerFieldDefaultValue();
       return true;
@@ -921,6 +950,11 @@ const getFuncValue = (condition) => {
 
 const handleTargetFieldChange = (rule: TargetFieldFillRule) => {
   if (isDataOwnerTargetField(rule)) {
+    if (!isDataOwnerFieldMappingAllowed()) {
+      rule.type = TargetFieldFillType.CUSTOM;
+      rule.value = null;
+      return;
+    }
     rule.type = TargetFieldFillType.FIELD;
     rule.value = getDataOwnerFieldDefaultValue();
     return;
@@ -1248,6 +1282,9 @@ defineExpose({
       return;
     }
     if (isDataOwnerTargetField(item)) {
+      if (!isAvailableFillType(item, value)) {
+        return;
+      }
       item.type = value;
       item.value = value === TargetFieldFillType.FIELD ? getDataOwnerFieldDefaultValue() : null;
       return;

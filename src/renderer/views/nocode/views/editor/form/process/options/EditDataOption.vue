@@ -110,7 +110,7 @@
             :sourceTables="isSelectedDataTarget ? [] : props.options.sourceTables"
             :pluginFields="lastPluginNodeFields"
             :allowedFillTypes="isSelectedDataTarget ? selectedDataFillTypes : undefined"
-            :allowDataOwnerField="!isSelectedDataTarget"
+            :allowDataOwnerField="true"
             :table="table"
             mode="edit"
             ref="targetFormFieldRef"

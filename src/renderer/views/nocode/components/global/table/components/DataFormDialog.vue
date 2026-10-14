@@ -211,7 +211,7 @@ import { FormMode } from '../types';
 import { formFlowApi, useRuntime, doDownload, formDataApi } from '@renderer/utils';
 import { FormTableRuntime, PrintedTemplateRecord, PrintTemplate, PrintTemplateMode, PrintTemplateType, ViewAction } from '@common/types/nocode';
 import { DataChangeType, ProcessNodeStatus, Row } from '@common/types/project';
-import { collectPrintCurrentOwnerIds, fillPrintProcessSystemFieldValues, getUUIDSystemField } from '@common/utils';
+import { collectPrintCurrentOwnerIds, fillPrintProcessSystemFieldValues, getUUIDSystemField, SystemField } from '@common/utils';
 import { fetchPathAsArrayBuffer } from '@common/utils/print/shared';
 import { projectApi } from '@renderer/utils/api/project';
 import { printDataReplace, systemPrint } from '@renderer/utils/print';
@@ -933,6 +933,7 @@ const handleOpened = () => {
   isShowForm.value = true;
 }
 const todo = ref()
+const detailTodoId = computed(() => mergedRow.value?.[SystemField.TODO_ID]);
 const showSidePanel = computed(() => !isPublicVisit.value && props.formMode !== FormMode.Add && runtime !== FormTableRuntime.FORM_EDITOR);
 const dialogStyle = computed(() => {
   if (props.modalOnly && isFullscreen.value) {
@@ -951,7 +952,8 @@ const getTodo = async () => {
   const data = await formFlowApi.getTodo({
     nocodeId: dialogNocodeId.value,
     tableUID: table.formTableUID,
-    uuid: props.nocodeFormProps.uuid
+    uuid: props.nocodeFormProps.uuid,
+    todoId: mergedRow.value?.[SystemField.TODO_ID],
   });
   todo.value = data
 }
@@ -984,10 +986,19 @@ const handleFinishFlow = async () => {
 watch(() => {
   return {
     visible: props.modelValue,
-    uuid: props.nocodeFormProps.uuid
+    uuid: props.nocodeFormProps.uuid,
+    todoId: detailTodoId.value,
   }
 }, async (newVal, oldVal) => {
-  if (newVal.visible && newVal.uuid && (newVal.uuid !== oldVal?.uuid || !oldVal?.visible)) {
+  if (
+    newVal.visible
+    && newVal.uuid
+    && (
+      newVal.uuid !== oldVal?.uuid
+      || newVal.todoId !== oldVal?.todoId
+      || !oldVal?.visible
+    )
+  ) {
     todo.value = null
     if (oldVal?.visible && newVal.uuid !== oldVal?.uuid) {
       processInfoFolded.value = false;

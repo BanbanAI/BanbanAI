@@ -287,6 +287,9 @@ const dialogTitle = computed(() => {
 });
 const singleOnceNoFormDataText = computed(() => {
   if (!props.hideFormData) return '';
+  if (props.todo?.viewContextOnceNoFormData) {
+    return i18next.t('NocodeProcessDialog.timeTaskSingleNoData');
+  }
   if (props.todo?.operationTriggerActionName) {
     return getOperationEmptyRowDisplayText(
       props.todo,

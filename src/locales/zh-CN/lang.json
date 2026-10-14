@@ -9580,6 +9580,7 @@
     "adminWhenEmpty": "无人时转管理员",
     "currentRecordOnly": "仅当前数据",
     "historicalRecords": "历史数据",
+    "selectedRecords": "选中数据",
     "fieldMapping": "字段映射",
     "fixedValue": "固定值",
     "clearValue": "清空",
