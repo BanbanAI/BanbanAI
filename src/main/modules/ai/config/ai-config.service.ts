@@ -3574,18 +3574,17 @@ export class AiConfigService {
   ): Promise<ValidationCheckResult> {
     const requestBody = {
       model: model.model,
-      messages: [
-        { role: 'system', content: 'test' },
-        { role: 'user', content: 'hi' },
-      ],
-      max_tokens: 8,
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 512,
       temperature: 0,
       stream: false,
     }
     const response = provider.type === 'builtin-cloud'
       ? await this.fetchBuiltinCompletion(requestBody, { timeoutMs })
       : await this.fetchProviderCompletion(provider, requestBody)
-    if (!this.extractAssistantText(response).trim()) {
+    const hasText = Boolean(this.extractAssistantText(response).trim())
+    const hasReasoning = Boolean(this.extractAssistantReasoning(response))
+    if (!hasText && !hasReasoning) {
       return { ok: false, message: global.i18next.t('aiConfigService.generationTestNoContent') }
     }
     return { ok: true, message: global.i18next.t('aiConfigService.generationTestPassed') }
@@ -4212,7 +4211,8 @@ export class AiConfigService {
   }
 
   private extractAssistantReasoning(payload: any) {
-    const reasoning = payload?.choices?.[0]?.message?.reasoning
+    const message = payload?.choices?.[0]?.message
+    const reasoning = message?.reasoning_content ?? message?.reasoning
     if (typeof reasoning === 'string') return reasoning.trim()
     if (Array.isArray(reasoning)) {
       return reasoning
