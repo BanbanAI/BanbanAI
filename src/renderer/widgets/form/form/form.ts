@@ -98,7 +98,7 @@ const getSubFormConditionWidget = (widget: FormElement, uid: string) => {
   if (!templateChild) return null;
 
   if (!context.currentRowForm) {
-    return templateChild;
+    return null;
   }
 
   return context.currentRowForm.children.find(child => {
