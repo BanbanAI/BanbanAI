@@ -468,6 +468,8 @@ export class CheckboxGroup extends FormElement {
         choices: options.options,
         defaultValueType: "custom",
         defaultValue: this.checkedValue,
+        optionLimit: this.getOption<boolean>("option-count") === true,
+        optionCountRange: this.getOption<[number, number]>("option-count-range"),
       },
     };
   }

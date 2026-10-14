@@ -124,7 +124,7 @@ const isRuntimeDefaultField = (
 ) => {
   const extra = field.meta?.extra;
   return (
-    (extra?.defaultValueType && extra.defaultValueType !== "formula" && hasConfiguredValue(defaultValue))
+    (extra?.defaultValueType !== "formula" && hasConfiguredValue(defaultValue))
     || hasOrganizeFieldRuntimeDefaultValue({
       defaultValue,
       field,

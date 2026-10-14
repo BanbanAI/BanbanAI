@@ -906,6 +906,11 @@ export abstract class AbstractForm extends BaseWidget {
       return subForm;
     }
 
+    if ((subForm as unknown as { hasRuntime?: boolean }).hasRuntime) {
+      await subForm.validate();
+      return subForm.validationError ? subForm : null;
+    }
+
     const subFormRows = this.getSubFormRows(subForm);
     if (!subFormRows.length && this.hasRequiredSubFormSchemaField(subForm)) {
       subForm.validationError = new Error(i18next.t('form.fieldRequiredTips'));

@@ -16,8 +16,8 @@
                 <el-button class="btn-previous" link :disabled="indexOfShowRow === 0" @click="indexOfShowRow--">
                   <el-icon><i-ep-arrow-left></i-ep-arrow-left></el-icon>
                 </el-button>
-                <span class="pagination-index">{{ `${indexOfShowRow + 1}/${subForm.tableData.length}` }}</span>
-                <el-button class="btn-next" link :disabled="indexOfShowRow === subForm.tableData.length - 1"
+                <span class="pagination-index">{{ `${indexOfShowRow + 1}/${rowCount}` }}</span>
+                <el-button class="btn-next" link :disabled="indexOfShowRow === rowCount - 1"
                   @click="indexOfShowRow++">
                   <el-icon><i-ep-arrow-right></i-ep-arrow-right></el-icon>
                 </el-button>
@@ -30,7 +30,25 @@
           </el-header>
 
           <el-main>
-            <form-real-time-editor v-if="subForm?.tableData?.[indexOfShowRow]"
+            <div v-if="subForm.hasRuntime && runtimeRowId" class="runtime-row-editor">
+              <div v-for="column in runtimeColumns" :key="column.id" class="runtime-row-editor__field">
+                <span class="runtime-row-editor__label">{{ column.schema.title || column.fieldId }}</span>
+                <div class="runtime-row-editor__cell">
+                  <CellPresenter
+                    :address="{ rowId: runtimeRowId, fieldId: column.fieldId }"
+                    :column="column"
+                    :store="subForm.runtimeStore"
+                    :version="runtimeVersion"
+                    :readonly="subForm.isReadonly"
+                    :related-data-service="subForm.runtimeRelatedDataService"
+                    :option-service="subForm.runtimeOptionService"
+                    @commit="handleRuntimeCommit"
+                    @action="handleRuntimeAction"
+                  />
+                </div>
+              </div>
+            </div>
+            <form-real-time-editor v-else-if="subForm?.tableData?.[indexOfShowRow]"
               :form="subForm?.tableData?.[indexOfShowRow]"></form-real-time-editor>
           </el-main>
 
@@ -46,14 +64,16 @@
 </template>
 
 <script lang='ts' setup>
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
 import { SubForm } from './subForm';
 import IEpArrowLeft from "~icons/ep/arrow-left";
 import IEpArrowRight from "~icons/ep/arrow-right";
 import IAntDesignShrinkOutlined from "~icons/ant-design/shrink-outlined";
 import FormRealTimeEditor from './FormRealTimeEditor.vue';
+import CellPresenter from './grid/CellPresenter.vue';
+import type { CellAddress } from './runtime/types';
 import { isMobile } from '@renderer/utils/pure';
-import i18next, { $t } from "@renderer/widgets/i18next";
+import { $t } from "@renderer/widgets/i18next";
 
 const props = defineProps<{
   subForm: SubForm;
@@ -61,11 +81,66 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "copyRow", rowIndex: number): Promise<void>
   (event: "createRow"): Promise<void>
+  (event: "cell-action", payload: { address: CellAddress; anchor?: HTMLElement | null; readonly?: boolean }): void
 }>();
 
 const indexOfShowRow = ref(0);
 const visible = ref(false);
 const isAddRow = ref(false);
+const runtimeVersion = ref(0);
+let stopRuntimeStoreSubscription: (() => boolean) | undefined;
+
+const rowCount = computed(() => props.subForm.hasRuntime
+  ? props.subForm.runtimeTableData.length
+  : props.subForm.tableData.length);
+
+const runtimeRowId = computed(() => {
+  if (!props.subForm.hasRuntime) return undefined;
+  const row = props.subForm.runtimeTableData[indexOfShowRow.value] as Record<string, unknown> | undefined;
+  const id = row?.__rowId || row?.__uuid__ || row?.uid;
+  return id === undefined || id === null ? undefined : String(id);
+});
+
+const runtimeColumns = computed(() => {
+  const rowId = runtimeRowId.value;
+  const store = props.subForm.runtimeStore;
+  if (!rowId || !store) return [];
+  const row = store.getRow(rowId);
+  if (!row) return [];
+  return (props.subForm.runtimeColumns || []).filter(column => column.adapter.isVisible?.({
+    address: { rowId, fieldId: column.fieldId },
+    row,
+    store,
+  }) !== false);
+});
+
+const handleRuntimeCommit = ({ address, value }: { address: CellAddress; value: unknown }) => {
+  const store = props.subForm.runtimeStore;
+  const column = runtimeColumns.value.find(item => item.fieldId === address.fieldId);
+  const row = store?.getRow(address.rowId);
+  if (!column || !store || !row) return;
+  const parsedValue = column.adapter.parse(value, {
+    address,
+    row,
+    store,
+  });
+  props.subForm.batchPatchRuntimeRows([{ rowId: address.rowId, values: {
+    [address.fieldId]: parsedValue,
+  } }]).then(() => {
+    runtimeVersion.value += 1;
+  });
+};
+
+const handleRuntimeAction = (address: CellAddress, anchor?: HTMLElement | null, readonly?: boolean) => {
+  emit('cell-action', { address, anchor, readonly });
+};
+
+watch(() => props.subForm.runtimeStore, (store) => {
+  stopRuntimeStoreSubscription?.();
+  stopRuntimeStoreSubscription = store?.subscribe(() => {
+    runtimeVersion.value += 1;
+  });
+}, { immediate: true });
 
 const drawerInfo = computed(() => {
   if (isMobile()) {
@@ -88,11 +163,11 @@ const handleCreateRow = async () => {
   isAddRow.value = true;
 }
 
-watch(() => props.subForm.tableData.length, () => {
-  if (!visible && isAddRow.value) return;
+watch(rowCount, () => {
+  if (!visible.value && isAddRow.value) return;
 
   isAddRow.value = false;
-  indexOfShowRow.value = props.subForm.tableData.length - 1;
+  indexOfShowRow.value = Math.max(0, rowCount.value - 1);
 });
 
 defineExpose({
@@ -106,6 +181,11 @@ defineExpose({
     isAddRow.value = false;
     indexOfShowRow.value = 0;
   },
+});
+
+onBeforeUnmount(() => {
+  stopRuntimeStoreSubscription?.();
+  stopRuntimeStoreSubscription = undefined;
 });
 </script>
 
@@ -152,6 +232,35 @@ defineExpose({
       .el-main {
         flex: 1;
         padding: 10px;
+
+        .runtime-row-editor {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          height: 100%;
+          overflow: auto;
+          padding: 10px;
+
+          &__field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-height: 36px;
+            flex: none;
+          }
+
+          &__label {
+            color: var(--text-color-primary);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 20px;
+          }
+
+          &__cell {
+            position: relative;
+            min-height: 36px;
+          }
+        }
       }
 
       .el-footer {
