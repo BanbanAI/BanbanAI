@@ -70,7 +70,7 @@ function replaceEmptyValue(fieldType: FieldType) {
 function createFormulaValueBatchContext(formElement: FormElement, signalOnly = false) {
   const topForm = formElement.topForm;
   const childElements = new Map<string, FormElement | undefined>();
-  const rowChildren = new WeakMap<SubFormRow, Map<string, FormElement | undefined>>();
+  const rowChildren = new WeakMap<object, Map<string, FormElement | undefined>>();
   const settings = new WeakMap<FormElement, ReturnType<FormElement["resolveFormSetting"]>>();
   let topFormWidgets: Map<string, FormElement> | undefined;
 
@@ -88,17 +88,23 @@ function createFormulaValueBatchContext(formElement: FormElement, signalOnly = f
       if (!childElements.has(uid)) childElements.set(uid, topForm.getChildElement(uid) as FormElement | undefined);
       return childElements.get(uid);
     },
-    getRowChild(row: SubFormRow, fieldId: string) {
+    getRowChild(row: SubFormRow | Record<string, unknown>, fieldId: string, templateWidget?: FormElement) {
       let children = rowChildren.get(row);
       if (!children) { children = new Map(); rowChildren.set(row, children); }
       if (!children.has(fieldId)) {
-        const mountedChild = row.children.find(child => child.fieldId === fieldId);
+        const rowData = row instanceof SubFormRow ? row.getRow() : row;
+        const mountedChild = row instanceof SubFormRow
+          ? row.children.find(child => child.fieldId === fieldId)
+          : undefined;
         if (mountedChild) {
           children.set(fieldId, mountedChild);
         } else {
           // Virtual rows do not have child widgets. Reuse the template widget's
           // metadata and expose the raw row value without creating a component.
-          const template = (row.parent as any)?.children?.find((child: FormElement) => child.fieldId === fieldId);
+          const template = templateWidget
+            || (row instanceof SubFormRow
+              ? (row.parent as any)?.children?.find((child: FormElement) => child.fieldId === fieldId)
+              : undefined);
           if (!template) {
             children.set(fieldId, undefined);
           } else {
@@ -106,10 +112,9 @@ function createFormulaValueBatchContext(formElement: FormElement, signalOnly = f
             Object.defineProperty(proxy, "inputValue", {
               configurable: true,
               enumerable: true,
-              get: () => row.getRow()?.[fieldId],
+              get: () => rowData?.[fieldId],
               set: (value) => {
-                const currentRow = row.getRow();
-                if (currentRow) currentRow[fieldId] = value;
+                if (rowData) rowData[fieldId] = value;
               },
             });
             Object.defineProperty(proxy, "status", {
@@ -127,6 +132,12 @@ function createFormulaValueBatchContext(formElement: FormElement, signalOnly = f
       return settings.get(widget);
     },
   };
+}
+
+function getSubFormFormulaRows(subForm: SubForm): Array<SubFormRow | Record<string, unknown>> {
+  return (subForm.hasRuntime
+    ? subForm.runtimeTableData
+    : subForm.tableData) as Array<SubFormRow | Record<string, unknown>>;
 }
 
 type FormulaValueBatchContext = ReturnType<typeof createFormulaValueBatchContext>;
@@ -239,8 +250,8 @@ function getFormulaFieldValuesCompatibility(formElement: FormElement, ids, formu
     } else {
       if (!formElement.isInSubForm) {
         const subform = widget.form as SubForm;
-        const col = subform.tableData.map(subformRow => {
-          const subWidget = context.getRowChild(subformRow, widget.fieldId);
+        const col = getSubFormFormulaRows(subform).map(subformRow => {
+          const subWidget = context.getRowChild(subformRow, widget.fieldId, widget);
           return collectFormulaWidgetValue(subWidget, usage, context);
         })
         if (!acc.formulaDeps[id]) acc.formulaDeps[id] = [];
@@ -250,7 +261,7 @@ function getFormulaFieldValuesCompatibility(formElement: FormElement, ids, formu
         const subformRow = formElement.form;
         if (!(subformRow instanceof SubFormRow)) return acc;
 
-        const subWidget = context.getRowChild(subformRow, widget.fieldId);
+        const subWidget = context.getRowChild(subformRow, widget.fieldId, widget);
         if (!acc.formulaDeps[id]) acc.formulaDeps[id] = [];
         acc.formulaDeps[id].push(collectFormulaWidgetValue(subWidget, usage, context));
         return acc;
@@ -324,15 +335,15 @@ function collectFormulaFieldValues(formElement: FormElement, ids, formulaFieldMa
           const subformRow = formElement.form;
           if (!(subformRow instanceof SubFormRow)) return acc;
 
-          const subWidget = context.getRowChild(subformRow, widget.fieldId);
+          const subWidget = context.getRowChild(subformRow, widget.fieldId, widget);
           if (!subWidget) return acc;
           if (!acc.formulaDeps[id]) acc.formulaDeps[id] = [];
           acc.formulaDeps[id].push(collectFormulaWidgetValue(subWidget, usage, context));
 
           return acc;
         } else { // 获取一列字段值数组
-          const col = (nestingForm as SubForm).tableData.map(subformRow => {
-            const subWidget = context.getRowChild(subformRow, widget.fieldId);
+          const col = getSubFormFormulaRows(nestingForm as SubForm).map(subformRow => {
+            const subWidget = context.getRowChild(subformRow, widget.fieldId, widget);
             return collectFormulaWidgetValue(subWidget, usage, context);
           })
           if (!acc.formulaDeps[id]) acc.formulaDeps[id] = [];

@@ -140,7 +140,7 @@
 <script lang="ts" setup>
 import { isMobile } from "@renderer/utils/pure";
 import { useWidget } from "@renderer/b2/types";
-import { ref, onMounted, computed, onBeforeUnmount, watch } from "vue";
+import { ref, shallowRef, onMounted, computed, onBeforeUnmount, watch } from "vue";
 import { AddressInput } from "./addressInput";
 import { getChinaAddressData } from "@renderer/utils/township";
 import { ElPopover, ElTreeSelect, usePopperContainerId } from "element-plus";
@@ -155,7 +155,7 @@ interface Tree {
 
 const { selector } = usePopperContainerId();
 const widget = useWidget<AddressInput>();
-const CHINADATA = ref<Tree[]>([]);
+const CHINADATA = shallowRef<Tree[]>([]);
 const popoverVisible = ref(false);
 const drawerVisible = ref(false);
 const treeSelectVisible  = ref(false);

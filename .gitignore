@@ -15,3 +15,4 @@ src/renderer/auto-imports.d.ts
 __tests__
 .playwright-cli
 docs
+tools/test/*

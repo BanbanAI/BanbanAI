@@ -367,7 +367,7 @@ async function handleNextFromMapping() {
   issues.value = result.issues;
 
   if (!issues.value.length) {
-    applyValidatedRows(result.rows);
+    await applyValidatedRows(result.rows);
     emit("update:modelValue", false);
     return;
   }
@@ -378,11 +378,11 @@ async function handleNextFromMapping() {
 
 async function handleContinueFromFix() {
   const revalidatedRows = await rebuildRowsFromFixEditors();
-  applyValidatedRows(revalidatedRows);
+  await applyValidatedRows(revalidatedRows);
   emit("update:modelValue", false);
 }
 
-function applyValidatedRows(rows: QuickFillValidationRow[]) {
+async function applyValidatedRows(rows: QuickFillValidationRow[]) {
   const currentRows = deepClone(props.subForm.rows || []);
   const nextRows = rows.map((row) => {
     const isNewRow = row.meta.source === "new";
@@ -406,7 +406,7 @@ function applyValidatedRows(rows: QuickFillValidationRow[]) {
     return baseRow;
   });
 
-  props.subForm.inputValue = nextRows;
+  await props.subForm.batchReplaceRows(nextRows, "user");
 }
 
 async function buildTransientEditors() {

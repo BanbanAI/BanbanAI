@@ -123,7 +123,7 @@ import { SubForm } from './subForm';
 import IEpPlus from "~icons/ep/plus";
 import IEpDelete from "~icons/ep/delete";
 import IEpWarning from "~icons/ep/warning";
-import { replaceByFormula, createFormulaRuntimeByWidget } from "@common/utils/formula";
+import { replaceByFormula, createFormulaRuntimeByWidget, getFormulaStr } from "@common/utils/formula";
 import { ACTIVE_ELEMENT } from "@renderer/types/inject";
 import { FormElement } from "@renderer/b2/controllers/form";
 import i18next, { $t } from "@renderer/widgets/i18next";
@@ -225,7 +225,71 @@ const onOpen = () => {
   if (fieldEditOptions.value.length === 0) handleAddField();
 }
 
-const handleConfirm = () => {
+const applyRuntimeBatchEdit = async () => {
+  const store = props.subForm.runtimeStore;
+  const columns = props.subForm.runtimeColumns || [];
+  if (!store) return false;
+  const columnByFieldId = new Map(columns.map(column => [column.fieldId, column]));
+  const patches: Array<{ rowId: string; values: Record<string, unknown> }> = [];
+
+  for (const selectedRow of props.selectedRows) {
+    const rowId = String(selectedRow);
+    const row = store.getRow(rowId);
+    if (!row) continue;
+    const values: Record<string, unknown> = {};
+    for (const option of fieldEditOptions.value) {
+      const column = columnByFieldId.get(option.fieldId);
+      const widget = props.subForm.children?.find(child => (
+        child.fieldId === option.fieldId || child.uid === option.fieldId
+      ));
+      if (!column || !widget) continue;
+      const context = {
+        address: { rowId, fieldId: option.fieldId },
+        row,
+        store,
+      } as any;
+      if (option.editOption === EditOption.Modify && option.value !== undefined) {
+        values[option.fieldId] = column.adapter.parse(option.value, context);
+      } else if (option.editOption === EditOption.Clear) {
+        values[option.fieldId] = undefined;
+      } else if (option.editOption === EditOption.Formula && option.value !== undefined) {
+        const formula = replaceByFormula(getFormulaStr(option.value), (keys) => {
+          const [, widgetId, subWidgetId] = keys;
+          if (subWidgetId) {
+            const subField = props.subForm.children?.find(child => child.uid === subWidgetId);
+            return subField ? store.getValue({ rowId, fieldId: subField.fieldId }) : "";
+          }
+          return (props.subForm.form?.children?.find(child => child.uid === widgetId) as FormElement)?.inputValue || "";
+        });
+        try {
+          const formulaRuntime = createFormulaRuntimeByWidget(widget);
+          values[option.fieldId] = column.adapter.parse(formulaRuntime?.evaluate(formula) ?? '', context);
+        } catch (err) {
+          return false;
+        }
+      }
+    }
+    if (Object.keys(values).length) patches.push({ rowId, values });
+  }
+
+  return props.subForm.batchPatchRuntimeRows(patches);
+};
+
+const handleConfirm = async () => {
+  if (props.subForm.hasRuntime) {
+    const valid = formRef.value
+      ? await formRef.value.validate().catch(() => false)
+      : false;
+    if (!valid) {
+      ElMessage.warning(i18next.t('pleaseCompleteBatchEditCondition'));
+      return;
+    }
+    if (!(await applyRuntimeBatchEdit())) return;
+    emit("update:modelValue", false);
+    fieldEditOptions.value = [];
+    return;
+  }
+
   formRef.value.validate((valid) => {
     if (!valid) {
       ElMessage.warning(i18next.t('pleaseCompleteBatchEditCondition'));
@@ -244,7 +308,7 @@ const handleConfirm = () => {
           props.subForm.inputValue[index][option.fieldId] = undefined;
           widget.inputValue = undefined;
         } else if (option.editOption === EditOption.Formula && option.value !== undefined) {
-          const formula = replaceByFormula(option.value, (keys) => {
+          const formula = replaceByFormula(getFormulaStr(option.value), (keys) => {
             const [tableUID, widgetId, subWidgetId] = keys;
             if(subWidgetId) {
               const subFieldId = props.subForm.children?.find(c => c.uid === subWidgetId).fieldId;
