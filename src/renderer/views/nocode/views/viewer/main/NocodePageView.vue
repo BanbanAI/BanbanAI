@@ -124,7 +124,6 @@
                   :hide-after="0"
                   :show-arrow="false"
                   :persistent="false"
-                  :teleported="false"
                   width="160"
                   @update:visible="visible => handleTreeNodePopoverVisibleChange(data.id, visible)"
                   v-if="getAppPermissions('editable') || (data.type === NocodeStructureType.PAGE && data.id === activePageId && !isHomeActive)"
