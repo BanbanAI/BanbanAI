@@ -2673,7 +2673,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         rowId: String(row[UUID]),
         values: Object.fromEntries(Object.entries(row).filter(([key]) => key !== UUID)),
       })), "default");
-      await runtime.formulaEngine.recomputeAll(runtime.store.rowIds);
+      await runtime.formulaEngine.recomputeAll(runtime.store.rowIds, { onlyMissing: true });
       this.status.rowsInitialized = true;
       this._runtimeVersion.value += 1;
     });
@@ -3300,6 +3300,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         compileFormula: createSubFormFormulaCompiler({
           resolveExternalValue: widgetUid => this.resolveRuntimeFormulaExternalValue(widgetUid),
           resolveEmptyValue: referenceId => this.resolveRuntimeFormulaEmptyValue(referenceId),
+          subTableFields: this.field?.subTableFields || [],
         }),
         resolveDataFillRule: widgetUid => this.getRuntimeDataFillRule(widgetUid),
         appendRuntimeCustomOption: (widgetUid, value) => this.appendRuntimeCustomOption(widgetUid, value),
