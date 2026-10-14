@@ -627,6 +627,12 @@ const save = async (noMessage = false, noLoading = false): Promise<FormSaveResul
 
 }
 
+const saveInitialFormOptions = async () => {
+  if (!formData.value || !table.value) return false;
+  formData.value.formOptions = getOptions();
+  return await props.save(formData.value, table.value, true) !== false;
+}
+
 const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
   const refreshGuard = options.refreshGuard
   assertAiDraftPersistenceRefreshActive(refreshGuard)
@@ -1073,6 +1079,7 @@ defineExpose({
 
   preview,
   save,
+  saveInitialFormOptions,
   saveAiDraft,
   refreshAiDraftPersistenceState,
   persistForNavigation,

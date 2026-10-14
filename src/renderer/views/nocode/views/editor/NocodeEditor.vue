@@ -3976,12 +3976,10 @@ const handleCreateForm = async (
     await showFormCreate(table);
     dialogState.nocodeCreateDataDialogVisible = false;
 
-    // 自动触发FormCreate中的save函数
-    // 确保在formCreateRef完全初始化后再调用save
     await nextTick();
     if (formCreateRef.value) {
-      const result = await formCreateRef.value.save(true);
-      if (result === 'blocked' || result === 'failed' || result === false) {
+      const result = await formCreateRef.value.saveInitialFormOptions();
+      if (result === false) {
         newFormData = undefined;
         return;
       }

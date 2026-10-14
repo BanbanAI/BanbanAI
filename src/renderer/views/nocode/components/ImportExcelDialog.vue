@@ -1296,6 +1296,18 @@ async function createForm(){
 function makeColumn(excelField: ExcelFieldItem, columns: TableColumn[]) {
   const subTypeMap = {
     'widget.form.subform': 'subForm',
+    'widget.form.textInput': 'text',
+    'widget.form.numberInput': 'number',
+    'widget.form.amountInput': 'amount',
+    'widget.form.serialNumber': 'text',
+    'widget.form.datePicker': 'date',
+    'widget.form.dateRangePicker': 'daterange',
+    'widget.form.radioGroup': 'text',
+    'widget.form.treeSelect': 'text',
+    'widget.form.memberSelect': 'account',
+    'widget.form.departmentSelect': 'department',
+    'widget.form.richTextEditor': 'html',
+    'widget.form.markdownEditor': 'markdown',
   };
   // 定义一个允许任意属性的类型结构
   const column: TableColumn = {
