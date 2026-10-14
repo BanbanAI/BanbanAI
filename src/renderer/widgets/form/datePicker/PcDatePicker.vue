@@ -10,6 +10,7 @@
           class="el-date-picker-preview"
           popper-class="poper-dialog"
           v-model="widget.inputValue"
+          :date-locale="[DateStyle.EN_SHORT, DateStyle.EN_LONG].includes(widget.showFormat) ? enLocale : zhCnLocale"
           :type="widget.calendarType"
           :teleported="true"
           :append-to="`#popper-${widget.uid}`"

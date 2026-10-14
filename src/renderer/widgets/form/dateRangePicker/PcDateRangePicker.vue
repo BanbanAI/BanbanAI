@@ -18,6 +18,7 @@
           :date-format="widget.dateFormat + ' ' + widget.weekFormat"
           :time-format="widget.timeFormat"
           :format="widget.format"
+          :date-locale="[DateStyle.EN_SHORT, DateStyle.EN_LONG].includes(widget.showFormat) ? enLocale : zhCnLocale"
           :clearable="true"
           @change="calendarSelectChangeFn"
           @clear="handleClear"
