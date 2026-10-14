@@ -117,7 +117,7 @@ const createBlankForm = () => {
 };
 
 const importExcel = () => {
-  const name = dataName.value ? dataName.value : `${i18next.t("NocodeCreateDataDialog.myForm")}`
+  const name = dataName.value
   const group = dataGroup.value === 'none' ? '' : dataGroup.value
   dialogVisible.value = false;
   emit('importExcel',{

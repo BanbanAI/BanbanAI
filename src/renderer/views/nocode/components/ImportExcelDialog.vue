@@ -622,15 +622,30 @@ const props = withDefaults(defineProps<{
   dialogVisible: boolean,
   contentSource: 'tableHeaderValue' | 'nocodeCreateDataDialogValue',
   mode?: 'default' | 'analysis',
+  initialFormName?: string,
+  initialGroup?: string,
   runtime?: FormTableRuntime,
   formFields?: Field[],
   table?: Table
 }>(), {
   formFields: () => [],
   mode: 'default',
+  initialFormName: '',
+  initialGroup: '',
 });
 // eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits(['addData','importCompleted','excelCreateCompleted','update:dialogVisible', 'closed', 'confirmed', 'createForm', 'closeDialog', 'analysisConfirmed']);
+
+watch(
+  () => [props.initialFormName, props.initialGroup],
+  ([name, group]) => {
+    formInfo.value = {
+      name: String(name || ''),
+      group: String(group || ''),
+    }
+  },
+  { immediate: true }
+)
 
 const dialogVisibleComp = computed<boolean>({
   get: () => props.dialogVisible,

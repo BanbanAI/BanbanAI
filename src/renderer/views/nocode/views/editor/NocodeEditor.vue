@@ -17,6 +17,8 @@
         v-model:dialogVisible="importExcelDialogVisible"
         :contentSource="'nocodeCreateDataDialogValue'" 
         :mode="importExcelDialogMode"
+        :initial-form-name="importExcelInitialFormName"
+        :initial-group="importExcelInitialGroup"
         class="import-excel-dialog"
         @createForm="handleCreateForm"
         @excelCreateCompleted="handleExcelCreateCompleted"
@@ -837,7 +839,6 @@ type ExcelCreateCompletedPayload = {
 }
 
 type ImportExcelDialogHandle = {
-  setFormInfo: (name?: string, group?: string) => void
   prefillUploadedExcel?: (payload: StartExcelFormCreatePayload) => Promise<boolean>
 }
 
@@ -4070,6 +4071,8 @@ const handleSaveFromHeader = async () => {
 const importExcelDialogVisible = ref<boolean>(false);
 const importExcelDialogRef = ref<ImportExcelDialogHandle | null>(null)
 const importExcelDialogMode = ref<'default' | 'analysis'>('default')
+const importExcelInitialFormName = ref<string>('')
+const importExcelInitialGroup = ref<string>('')
 const activeExcelCreateContext = ref<{
   attachmentId?: string
   sourceInstance?: AiExcelImportSourceInstance | null
@@ -4120,7 +4123,8 @@ async function showImportExcelDialog(data?: StartExcelFormCreatePayload){
     sourceInstance: resolveAiExcelImportSourceInstance(data),
     shouldAppendReply: Boolean(data?.fullPath),
   }
-  importExcelDialogRef.value?.setFormInfo(data?.formName || data?.name, data?.group ?? createDataDefaultGroupId.value)
+  importExcelInitialFormName.value = String(data?.formName || data?.name || '').trim()
+  importExcelInitialGroup.value = String((data?.group ?? createDataDefaultGroupId.value) || '').trim()
   createDataDefaultGroupId.value = '';
   importExcelDialogVisible.value = true;
   if (data?.fullPath) {
@@ -4154,7 +4158,8 @@ async function showExcelAnalysisDialog(data?: StartExcelFileAnalysisPayload){
         : undefined
     ),
   }
-  importExcelDialogRef.value?.setFormInfo(data?.name, '')
+  importExcelInitialFormName.value = String(data?.name || '').trim()
+  importExcelInitialGroup.value = ''
   importExcelDialogVisible.value = true
   if (data?.fullPath) {
     await nextTick()
