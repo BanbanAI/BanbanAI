@@ -1,6 +1,6 @@
 ﻿import { FormDataColumn, FormDataTableExtra, FormValidateSubmitOptions, NocodeFormData } from '@common/types/nocode';
 import { Bucket, FieldUID, OptionFieldUID, QueryOptions, Row, Table, TableUID } from '@common/types/project';
-import { FormDataStage, SystemField } from '@common/utils';
+import { FormDataStage } from '@common/utils';
 import { AggregateTable, EnqueueViewActionTriggerRequest, EnqueueViewActionTriggerResult, ExecuteViewActionEditContext, ExecuteViewActionRequest, ExecuteViewActionResult, FormTableRuntime, ViewActionFieldId, ViewActionTriggerPrecheckResult } from "@common/types/nocode";
 import axios from 'axios';
 import { useFormDataDistinctCacheStore } from '@renderer/stores/formDataDistinctCache';
@@ -69,20 +69,8 @@ type GetDraftsOptions = {
 const draftRowsCache = new Map<string, Row[]>();
 const draftRowsPending = new Map<string, Promise<Row[]>>();
 const getDraftCacheKey = (nocodeId: string, tableUID: string) => `${nocodeId}:${tableUID}`;
-const mergeDraftRowsIntoCache = (options: { nocodeId: string; tableUID: string; rows?: Row[] }) => {
-  const key = getDraftCacheKey(options.nocodeId, options.tableUID);
-  const cached = draftRowsCache.get(key);
-  if (!cached || !options.rows?.length) return;
-  const rowMap = new Map(cached.map(row => [row?.[SystemField.UUID] || JSON.stringify(row), row]));
-  options.rows.forEach(row => rowMap.set(row?.[SystemField.UUID] || JSON.stringify(row), row));
-  draftRowsCache.set(key, Array.from(rowMap.values()));
-};
-const removeDraftRowsFromCache = (options: { nocodeId: string; tableUID: string; rows?: Row[] }) => {
-  const key = getDraftCacheKey(options.nocodeId, options.tableUID);
-  const cached = draftRowsCache.get(key);
-  if (!cached || !options.rows?.length) return;
-  const removed = new Set(options.rows.map(row => row?.[SystemField.UUID] || JSON.stringify(row)));
-  draftRowsCache.set(key, cached.filter(row => !removed.has(row?.[SystemField.UUID] || JSON.stringify(row))));
+const invalidateDraftRowsCache = (options: { nocodeId: string; tableUID: string }) => {
+  draftRowsCache.delete(getDraftCacheKey(options.nocodeId, options.tableUID));
 };
 type FindOneOptions = {
   nocodeId: string,
@@ -329,7 +317,7 @@ export const formDataApi = {
         onMainSign?.(mainSign);
       }
       const result = normalizeMutationResponse(data);
-      mergeDraftRowsIntoCache(options);
+      invalidateDraftRowsCache(options);
       markDistinctCacheDirty();
       return result;
     } catch (err) {
@@ -372,11 +360,7 @@ export const formDataApi = {
         onMainSign?.(mainSign);
       }
       const result = normalizeMutationResponse(data);
-      if (options.stage === FormDataStage.DRAFT) {
-        mergeDraftRowsIntoCache(options);
-      } else {
-        draftRowsCache.delete(getDraftCacheKey(options.nocodeId, options.tableUID));
-      }
+      invalidateDraftRowsCache(options);
       markDistinctCacheDirty();
       return result;
     } catch (err) {
@@ -403,7 +387,7 @@ export const formDataApi = {
         onMainSign?.(mainSign);
       }
       if (data?.success !== false) {
-        removeDraftRowsFromCache(options);
+        invalidateDraftRowsCache(options);
         markDistinctCacheDirty();
       }
       return {
