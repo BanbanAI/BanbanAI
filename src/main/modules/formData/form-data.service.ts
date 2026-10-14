@@ -9330,6 +9330,12 @@ export class FormDataService implements OnApplicationBootstrap {
           validatePermission: false,
           allowDataOwnerUpdate: true,
         },
+        {
+          skipValidation: true,
+          skipLock: true,
+          skipSubTableSync: true,
+          skipSubTableDeduplicationRebuild: true,
+        },
       );
       return { previousRows };
     } catch (error) {
