@@ -441,7 +441,7 @@
     <table-delete-data-dialog
       v-if="deleteTipDialogVisible"
       v-model="deleteTipDialogVisible"
-      @deleteTableData="deleteTableData"
+      :action="deleteTableData"
       :title="$t('TableHeader.batchDel')"
       :dataText="getDelTxt()"
       :deleteTip="$t('TableHeader.deleteConfirmTip')"
@@ -786,21 +786,24 @@ const unfinishedProcessCount = computed(() => {
   }
   return (checkRows.value || []).filter(row => row?.[statusFieldUid] === ProcessNodeStatus.IN_PROGRESS).length;
 });
-const deleteCheckRowsData = async () => {
+const deleteCheckRowsData = async (): Promise<boolean> => {
   if(!checkRows.value?.length){
     ElMessage.error(i18next.t('TableHeader.selectRowFirst'));
-    return;
+    return false;
   }
   try {
     const result = await widget.removeRows(checkRows.value, runtime);
     const message = getDeleteResultMessage(result, i18next.t('TableHeader.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
+      return false;
     } else {
       ElMessage.success(message);
+      return true;
     }
   } catch (err) {
-    ElMessage.error(err.message);
+    ElMessage.error(err?.message || i18next.t('TableHeader.unknownErr'));
+    return false;
   }
 }
 
@@ -879,39 +882,39 @@ const updateLayout = () => {
   });
 };
 
-const deleteFilterRowsData = async () => {
+const deleteFilterRowsData = async (): Promise<boolean> => {
+  return false;
 }
 
-const deleteAllRowsData = async () => {
+const deleteAllRowsData = async (): Promise<boolean> => {
   try {
     // 把数据表清空
     const result = await widget.removeAllRows(runtime);
     const message = getDeleteResultMessage(result, i18next.t('TableHeader.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
+      return false;
     } else {
       ElMessage.success(message);
+      return true;
     }
   } catch (err) {
-    ElMessage.error(err.message);
+    ElMessage.error(err?.message || i18next.t('TableHeader.unknownErr'));
+    return false;
   }
 }
 
-const deleteTableData = async () => {
+const deleteTableData = async (): Promise<boolean> => {
   switch (deleteType.value) {
     case 'check':
-      await deleteCheckRowsData();
-      break;
+      return deleteCheckRowsData();
     case 'filter':
-      await deleteFilterRowsData();
-      break;
+      return deleteFilterRowsData();
     case 'all':
-      await deleteAllRowsData();
-      break;
+      return deleteAllRowsData();
     default:
-      break;
+      return false;
   }
-
 }
 
 const getFilteredPrintTemplate = async() => { 

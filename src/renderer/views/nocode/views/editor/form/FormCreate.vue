@@ -43,8 +43,8 @@
               <el-icon size="16"><i-ven-form-preview /></el-icon>
               <span>{{ $t('formCreate.preview') }}</span>
             </el-button>
-            <el-button class="save" size="small" @click="save()">{{ $t('formCreate.save') }}</el-button>
-            <el-button class="publish" type="success" size="small" @click="handlePublish">{{ $t('formCreate.published') }}</el-button>
+            <el-button class="save" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handleSaveButton">{{ $t('formCreate.save') }}</el-button>
+            <el-button class="publish" type="success" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handlePublish">{{ $t('formCreate.published') }}</el-button>
           </div>
         </el-header>
         <vn-stack-layer class="layer" :class="{ embedded: props.embedded }" name="form-design" :lazy="true">
@@ -54,6 +54,7 @@
             :field-catalog-visible="props.fieldCatalogVisible"
             :property-panel-visible="props.propertyPanelVisible"
             :blueprint-applying-readonly="props.blueprintApplyingReadonly"
+            :save-action="() => save(true, true)"
             @update:field-catalog-visible="emit('update:field-catalog-visible', $event)"
             @update:property-panel-visible="emit('update:property-panel-visible', $event)"
           />
@@ -485,11 +486,26 @@ const restoreSavedFormDraftPersistenceState = async () => {
 }
 
 const handlePublish = async () => {
-  const result = await save(true);
-  if (!isFormalSaveAllowed(result)) {
-    return
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    const result = await save(true);
+    if (!isFormalSaveAllowed(result)) return;
+    emit('open-setting', SettingTab.PUBLISH);
+  } finally {
+    saveButtonLoading.value = false;
   }
-  emit('open-setting', SettingTab.PUBLISH)
+}
+
+const saveButtonLoading = ref(false);
+const handleSaveButton = async () => {
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    await save();
+  } finally {
+    saveButtonLoading.value = false;
+  }
 }
 
 const closeKindReminder = async () => { 

@@ -44,7 +44,7 @@
       </div>
       <div class="button-container">
         <el-button @click="handleClose">{{ $t('NocodeCreateDataDialog.cancel') }}</el-button>
-        <el-button @click="handleConfirm" class="confirm">{{ $t('NocodeCreateDataDialog.confirm') }}</el-button>
+        <el-button @click="handleConfirm" class="confirm" :loading="props.loading" :disabled="props.loading">{{ $t('NocodeCreateDataDialog.confirm') }}</el-button>
       </div>
     </el-dialog>
   </div>
@@ -68,6 +68,10 @@ const props = defineProps({
   lockGroupSelection: {
     type: Boolean,
     default: false
+  },
+  loading: {
+    type: Boolean,
+    default: false,
   }
 });
 
@@ -95,6 +99,7 @@ const handleClose = () => {
 };
 
 const handleConfirm = () => {
+  if (props.loading) return;
   if(createMode.value === 'form') {
     createBlankForm()
   } else {
@@ -107,19 +112,16 @@ const createBlankForm = () => {
   const group = dataGroup.value === 'none' ? '' : dataGroup.value
   if (name != '') {
     // 这里添加确认逻辑
-    dialogVisible.value = false;
     emit('confirmed', {
       name: name,
       group: group
     });
-    emit('closed');
   }
 };
 
 const importExcel = () => {
   const name = dataName.value ? dataName.value : `${i18next.t("NocodeCreateDataDialog.myForm")}`
   const group = dataGroup.value === 'none' ? '' : dataGroup.value
-  dialogVisible.value = false;
   emit('importExcel',{
     name: name,
     group: group

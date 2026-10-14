@@ -21,7 +21,7 @@
       <template #footer>
         <div class="btns">
           <el-button class="cancel" @click="emit('update:modelValue', false)">{{ $t('TableDeleteDataDialog.cancel') }}</el-button>
-          <el-button class="confirm" :type="props.confirmType || 'danger'" @click="handleConfirm">{{ props.confirmText || $t('TableDeleteDataDialog.confirm') }}</el-button>
+          <el-button class="confirm" :type="props.confirmType || 'danger'" :loading="loading" :disabled="loading" @click="handleConfirm">{{ props.confirmText || $t('TableDeleteDataDialog.confirm') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -29,10 +29,11 @@
 </template>
 
 <script setup lang='ts'>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { isMobile } from '@renderer/utils';
 import i18next from 'i18next';
 
+// eslint-disable-next-line vue/valid-define-props
 const props = defineProps<{
   modelValue: boolean;
   dataText?: string | string[];
@@ -43,18 +44,34 @@ const props = defineProps<{
   confirmText?: string;
   confirmType?: string;
   unfinishedProcessCount?: number;
+  action?: () => Promise<boolean | void> | boolean | void;
 }>();
 
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean): void;
   (event: 'deleteTableData'): void;
   (event: 'confirm'): void;
 }>();
 
-const handleConfirm = () => {
-  emit('deleteTableData');
-  emit('confirm');
-  emit('update:modelValue', false);
+const loading = ref(false);
+
+const handleConfirm = async () => {
+  if (loading.value) return;
+  if (!props.action) {
+    emit('deleteTableData');
+    emit('confirm');
+    emit('update:modelValue', false);
+    return;
+  }
+  loading.value = true;
+  try {
+    const result = await props.action();
+    if (result !== false) emit('update:modelValue', false);
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 
 const formatArray = (arr) => {

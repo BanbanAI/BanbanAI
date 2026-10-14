@@ -295,7 +295,7 @@
             <el-button v-if="currentStep === 1" @click="handleCloseExcel">{{ i18next.t("cancel") }}</el-button>
             <el-button class="next-btn" v-if="currentStep > 1 && currentStep < 4" @click="preStep" :disabled="loading">{{ i18next.t("prevStep") }}</el-button>
             <el-button type="primary" class="next-btn" v-if="currentStep < 3" @click="nextStep" :disabled="!step2HaveTableData">{{ i18next.t("nextStep") }}</el-button>
-            <el-button type="primary" v-if="currentStep === 3" @click="importStep" :disabled="importFieldsNum === 0 || loading">{{ i18next.t("import") }}</el-button>
+            <el-button type="primary" v-if="currentStep === 3" @click="importStep" :loading="loading" :disabled="importFieldsNum === 0 || loading">{{ i18next.t("import") }}</el-button>
             <el-button type="primary" v-if="currentStep === 4" @click="completeStep">{{ i18next.t("complete") }}</el-button>
           </div>
         </div>
@@ -494,31 +494,27 @@ const shouldTreatFieldAsRequired = (field?: Field | null) => {
 
 // 导入Excel数据
 async function importStep() {
-  let curTable: Table;
-  let colToUidMap: ExcelFormColMap = {};
   loading.value = true;
-
-  if (props.contentSource === 'nocodeCreateDataDialogValue') {
-    let curFormData: NocodeFormData;
-    ({ newTable: curTable, curFormData } = await createForm());
-
-    // 构建数据映射关系
-    const formTable = curFormData.tables.find(item => item.uid === curTable.uid);
-    const formFields = formTable.fields.filter(field => !isSystemField(field));
-
-    importFields.value.forEach((item, index) => {
-      colToUidMap[item.excelField] = formFields[index].uid;
-    });
-  } else if (props.contentSource === 'tableHeaderValue') {
-    // 导入Excel表数据
-    // curTable = props.table;
-    importFields.value.forEach(item => {
-      colToUidMap[item.excelField] = item.formField;
-    });
-  }
-
-  // 将数据添加到表单中
   try {
+    let curTable: Table;
+    const colToUidMap: ExcelFormColMap = {};
+    if (props.contentSource === 'nocodeCreateDataDialogValue') {
+      let curFormData: NocodeFormData;
+      ({ newTable: curTable, curFormData } = await createForm());
+
+      // 构建数据映射关系
+      const formTable = curFormData.tables.find(item => item.uid === curTable.uid);
+      const formFields = formTable.fields.filter(field => !isSystemField(field));
+      importFields.value.forEach((item, index) => {
+        colToUidMap[item.excelField] = formFields[index].uid;
+      });
+    } else if (props.contentSource === 'tableHeaderValue') {
+      importFields.value.forEach(item => {
+        colToUidMap[item.excelField] = item.formField;
+      });
+    }
+
+    // 将数据添加到表单中
     const sheetData: SheetData = readExcelFileData.value?.originSheetsData?.[worksheet.value];
     let maxTitleRowIndex = Math.max(...(importFields.value.map(item => item.titleRowIndex)));
     const res = await importExcelData(sheetData, formFields.value, colToUidMap, maxTitleRowIndex, props.subForm);
@@ -528,15 +524,15 @@ async function importStep() {
     res.rows.forEach(row => {
       props.subForm.addRow(undefined, row, true);
     });
+
+    if (currentStep.value < 4) {
+      currentStep.value++;
+    }
   } catch (error) {
     ElMessage.error(i18next.t("importExcelImportFailed"));
     console.error(error);
-  }
-
-  loading.value = false;
-
-  if (currentStep.value < 4) {
-    currentStep.value++;
+  } finally {
+    loading.value = false;
   }
 }
 

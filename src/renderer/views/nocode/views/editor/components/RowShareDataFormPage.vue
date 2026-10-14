@@ -67,7 +67,7 @@
 
     <table-delete-data-dialog
       v-model="deleteTipDialogVisible"
-      @deleteTableData="deleteCheckRowsData"
+      :action="deleteCheckRowsData"
       :title="$t('RowShareDataFormPage.delete')"
       :dataText="$t('RowShareDataFormPage.currentRow')"
     />
@@ -532,7 +532,9 @@ const handleCopy = () => {
 const handleSubmitDraft = async () => {};
 
 const handleSubmit = async () => {
-  if (!editingFormRef.value) return;
+  if (!editingFormRef.value || submitting.value) return;
+  submitting.value = true;
+  let loadingInstance: ReturnType<typeof ElLoading.service> | undefined;
   try {
     let result: any;
     if (props.submitHandler) {
@@ -543,7 +545,6 @@ const handleSubmit = async () => {
         editingFormRef.value?.clearSubmitValidationNotice?.();
         return;
       }
-      submitting.value = true;
       result = await props.submitHandler(rowPatch, editingFormRef.value);
       if (!result) {
         editingFormRef.value?.clearSubmitValidationNotice?.();
@@ -557,14 +558,12 @@ const handleSubmit = async () => {
         editingFormRef.value?.clearSubmitValidationNotice?.();
         return;
       }
-      submitting.value = true;
-      const loadingInstance = ElLoading.service({
+      loadingInstance = ElLoading.service({
         target: ".detail-body",
         text: i18next.t('RowShareDataFormPage.submiting'),
         background: "rgba(0, 0, 0, 0.2)"
       });
       result = await editingFormRef.value.submit({ skipSubmitValidationNoticeConfirm: true, skipSubmitSignSyncConfirm: true });
-      loadingInstance.close();
       if (!result) return;
       ElMessage.success(i18next.t('RowShareDataFormPage.editSuccess'));
     }
@@ -576,6 +575,7 @@ const handleSubmit = async () => {
     editingFormRef.value?.clearSubmitValidationNotice?.();
     ElMessage.error(error?.response?.data?.message || error?.message || i18next.t('RowShareDataFormPage.submitFailed'));
   } finally {
+    loadingInstance?.close();
     submitting.value = false;
   }
 };
@@ -590,13 +590,15 @@ const deleteCheckRowsData = async () => {
     const message = getDeleteResultMessage(result, i18next.t('RowShareDataFormPage.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
-      return;
+      return false;
     }
     ElMessage.success(message);
     emit('deleted');
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.message || err?.message);
+    return false;
   }
+  return true;
 };
 
 watch(() => props.rowData, (value) => {

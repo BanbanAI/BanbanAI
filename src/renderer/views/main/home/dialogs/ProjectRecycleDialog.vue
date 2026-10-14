@@ -17,9 +17,9 @@
             <label class="label" for="select-all-checkbox">{{ $t("projectRecycleDialog.selectAllRecyleApp") }}</label>
           </div>
           <div class="footer-button-box">
-            <el-button v-show="selectedNocodeList.length" type="default" @click="handleRestore" :loading="btnLoading" >{{ $t("projectRecycleDialog.restoreRecyleApp") }}</el-button>
-            <el-button v-show="!selectedNocodeList.length" type="primary" @click="handleClear" :loading="btnLoading" >{{ $t("projectRecycleDialog.clearRecyleApp") }}</el-button>
-            <el-button v-show="selectedNocodeList.length" type="danger" @click="handleCompleteDetele" :loading="btnLoading" >{{ $t("projectRecycleDialog.completeDeteleApp") }}</el-button>
+            <el-button v-show="selectedNocodeList.length" type="default" @click="handleRestore" :loading="btnLoading" :disabled="btnLoading" >{{ $t("projectRecycleDialog.restoreRecyleApp") }}</el-button>
+            <el-button v-show="!selectedNocodeList.length" type="primary" @click="handleClear" :loading="btnLoading" :disabled="btnLoading" >{{ $t("projectRecycleDialog.clearRecyleApp") }}</el-button>
+            <el-button v-show="selectedNocodeList.length" type="danger" @click="handleCompleteDetele" :loading="btnLoading" :disabled="btnLoading" >{{ $t("projectRecycleDialog.completeDeteleApp") }}</el-button>
           </div>
         </div>
       </template>
@@ -42,12 +42,14 @@ const props = defineProps<{
 const emit = defineEmits(["closed", "created", "update:modelValue", "refresh"]);
 
 const deteledNocodeList = ref<NocodeMeta[]>([]);
-async function getDeteledNocodeList(){
+async function getDeteledNocodeList(): Promise<boolean>{
   const res = await axios.get("/project/deleted-nocode-list").then(({ data }) => data).catch(({ response }) => {
-    ElMessage.error(response.data.message);
-    return [];
+    ElMessage.error(response?.data?.message);
+    return null;
   });
+  if (!res) return false;
   deteledNocodeList.value = res;
+  return true;
 }
 
 const selectedNocodeList = ref<NocodeMeta[]>([]);
@@ -76,34 +78,51 @@ function handleSelectAllNocode(){
 }
 
 async function handleRestore(){
+  if (btnLoading.value) return false;
   const ids = selectedNocodeList.value.map(item => item.id);
-  const res = await axios.post("/project/restore-nocode-list", { ids }).then(({ data }) => data).catch(({ response }) => {
-    ElMessage.error(response.data.message);
-    return [];
-  });
-  refreshDialog();
-  emit("refresh");
+  btnLoading.value = true;
+  try {
+    const res = await axios.post("/project/restore-nocode-list", { ids }).then(({ data }) => data).catch(({ response }) => {
+      ElMessage.error(response?.data?.message);
+      return null;
+    });
+    if (!res) return false;
+    await refreshDialog();
+    emit("refresh");
+    return true;
+  } finally {
+    btnLoading.value = false;
+  }
 }
 async function handleClear(){
+  if (btnLoading.value) return false;
   const ids = deteledNocodeList.value.map(item => item.id);
-  completeDeteleNocodeList(ids);
+  return await completeDeteleNocodeList(ids);
 }
 async function handleCompleteDetele(){
+  if (btnLoading.value) return false;
   const ids = selectedNocodeList.value.map(item => item.id);
-  completeDeteleNocodeList(ids);
+  return await completeDeteleNocodeList(ids);
 }
 
 async function completeDeteleNocodeList(ids){
-  const res = await axios.post("/project/complete-delete-nocode-list", { ids }).then(({ data }) => data).catch(({ response }) => {
-    ElMessage.error(response.data.message);
-    return [];
-  });
-  refreshDialog();
+  btnLoading.value = true;
+  try {
+    const res = await axios.post("/project/complete-delete-nocode-list", { ids }).then(({ data }) => data).catch(({ response }) => {
+      ElMessage.error(response?.data?.message);
+      return null;
+    });
+    if (!res) return false;
+    await refreshDialog();
+    return true;
+  } finally {
+    btnLoading.value = false;
+  }
 }
 
-function refreshDialog(){
+async function refreshDialog(): Promise<boolean>{
   selectedNocodeList.value = [];
-  getDeteledNocodeList();
+  return await getDeteledNocodeList();
 }
 function clearDialog(){
   selectedNocodeList.value = [];

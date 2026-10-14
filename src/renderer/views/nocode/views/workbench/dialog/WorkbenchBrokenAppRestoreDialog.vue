@@ -24,7 +24,7 @@
           <el-button :disabled="props.loading" @click="emit('update:modelValue', false)" text bg>
             {{ $t('WorkbenchBrokenAppRestoreDialog.cancel') }}
           </el-button>
-          <el-button type="primary" :loading="props.loading" @click="emit('confirm')">
+          <el-button type="primary" :loading="props.loading" :disabled="props.loading" @click="emit('confirm')">
             {{ $t('WorkbenchBrokenAppRestoreDialog.confirm') }}
           </el-button>
         </div>

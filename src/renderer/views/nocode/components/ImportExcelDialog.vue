@@ -533,9 +533,9 @@
             <el-button v-if="currentStep === 1" @click="handleCloseExcel">{{ $t('ImportExcelDialog.cancel') }}</el-button>
             <el-button class="next-btn" v-if="currentStep > 1 && currentStep < maxStep" @click="preStep" :disabled="loading">{{ $t('ImportExcelDialog.preStep') }}</el-button>
             <el-button type="primary" class="next-btn" v-if="showNextButton" @click="nextStep" :disabled="nextStepDisabled">{{ $t('ImportExcelDialog.nextStep') }}</el-button>
-            <el-button type="primary" v-if="showImportButton" @click="importStep" :disabled="importActionDisabled">{{ $t('ImportExcelDialog.import') }}</el-button>
-            <el-button type="primary" v-if="showAnalysisConfirmButton" @click="confirmAnalysis" :disabled="loading || !step2HaveTableData">{{ $t('importExcelDialog.confirmAnalysis') }}</el-button>
-            <el-button type="primary" v-if="showCompleteButton" @click="completeStep">{{ $t('ImportExcelDialog.complete') }}</el-button>
+            <el-button type="primary" v-if="showImportButton" @click="importStep" :loading="loading" :disabled="importActionDisabled">{{ $t('ImportExcelDialog.import') }}</el-button>
+            <el-button type="primary" v-if="showAnalysisConfirmButton" @click="confirmAnalysis" :loading="loading" :disabled="loading || !step2HaveTableData">{{ $t('importExcelDialog.confirmAnalysis') }}</el-button>
+            <el-button type="primary" v-if="showCompleteButton" @click="completeStep" :loading="loading" :disabled="loading">{{ $t('ImportExcelDialog.complete') }}</el-button>
           </div>
         </div>
       </div>
@@ -850,7 +850,7 @@ const importActionDisabled = computed(() => {
 });
 const showAnalysisConfirmButton = computed(() => isAnalysisMode.value && currentStep.value === 3);
 const showCompleteButton = computed(() =>
-  !loading.value && ((isCreateMode.value && currentStep.value === 4) || (isImportMode.value && currentStep.value === 5))
+  (isCreateMode.value && currentStep.value === 4) || (isImportMode.value && currentStep.value === 5)
 );
 const analysisColumnDataCache = ref<Record<string, string[][]>>({});
 const analysisColumnDataPendingMap = new Map<string, Promise<string[][]>>();
@@ -1544,10 +1544,16 @@ function extractDates(text: string) {
   return results;
 }
 
-const completeStep = () => {
-  emit('closeDialog')
-  void resetDialogState({ cleanupImportSession: true });
-  emit('importCompleted')
+const completeStep = async () => {
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    await resetDialogState({ cleanupImportSession: true });
+    emit('closeDialog');
+    emit('importCompleted');
+  } finally {
+    loading.value = false;
+  }
 }
 
 const downloadErrorReport = () => {

@@ -6,6 +6,7 @@
       @confirm="handleConfirm"
       @update="handleUpdate"
       @update:modelValue="handleUpdateModelValue"
+      :loading="props.loading"
       v-bind="attrs"
     ></mobile-organize-manager-dialog>
 
@@ -15,6 +16,7 @@
       @confirm="handleConfirm"
       @update="handleUpdate"
       @update:modelValue="handleUpdateModelValue"
+      :loading="props.loading"
       v-bind="attrs"
     ></pc-organize-manager-dialog>
   </div>
@@ -26,6 +28,14 @@ import { isMobile } from "@renderer/utils";
 
 const isMobileDevice = isMobile();
 
+// eslint-disable-next-line vue/valid-define-props
+const props = withDefaults(defineProps<{
+  loading?: boolean;
+}>(), {
+  loading: false,
+});
+
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (e: 'confirm', userIds: string[]): void;
   (e: 'update', userIds: string[]): void;
@@ -56,7 +66,16 @@ const show = () => {
   }
 }
 
+const close = () => {
+  if (isMobileDevice) {
+    mobileOrganizeManageDialogRef.value?.close();
+  } else {
+    pcOrganizeManageDialogRef.value?.close();
+  }
+}
+
 defineExpose({
   show,
+  close,
 });
 </script>

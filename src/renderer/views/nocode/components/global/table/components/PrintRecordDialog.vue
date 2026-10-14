@@ -52,8 +52,8 @@
       </div>
     </el-dialog>
   </div>
-  <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" @confirm="handleConfirmDelete" />
-  <delete-confirm-dialog :title="clearConfirmContext.title" :text="clearConfirmContext.text" :tip="clearConfirmContext.tip" :confirmText="clearConfirmContext.confirmText" v-model="clearConfirmContext.visible" @confirm="handleConfirmClear" />
+  <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" :action="handleConfirmDelete" />
+  <delete-confirm-dialog :title="clearConfirmContext.title" :text="clearConfirmContext.text" :tip="clearConfirmContext.tip" :confirmText="clearConfirmContext.confirmText" v-model="clearConfirmContext.visible" :action="handleConfirmClear" />
 </template>
 
 <script setup lang='ts'>
@@ -128,15 +128,15 @@ const handleDelete = async (item) => {
 }
 
 const handleConfirmDelete = async() => {
-  await deletePrintRecord()
+  return await deletePrintRecord()
 }
 
 const handleConfirmClear = async() => { 
-  await clearPrintRecord()
+  return await clearPrintRecord()
 }
 
-const getTemplateList = async() => { 
-  await axios.get('/project/get-form-export-template-list',{
+const getTemplateList = async(): Promise<boolean> => {
+  return await axios.get('/project/get-form-export-template-list',{
     params: {
       nocodeId: props.nocodeId,
       tableUID: props.table.uid,
@@ -145,32 +145,44 @@ const getTemplateList = async() => {
     if (Array.isArray(res.data)) {
       printRecordList.value = res.data.toReversed();
     }
+    return true;
   }).catch(err => {
     ElMessage.error(err);
-  })
+    return false;
+  });
 }
 const deletePrintRecord = async() => { 
-  await axios.post('/project/delete-print-record',{
+  return await axios.post('/project/delete-print-record',{
     nocodeId: props.nocodeId,
     tableId: props.table.uid,
     printRecordUID: printRecordUID.value,
-  }).then(res => {
-    ElMessage.success(i18next.t('PrintRecordDialog.deleteSuccess'));
-    getTemplateList();
+  }).then(() => {
+    return getTemplateList().then((refreshed) => {
+      if (refreshed) {
+        ElMessage.success(i18next.t('PrintRecordDialog.deleteSuccess'));
+      }
+      return refreshed;
+    });
   }).catch(err => {
     ElMessage.error(err);
+    return false;
   })
 }
 
 const clearPrintRecord = async() => { 
-  await axios.post('/project/clear-print-record',{
+  return await axios.post('/project/clear-print-record',{
     nocodeId: props.nocodeId,
     tableId: props.table.uid,
-  }).then(res => {
-    ElMessage.success(i18next.t('PrintRecordDialog.clearSuccess'));
-    getTemplateList();
+  }).then(() => {
+    return getTemplateList().then((refreshed) => {
+      if (refreshed) {
+        ElMessage.success(i18next.t('PrintRecordDialog.clearSuccess'));
+      }
+      return refreshed;
+    });
   }).catch(err => {
     ElMessage.error(err);
+    return false;
   })
 }
 

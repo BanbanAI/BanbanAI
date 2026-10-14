@@ -8,7 +8,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="dialogVisible = false">{{ $t('WorkbenchSelectUserDialog.cancel') }}</el-button>
-          <el-button type="primary" @click="handleConfirm">{{ $t('WorkbenchSelectUserDialog.confirm') }}</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('WorkbenchSelectUserDialog.confirm') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -17,26 +17,43 @@
 
 <script setup lang='ts'>
 import { NocodeUser } from '@common/types/account';
-import { ORGANIZE_UTIL } from '@renderer/types';
-import { ref, inject, nextTick } from 'vue';
+import { ref, nextTick } from 'vue';
 
+// eslint-disable-next-line vue/valid-define-props
+const props = defineProps<{
+  action?: (userIds: string[]) => Promise<boolean | void> | boolean | void;
+}>();
+
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (e: 'confirm', userIds: string[]): void;
 }>();
 
 const dialogVisible = ref(false);
 const selectUserCoreRef = ref();
-const organizeUtil = inject(ORGANIZE_UTIL);
+const loading = ref(false);
 
 const onClosed = () => {
   selectUserCoreRef.value?.reset();
 }
 
 
-const handleConfirm = () => {
-  dialogVisible.value = false;
+const handleConfirm = async () => {
+  if (loading.value) return;
   const userIds = selectUserCoreRef.value?.serialize();
-  emit('confirm', userIds);
+  loading.value = true;
+  try {
+    if (props.action) {
+      const result = await props.action(userIds);
+      if (result === false) return;
+    } else {
+      emit('confirm', userIds);
+    }
+    dialogVisible.value = false;
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 
 defineExpose({

@@ -30,7 +30,7 @@
           <el-input v-model="formData.email" />
         </el-form-item>
         <el-form-item v-if="!isWebAdmin">
-          <el-button @click="onSubmit" class="submit-button" type="primary">
+          <el-button @click="onSubmit" class="submit-button" type="primary" :loading="saving" :disabled="saving">
             {{ $t("WorkbenchHomeUser.save") }}
           </el-button>
         </el-form-item>
@@ -57,6 +57,7 @@ useLocalizedDocumentTitle(() => `${i18next.t("WorkbenchHomeUser.workbench")} - $
 
 const passportState = usePassportStore();
 const formRef = ref();
+const saving = ref(false);
 const visibleEditPassword = ref(false);
 
 const formData = ref({
@@ -136,11 +137,11 @@ watch(
 );
 
 async function onSubmit() {
-  await formRef.value?.validate(async (valid: boolean) => {
-    if (!valid) {
-      return;
-    }
-
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    const valid = await formRef.value?.validate().catch(() => false);
+    if (!valid) return;
     const { pass, ...rest } = formData.value;
     const user = {
       ...rest,
@@ -152,7 +153,9 @@ async function onSubmit() {
     }).catch((err) => {
       ElMessage.error(err?.response?.data?.message || err.message);
     });
-  });
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 

@@ -39,7 +39,7 @@
       
       <template #footer>
         <div class="mobile-dialog-footer">
-          <el-button type="primary" class="footer-btn confirm" @click="handleConfirm">{{ $t("MobileOrganizeManagerDialog.confirm") }}</el-button>
+          <el-button type="primary" class="footer-btn confirm" :loading="props.loading" :disabled="props.loading" @click="handleConfirm">{{ $t("MobileOrganizeManagerDialog.confirm") }}</el-button>
           <el-button class="footer-btn" @click="handleCancel">{{ $t("MobileOrganizeManagerDialog.cancel") }}</el-button>
         </div>
       </template>
@@ -52,12 +52,14 @@ import { ref, computed, watch } from 'vue';
 import { NocodeUser, Department, Role } from '@common/types/account';
 import i18next from 'i18next';
 
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (e: 'confirm', userIds: string[]): void;
   (e: 'update', userIds: string[]): void;
   (e: 'update:modelValue', value: boolean);
 }>();
 
+// eslint-disable-next-line vue/valid-define-props
 const props = withDefaults(defineProps<{
   modelValue?: boolean,
   isInWidget?: boolean;
@@ -91,6 +93,7 @@ const props = withDefaults(defineProps<{
   hideRoleTab?: boolean;
   hideDepartmentTab?: boolean;
   quickOptions?: Array<{ label: string, value: string }>;
+  loading?: boolean;
 }>(), {
   isInWidget: true,
   multiple: true,
@@ -103,7 +106,8 @@ const props = withDefaults(defineProps<{
   isShowQuick: true,
   hideRoleTab: false,
   hideDepartmentTab: false,
-  quickOptions: () => []
+  quickOptions: () => [],
+  loading: false,
 });
 
 const dialogVisible = ref(false);
@@ -114,6 +118,7 @@ const title = computed(() => {
   } else if (props.currentType === 'department') {
     return i18next.t("MobileOrganizeManagerDialog.department");
   }
+  return '';
 });
 
 const onClosed = () => {
@@ -126,9 +131,13 @@ const getTableList = computed(() => {
 });
 
 const handleConfirm = () => {
+  if (props.loading) return;
   const selectedData = selectUserCoreRef.value?.getTabList();
   emit('confirm', selectedData);
   emit('update', selectedData);
+}
+
+const close = () => {
   dialogVisible.value = false;
 }
 
@@ -150,7 +159,8 @@ watch(
 );
 
 defineExpose({
-  show
+  show,
+  close,
 });
 </script>
 

@@ -132,7 +132,7 @@
       :title="deleteDialogTips.title"
       :deleteTip="deleteDialogTips.deleteTip"
       :deleteWarningText="deleteDialogTips.deleteWarningText"
-      @deleteTableData="handleDeleteData"
+      :action="handleDeleteData"
     />
     <recycle-restore-dialog 
       v-if="restoreTipDialogVisible"
@@ -140,7 +140,7 @@
       :title="restoreDialogTips.title"
       :restoreTip="restoreDialogTips.restoreTip"
       :restoreWarningText="restoreDialogTips.restoreWarningText"
-      @confirm="handleRestoreData"
+      :action="handleRestoreData"
     />
   </el-container>
 </template>
@@ -259,6 +259,7 @@ const props = withDefaults(defineProps<{
   fieldCatalogVisible?: boolean
   propertyPanelVisible?: boolean
   blueprintApplyingReadonly?: boolean
+  saveAction?: () => Promise<unknown> | unknown
 }>(), {
   fieldCatalogVisible: true,
   propertyPanelVisible: true,
@@ -1797,9 +1798,9 @@ const deleteSubTable = async (
   options: PersistWriteOptions = {},
 ) => {
   const subTable = formWidget.value.getTable(subTableUID);
-  if (!subTable) return;
+  if (!subTable || !handleDeleteTable) return false;
   options.beforeWrite?.();
-  await handleDeleteTable(subTable, {
+  return await handleDeleteTable(subTable, {
     beforeWrite: options.beforeWrite,
   });
 }
@@ -2000,40 +2001,47 @@ const recycleBinData = computed(() => {
 })
 
 // 恢复字段（单行）
-const handleRestoreField = async (row) => {
+const handleRestoreField = async (row, rollbackActions: Array<() => void>): Promise<boolean> => {
   const formDataTable = formData.value.options.tables.find(
     _table => _table.uid === table.value.meta.uid
   );
-  if (!formDataTable) return;
+  if (!formDataTable) return false;
   
   const formOption = formData.value.formOptions?.[table.value.uid];
-  if (!formOption) return;
+  if (!formOption) return false;
 
   const deletedWidgets = pendingDeletedWidgets.value[table.value.uid] || [];
   let deletedIndex = deletedWidgets.findIndex(w => w.uid === row.uid);
-  if (deletedIndex === -1) return;
+  if (deletedIndex === -1) return false;
   
   const deletedWidget = deletedWidgets[deletedIndex];
   
   // 将 widget 添加回表单（不包含 recycleInfo）
   const { recycleInfo, ...widgetWithoutRecycleInfo } = deletedWidget;
-  let formElement: FormElement;
+  let formElement: FormElement | undefined;
   if (recycleInfo.tableUID === formWidget.value.tableUID[1] || widgetWithoutRecycleInfo.type === FormWidgetType.SUBFORM) {
     formElement = await formWidget.value.container.addWidget(widgetWithoutRecycleInfo, formWidget.value.container.souls.length) as FormElement;
+    const restoredWidgetUID = formElement.uid;
+    rollbackActions.push(() => formWidget.value.container.removeWidget(restoredWidgetUID));
   } else {
     const mainTable = formData.value.tables.find(item => item.uid === formWidget.value.tableUID[1])
+    if (!mainTable) return false;
     const subFormField = mainTable.fields.filter(item => item.meta?.extra?.widgetType === FormWidgetType.SUBFORM).find(field => ((field.meta?.uid === recycleInfo.tableUID) || (field.meta?.extra?.subTableUID?.[1] === recycleInfo.tableUID)));
     if (!isEmpty(subFormField) && !formOption.deletedWidgets.find(item => item.uid === subFormField.meta?.uid)) {
       // 子表单未被删除
       const thisSubForm = formWidget.value.widgets?.find(item => item.uid === subFormField.meta?.uid);
+      if (!thisSubForm) return false;
       formElement = await thisSubForm.container.addWidget(widgetWithoutRecycleInfo, thisSubForm.container.souls.length) as FormElement;
+      const restoredWidgetUID = formElement.uid;
+      rollbackActions.push(() => thisSubForm.container.removeWidget(restoredWidgetUID));
     } else if (formOption.deletedWidgets.find(item => (item.type === FormWidgetType.SUBFORM) &&  (item.recycleInfo.tableUID === recycleInfo.tableUID))) {
       const subFormInRecycle = formOption.deletedWidgets.find(item => (item.type === FormWidgetType.SUBFORM) &&  (item.recycleInfo.tableUID === recycleInfo.tableUID));
       const { recycleInfo: subFormRecycleInfo, ...subFormWithoutRecycleInfo } = subFormInRecycle;
       if (deletedWidgets.find(item => item.uid === subFormWithoutRecycleInfo.uid)) {
         const subFormElement = await formWidget.value.container.addWidget(subFormWithoutRecycleInfo, formWidget.value.container.souls.length) as FormElement;
-        const subDeletedIndex = deletedWidgets.findIndex(w => w.uid === subFormRecycleInfo.tableUID);
-        deletedWidgets.splice(subDeletedIndex, 1);
+        rollbackActions.push(() => formWidget.value.container.removeWidget(subFormElement.uid));
+        const subDeletedIndex = deletedWidgets.findIndex(w => w.uid === subFormWithoutRecycleInfo.uid);
+        if (subDeletedIndex > -1) deletedWidgets.splice(subDeletedIndex, 1);
         const _resolveFormSetting = subFormElement.resolveFormSetting.bind(subFormElement);
         subFormElement.resolveFormSetting = () => {
           const value = _resolveFormSetting() ?? {};
@@ -2051,10 +2059,15 @@ const handleRestoreField = async (row) => {
       }
 
       const thisSubForm = formWidget.value.widgets?.find(item => item.uid === subFormWithoutRecycleInfo.uid);
+      if (!thisSubForm) return false;
       formElement = await thisSubForm.container.addWidget(widgetWithoutRecycleInfo, thisSubForm.container.souls.length) as FormElement;
+      const restoredWidgetUID = formElement.uid;
+      rollbackActions.push(() => thisSubForm.container.removeWidget(restoredWidgetUID));
       deletedIndex = deletedWidgets.findIndex(w => w.uid === row.uid);
     }
   }
+
+  if (!formElement) return false;
   
   // 从 deletedWidgets 中移除
   deletedWidgets.splice(deletedIndex, 1);
@@ -2077,17 +2090,19 @@ const handleRestoreField = async (row) => {
   }
 
   markFormChanged();
+  return true;
 }
 
 // 彻底删除字段（单行）
 const handleRealDeleteField = async (row) => {
   try {
     const formOption = formData.value.formOptions?.[table.value.uid];
-    if (!formOption) return;
+    if (!formOption) return false;
 
     // 彻底删除组件
     const deletedWidgets = formOption.deletedWidgets || [];
     const deletedWidget = deletedWidgets.find(w => w.uid === row.uid);
+    if (!deletedWidget) return false;
     
     if (deletedWidget.type === FormWidgetType.SUBFORM) {
       // 删除子表单的子字段
@@ -2125,10 +2140,11 @@ const handleRealDeleteField = async (row) => {
     if (formData.value.formOptions?.[table.value.uid]) {
       formData.value.formOptions[table.value.uid].deletedWidgets = savedDeletedWidgets || [];
     }
+    return true;
 
-    emit('save', true);
-  } catch (error) {
+  } catch {
     // 用户取消操作
+    return false;
   }
 }
 
@@ -2140,7 +2156,7 @@ const handleClearRecycleBin = async () => {
     );
     const formOption = formData.value.formOptions?.[table.value.uid];
     
-    if (!formDataTable?.columns || !formOption) return;
+    if (!formDataTable?.columns || !formOption) return false;
 
     // 清空 deletedWidgets
     formOption.deletedWidgets = [];
@@ -2151,9 +2167,10 @@ const handleClearRecycleBin = async () => {
     markFormChanged();
 
     // 保存
-    emit('save', true);
-  } catch (error) {
+    return true;
+  } catch {
     // 用户取消操作
+    return false;
   }
 }
 
@@ -2162,6 +2179,40 @@ const recycleFieldSelection = ref([])
 const handleChangeSelectRecycleField = (val) => {
   recycleFieldSelection.value = val;
 }
+
+const saveRecycleChange = async () => {
+  if (!props.saveAction) {
+    emit('save', true);
+    return true;
+  }
+  try {
+    const result = await props.saveAction();
+    const saved = result === true || result === 'saved' || result === 'unchanged';
+    if (!saved) ElMessage.error(i18next.t('FormDesigner.saveFailed'));
+    return saved;
+  } catch {
+    ElMessage.error(i18next.t('FormDesigner.saveFailed'));
+    return false;
+  }
+};
+
+const createRecycleStateSnapshot = () => ({
+  formOptions: deepClone(formData.value.formOptions),
+  pendingDeletedWidgets: deepClone(pendingDeletedWidgets.value),
+  formChanged: formChanged.value,
+  formChangeRevision: formChangeRevision.value,
+});
+
+const restoreRecycleStateSnapshot = (snapshot: ReturnType<typeof createRecycleStateSnapshot>) => {
+  formData.value.formOptions = snapshot.formOptions;
+  pendingDeletedWidgets.value = snapshot.pendingDeletedWidgets;
+  formChanged.value = snapshot.formChanged;
+  formChangeRevision.value = snapshot.formChangeRevision;
+};
+
+const rollbackRestoredWidgets = (rollbackActions: Array<() => void>) => {
+  rollbackActions.reverse().forEach(action => action());
+};
 
 const restoreTipDialogVisible = ref(false);
 const selectMode = ref<'single' | 'batch' | 'clear'>('single');
@@ -2190,15 +2241,42 @@ const handleBatchRestoreField = () => {
   restoreTipDialogVisible.value = true;
 }
 const handleRestoreData =  async () => {
-  if (selectMode.value === 'single') {
-    await handleRestoreField(singleSelectedRow.value);
-    ElMessage.success(i18next.t('FormDesigner.restoreSuccess'));
-  } else if (selectMode.value === 'batch') {
-    for (const item of recycleFieldSelection.value) {
-      await handleRestoreField(item);
+  const snapshot = createRecycleStateSnapshot();
+  const rollbackActions: Array<() => void> = [];
+  try {
+    if (selectMode.value === 'single') {
+      if (!await handleRestoreField(singleSelectedRow.value, rollbackActions)) {
+        rollbackRestoredWidgets(rollbackActions);
+        restoreRecycleStateSnapshot(snapshot);
+        return false;
+      }
+      if (!await saveRecycleChange()) {
+        rollbackRestoredWidgets(rollbackActions);
+        restoreRecycleStateSnapshot(snapshot);
+        return false;
+      }
+      ElMessage.success(i18next.t('FormDesigner.restoreSuccess'));
+    } else if (selectMode.value === 'batch') {
+      for (const item of recycleFieldSelection.value) {
+        if (!await handleRestoreField(item, rollbackActions)) {
+          rollbackRestoredWidgets(rollbackActions);
+          restoreRecycleStateSnapshot(snapshot);
+          return false;
+        }
+      }
+      if (!await saveRecycleChange()) {
+        rollbackRestoredWidgets(rollbackActions);
+        restoreRecycleStateSnapshot(snapshot);
+        return false;
+      }
+      recycleFieldSelection.value = [];
+      ElMessage.success(i18next.t('FormDesigner.restoreSuccess'));
     }
-    recycleFieldSelection.value = [];
-    ElMessage.success(i18next.t('FormDesigner.restoreSuccess'));
+    return true;
+  } catch {
+    rollbackRestoredWidgets(rollbackActions);
+    restoreRecycleStateSnapshot(snapshot);
+    return false;
   }
 }
 
@@ -2220,21 +2298,38 @@ const handleBeforeRealDeleteSingleField = (row) => {
 }
 
 const handleDeleteData = async () => {
+  const snapshot = createRecycleStateSnapshot();
   if (selectMode.value === 'single') { // 单个
-    await handleRealDeleteField(singleSelectedRow.value);
+    if (!await handleRealDeleteField(singleSelectedRow.value)) return false;
+    if (!await saveRecycleChange()) {
+      restoreRecycleStateSnapshot(snapshot);
+      return false;
+    }
     singleSelectedRow.value = null;
     ElMessage.success(i18next.t('FormDesigner.deleteSuccess'));
   } else if (selectMode.value === 'batch') { // 批量
     for (const item of recycleFieldSelection.value) {
-      await handleRealDeleteField(item);
+      if (!await handleRealDeleteField(item)) {
+        restoreRecycleStateSnapshot(snapshot);
+        return false;
+      }
+    }
+    if (!await saveRecycleChange()) {
+      restoreRecycleStateSnapshot(snapshot);
+      return false;
     }
     recycleFieldSelection.value = [];
     ElMessage.success(i18next.t('FormDesigner.deleteSuccess'));
   } else { // 清空
-    await handleClearRecycleBin();
+    if (!await handleClearRecycleBin()) return false;
+    if (!await saveRecycleChange()) {
+      restoreRecycleStateSnapshot(snapshot);
+      return false;
+    }
     ElMessage.success(i18next.t('FormDesigner.clearRecycleBinSuccess'));
     recycleFieldSelection.value = [];
   }
+  return true;
 }
 
 const handleBeforeBatchDeleteField = () => {

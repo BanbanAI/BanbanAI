@@ -72,7 +72,7 @@
       </el-table>
     </el-form>
     <div class="bottom-container">
-      <el-button type="primary" class="save-btn" @click="handleSave">{{ $t('ApiSetting.save') }}</el-button>
+      <el-button type="primary" class="save-btn" :loading="saving" :disabled="saving" @click="handleSave">{{ $t('ApiSetting.save') }}</el-button>
     </div>
   </div>
 </template>
@@ -103,6 +103,7 @@ const settingForm = ref<ApiSetting>({
   apiAlias: '',
   apiTableInfo: []
 });
+const saving = ref(false);
 const apiTableInfo = computed<ApiTableSetting[]>({
   get: () => settingForm.value.apiTableInfo,
   set: () => { }
@@ -176,7 +177,10 @@ async function validAlias(alias: string, type: AliasType, appId: string, tableId
 }
 
 async function handleSave() {
-  elFormRef.value.validate(async (valid: boolean, fields: any) => {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    const valid = await elFormRef.value.validate().catch(() => false);
     if (!valid) return;
     await axios.post('project/api-setting', settingForm.value).then(res => {
       settingForm.value = res.data.data;
@@ -185,7 +189,9 @@ async function handleSave() {
         isChanged.value = false;
       });
     });
-  });
+  } finally {
+    saving.value = false;
+  }
 }
 
 watch(() => settingForm.value, (newVal, oldVal) => {

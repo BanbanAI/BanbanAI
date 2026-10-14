@@ -8,7 +8,7 @@
       </div>
       <template #footer>
         <el-button class="cancel" @click="dialogVisible = false">{{ $t('WorkbenchAddUserDialog.cancel') }}</el-button>
-        <el-button type="primary" class="confirm" @click="handleConfirm">{{ $t('WorkbenchAddUserDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('WorkbenchAddUserDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -27,6 +27,7 @@ const emit = defineEmits<{
 const dialogVisible = ref(false);
 const type = ref<'add' | 'edit'>('add');
 const userInfoCoreRef = ref();
+const loading = ref(false);
 const title = computed(() => {
   if (type.value === 'add') return i18next.t('WorkbenchAddUserDialog.addUser');
   return i18next.t('WorkbenchAddUserDialog.editUser');
@@ -48,8 +49,10 @@ const handleClosed = () => {
 }
 
 const handleConfirm = () => {
+  if (loading.value) return;
   userInfoCoreRef.value.validate(async (valid: boolean) => {
     if (valid) {
+      loading.value = true;
       try {
         const success = await new Promise((resolve) => {
           emit('confirm', userInfoCoreRef.value.serialize(), type.value, resolve);
@@ -59,6 +62,8 @@ const handleConfirm = () => {
         }
       } catch (error) {
         console.log(error);
+      } finally {
+        loading.value = false;
       }
     }
   });

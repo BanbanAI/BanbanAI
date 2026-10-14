@@ -14,7 +14,7 @@
       <template #footer>
         <div class="btns">
           <el-button class="cancel" @click="emit('update:modelValue', false)">{{ $t('RecycleRestoreDialog.cancel') }}</el-button>
-          <el-button class="confirm" type="primary" @click="handleConfirm">{{ $t('RecycleRestoreDialog.confirm') }}</el-button>
+          <el-button class="confirm" type="primary" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('RecycleRestoreDialog.confirm') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -22,6 +22,7 @@
 </template>
 
 <script setup lang='ts'>
+import { ref } from 'vue';
 import { isMobile } from '@renderer/utils';
 
 const props = defineProps<{
@@ -31,6 +32,7 @@ const props = defineProps<{
   restoreTip?: string;
   isNoneSummary?: boolean;
   restoreWarningText?: string;
+  action?: () => Promise<boolean | void> | boolean | void;
 }>();
 
 const emit = defineEmits<{
@@ -38,9 +40,22 @@ const emit = defineEmits<{
   (event: 'confirm'): void;
 }>();
 
-const handleConfirm = () => {
-  emit('confirm');
-  emit('update:modelValue', false);
+const loading = ref(false);
+const handleConfirm = async () => {
+  if (loading.value) return;
+  if (!props.action) {
+    emit('confirm');
+    emit('update:modelValue', false);
+    return;
+  }
+  loading.value = true;
+  try {
+    const result = await props.action();
+    if (result !== false) emit('update:modelValue', false);
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 </script>
 

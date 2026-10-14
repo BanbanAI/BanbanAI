@@ -92,7 +92,7 @@
       </div>
     </div>
     <hr>
-    <el-button class="save-button" @click="savePermissions" type="primary">{{ $t('NocodeFormPermission.save') }}</el-button>
+    <el-button class="save-button" :loading="isSaving" :disabled="isSaving" @click="savePermissions" type="primary">{{ $t('NocodeFormPermission.save') }}</el-button>
   </div>
 </template>
 
@@ -238,7 +238,11 @@ const clickTab = (type: keyof DataPermissionContent) => {
 //   }
 // }, 500)
 
-const savePermissions = debounce(async () => {
+const isSaving = ref(false);
+const savePermissions = async () => {
+  if (isSaving.value) return;
+  isSaving.value = true;
+  try {
   if(!isChanged.value) return;
   if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
   nocode.value.body.permissions.data = deepClone(toRaw(formPermissions.value))
@@ -262,7 +266,10 @@ const savePermissions = debounce(async () => {
     }
     isChanged.value = false
   }
-}, 500)
+  } finally {
+    isSaving.value = false;
+  }
+}
 
 watch(
   () => formPermissions.value,

@@ -7,7 +7,7 @@
       <nocode-img-core ref="nocodeImgCoreRef" :nocode="nocode"></nocode-img-core>
       <template #footer>
         <el-button @click="handleClose">{{ $t("reportReplaceImgDialog.cancel") }}</el-button>
-        <el-button type="primary" @click="handleConfirm">{{ $t("reportReplaceImgDialog.confirm") }}</el-button>
+        <el-button type="primary" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t("reportReplaceImgDialog.confirm") }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -33,26 +33,32 @@ const emit = defineEmits<{
 
 const nocodeImgCoreRef = ref(null)
 const nocodeSignIsLatest = inject(NOCODE_SIGN_IS_LATEST, null)
+const loading = ref(false)
 
 const handleConfirm = async () => {
-  if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
-  const formData = await nocodeImgCoreRef.value.getFormData()
-  if (!formData || !props.nocode?.id) return;
+  if (loading.value || !checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
+  loading.value = true;
+  try {
+    const formData = await nocodeImgCoreRef.value.getFormData()
+    if (!formData || !props.nocode?.id) return;
 
-  const result = await projectApi.uploadNocodeSnapshot({
-    nocodeId: props.nocode.id,
-    formData,
-    sign: props.nocodeBody?.sign,
-  }).catch((err) => {
-    handleNocodeSyncConflictError(err, nocodeSignIsLatest)
-    console.log('snapshot save failed: ', err);
-  });
-  if (result) {
-    nocodeImgCoreRef.value.handleAddVersion()
-    const mainSign = result.sign;
-    if (props.nocodeBody && mainSign) props.nocodeBody.sign = mainSign;
-    handleClose();
-    emit('updateNocodeCoverImage', props.nocode.id, result.cover, result.snapshot);
+    const result = await projectApi.uploadNocodeSnapshot({
+      nocodeId: props.nocode.id,
+      formData,
+      sign: props.nocodeBody?.sign,
+    }).catch((err) => {
+      handleNocodeSyncConflictError(err, nocodeSignIsLatest)
+      console.log('snapshot save failed: ', err);
+    });
+    if (result) {
+      nocodeImgCoreRef.value.handleAddVersion()
+      const mainSign = result.sign;
+      if (props.nocodeBody && mainSign) props.nocodeBody.sign = mainSign;
+      handleClose();
+      emit('updateNocodeCoverImage', props.nocode.id, result.cover, result.snapshot);
+    }
+  } finally {
+    loading.value = false;
   }
 };
 
