@@ -67,7 +67,7 @@ const serverEndpoint = 'https://api.banban.work';
     AmapService,
   ],
   controllers: [ ClientController ],
-  exports: [ SERVER_ENDPOINT, PROJECTS_DIR, REPORTS_DIR, NOCODES_DIR, UPLOADS_DIR, UserRest, MarketRest, WarehouseRest, DownloadRest, AIRest ],
+  exports: [ SERVER_ENDPOINT, PROJECTS_DIR, REPORTS_DIR, NOCODES_DIR, UPLOADS_DIR, UserRest, MarketRest, WarehouseRest, DownloadRest, AIRest, SystemMigrationService ],
 })
 export class ClientModule implements NestModule {
   private readonly logger = new Logger(ClientModule.name);

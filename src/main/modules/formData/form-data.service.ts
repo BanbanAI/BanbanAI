@@ -7902,7 +7902,12 @@ export class FormDataService implements OnApplicationBootstrap {
         
           const primaryTableUID = table?.meta?.extra?.primaryTable?.[1];
           if (!primaryTableUID) {
-            const orQuery = await this.ownerGroupToQuery(res, table, stage);
+            const orQuery = await this.ownerGroupToQuery(
+              res,
+              table,
+              stage,
+              stage === FormDataStage.DELETED ? { ignoreStageCondition: true } : undefined,
+            );
             if (isEmpty(orQuery)) {
               andValue.push({
                 [uuidField ? getDbColumnKey(uuidField) : "_id"]: 1234567890
@@ -7917,6 +7922,9 @@ export class FormDataService implements OnApplicationBootstrap {
               }
             }
           }
+          if (!primaryTableUID && stage !== FormDataStage.DELETED) {
+            group.enabledStage = false;
+          }
 
           if (andValue.length > 1) {
             group.filters[tableUID] = [{
@@ -7925,7 +7933,6 @@ export class FormDataService implements OnApplicationBootstrap {
           } else {
             group.filters[tableUID] = andValue;
           }
-          group.enabledStage = false;
         }));
       }));
     }

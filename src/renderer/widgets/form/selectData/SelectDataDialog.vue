@@ -1,7 +1,7 @@
 <template>
-  <div class="select-data-dialog" :style="{ '--dialog-footer-height': widget.isMultiple ? '49px' : '0px' }">
+  <div class="select-data-dialog" :style="{ '--dialog-footer-height': isMultiple ? '49px' : '0px' }">
     <el-dialog :modelValue="modelValue" @update:modelValue="emit('update:modelValue', $event)" :title="$t('selectDataTitle')"
-      width="1008" align-center :close-on-click-modal="false" :close-on-press-escape="!isLoading" :show-close="!isLoading" @open="onOpen" :fullscreen="isFullscreen" :style=" { height: isFullscreen ? '100%' : '60%' }">
+      width="1008" align-center :close-on-click-modal="false" :close-on-press-escape="!isLoading" :show-close="!isLoading" :fullscreen="isFullscreen" :style=" { height: isFullscreen ? '100%' : '60%' }">
       <template #header>
         <div class="title">{{ $t("selectDataTitle") }}</div>
         <div class="menus">
@@ -14,11 +14,11 @@
         </div>
       </template>
       <div class="content" v-loading="isLoading" element-loading-custom-class="select-data-loading" :element-loading-text="$t('mergeDataLoading')">
-        <nocode-permission-table :nocodeId="widget.nocodeId" ref="nocodeTableRef" permissionMode="data" :isFilterEmptyValue="false"
-          :tableUID="widget.connectionTable[1]" :click-row-checked="!widget.allowEditRow" v-if="widget" :isAddDataAble="widget.allowAddNewRow"
-          @toggleCheckboxRow="handleSelectRow" @toggleCheckAll="handleSelectAll" @closeDialog="handleClosedAddDialog" :isMultiple="widget.isMultiple" @changeRows="handleChangeRows" @submitted="handleSubmitted"
+        <nocode-permission-table v-if="widget && filterReady" :nocodeId="widget.nocodeId" ref="nocodeTableRef" permissionMode="data" :isFilterEmptyValue="false"
+          :tableUID="widget.connectionTable[1]" :click-row-checked="!widget.allowEditRow" :isAddDataAble="widget.allowAddNewRow"
+          @toggleCheckboxRow="handleSelectRow" @toggleCheckAll="handleSelectAll" @closeDialog="handleClosedAddDialog" :isMultiple="isMultiple" @changeRows="handleChangeRows" @submitted="handleSubmitted"
           :preHiddenColumns="preHiddenColumns" :preRequiredColumns="preRequiredColumns" :isEditDataAble="widget.allowEditRow" :isImportDataAble="false" :isExportDataAble="false" :clickRowShowDetail="widget.allowEditRow"
-          :isShowMoreMenu="false" :hideColumnsAble="false" :preFilterRule="widget.formDataFilter" :addNewRowData="addNewRowData" :tableViewMeta="{}">
+          :isShowMoreMenu="false" :hideColumnsAble="false" :preFilterRule="runtimeFormDataFilter" :addNewRowData="addNewRowData" :tableViewMeta="{}">
           <template #checkbox="{ row, checked }">
             <el-checkbox :modelValue="isSelected(row)" :value="true" style="height: 22px; width: 18px;" />
           </template>
@@ -27,7 +27,7 @@
           </template>
         </nocode-permission-table>
       </div>
-      <template #footer v-if="widget.isMultiple">
+      <template #footer v-if="isMultiple">
         <el-button type="primary" :loading="isLoading" :disabled="isLoading" @click="handleConfirm">{{ i18next.t("confirm") }}</el-button>
       </template>
     </el-dialog>
@@ -35,36 +35,42 @@
 </template>
 
 <script lang='ts' setup>
-import { computed, ref, toRaw, watch } from 'vue';
-import { useRuntime } from '@renderer/utils/other';
+import { computed, nextTick, ref, toRaw, watch } from 'vue';
 import { useWidget } from '@renderer/b2/types';
-import { FormElement, SubFormRow } from '@renderer/b2/controllers/form';
+import { FormElement } from '@renderer/b2/controllers/form';
 import { deepClone, equals, isEmpty } from '@common/utils/object';
 import { getSelectDataPreHiddenColumns, SelectData } from './selectData';
 import { ElMessage } from 'element-plus';
-import IEpPlus from "~icons/ep/plus";
-import IVenIconFullScreen from '~icons/ven-icon/widget-form-select-data-full-screen';
-import IVenIconExitFullScreen from '~icons/ven-icon/widget-form-select-data-exit-fullscreen';
 import { debounce } from "lodash";
 import { CurrentFieldWrapperOperator, SelectIdOfForm } from './types';
 import { useSelectDataStore } from './store';
 import { getCurrentRowData } from '../_common/utils';
 import i18next, { $t } from "@renderer/widgets/i18next";
 import { FormMode } from '../_common/type';
+import type { CellAddress } from '../subForm/runtime/types';
 
+export type RuntimeSelectDataContext = {
+  readonly address: CellAddress;
+  readonly multiple: boolean;
+  readonly rowRevision?: number;
+  readonly initialSelectedRows?: Record<string, any[]>;
+};
 
 const props = defineProps<{
   modelValue: boolean,
+  runtime?: RuntimeSelectDataContext,
 }>();
 const emit = defineEmits<{
   (event: "update:modelValue", value: boolean): void
-  (event: "select", value: typeof selectedRows.value);
+  (event: "select", value: typeof selectedRows.value): void;
+  (event: "fill-start"): void;
+  (event: "fill-error"): void;
 }>();
 
 const widget = useWidget<SelectData>();
-const pageNumber = ref(1);
-const pageSize = ref(20);
-const total = ref(0);
+const runtimeContext = computed(() => props.runtime);
+const isRuntime = computed(() => Boolean(runtimeContext.value));
+const isMultiple = computed(() => runtimeContext.value?.multiple ?? widget.isMultiple);
 const isShowAdd = ref(false);
 const nocodeTableRef = ref()
 const isFullscreen = ref(false);
@@ -72,10 +78,27 @@ const selectDataStore = useSelectDataStore();
 const shouldRefreshAfterSubmit = ref(false);
 const lastSubmittedMode = ref<FormMode | null>(null);
 const isLoading = ref(false);
+let refreshGeneration = 0;
 
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
+const runtimeFormDataFilter = computed(() => widget.runtimeFormDataFilter);
 const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
+let filterWatchersInitialized = false;
+const filterReady = ref(false);
+
+const refreshMountedTable = async (generation: number) => {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await nextTick();
+    if (generation !== refreshGeneration || !props.modelValue) return;
+    const table = nocodeTableRef.value;
+    if (table?.getAllColumns?.()?.length) {
+      await table.refreshData?.(true);
+      return;
+    }
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  }
+};
 
 if (!selectDataStore[widget.uid]) {
   isShowAdd.value = true;
@@ -92,7 +115,7 @@ const handleSelectRow = (row) => {
     delete selectedRows.value[row[widget.uuidKey]];
   } else {
     const selectRow = [row];
-    if (widget.isMultiple) {
+    if (isMultiple.value) {
       selectedRows.value[row[widget.uuidKey]] = selectRow;
     } else {
       selectedRows.value = {
@@ -100,7 +123,7 @@ const handleSelectRow = (row) => {
       };
     }
   }
-  if (!widget.isMultiple) void handleConfirm();
+  if (!isMultiple.value) void handleConfirm();
 }
 
 const handleSubmitted = (submitType?: FormMode) => {
@@ -163,11 +186,14 @@ const enrichSelectedRows = async () => {
 const handleConfirm = async () => {
   if (isLoading.value) return;
   isLoading.value = true;
+  emit("fill-start");
   try {
     selectedRows.value = await enrichSelectedRows();
     syncWidgetSelectedRows();
     emit('update:modelValue', false);
     emit('select', toRaw(selectedRows.value));
+  } catch {
+    emit("fill-error");
   } finally {
     isLoading.value = false;
   }
@@ -185,32 +211,20 @@ const addNewRowData = computed(() => {
 
 const isSharePage = ref(false);
 const onOpen = async () => {
-  selectedRows.value = deepClone(widget.selectedRows);
+  const generation = ++refreshGeneration;
+  selectedRows.value = deepClone(runtimeContext.value?.initialSelectedRows || (isRuntime.value ? {} : widget.selectedRows));
   syncTableCheckedRows();
   shouldRefreshAfterSubmit.value = false;
-  handleFilterRulesFieldsValue();
+  if (!filterWatchersInitialized) {
+    filterWatchersInitialized = true;
+    handleFilterRulesFieldsValue();
+  }
+  filterReady.value = true;
+  void refreshMountedTable(generation);
   isSharePage.value = window.location.href.includes('share');
   if (widget.shouldShowSubTableAddDisabledTip) {
     ElMessage.warning(i18next.t("subTableAddDisabledTip"));
   }
-}
-
-// 有打开的添加弹窗不显示添加按钮
-const hasOpenAddDialog = () => {
-  const dialogs = document.querySelectorAll('.data-form-dialog');
-  for (let dialog of dialogs) {
-    const overlay = dialog.querySelector('.el-overlay');
-
-    if (overlay) {
-      const style = window.getComputedStyle(overlay);
-
-      if (style.display !== 'none') {
-        return false;
-      }
-    }
-  }
-
-  return true;
 }
 
 // 监听筛选中所选的当前表单的字段值变化
@@ -249,29 +263,44 @@ const handleFilterRulesFieldsValue = () => {
   })
 }
 
+watch(() => props.modelValue, (value) => {
+  if (value) {
+    void onOpen();
+  } else {
+    refreshGeneration += 1;
+    filterReady.value = false;
+  }
+}, { immediate: true });
+
+watch(() => runtimeFormDataFilter.value?.conditions, () => {
+  if (!props.modelValue || !filterReady.value) return;
+  void nocodeTableRef.value?.refreshData?.(true);
+}, { deep: true, flush: "post" });
+
 const handleClosedAddDialog = () => {
   selectDataStore.close(widget.uid);
 }
 
-const syncWidgetSelectedRows = () => {
-  if (isEmpty(selectedRows.value)) return;
-  if (equals(widget.selectedRows, selectedRows.value)) return;
+const syncWidgetSelectedRows = (rows: Record<string, any[]> = selectedRows.value) => {
+  if (isRuntime.value) return;
+  if (isEmpty(rows)) return;
+  if (equals(widget.selectedRows, rows)) return;
 
-  widget.selectedRows = deepClone(selectedRows.value);
+  widget.selectedRows = deepClone(rows);
   widget.updateLastChangeTime();
 }
 
 const applySelectedRowsAfterRefresh = async (shouldTriggerFillRules = false) => {
   syncWidgetSelectedRows();
 
-  if (!shouldTriggerFillRules || isEmpty(selectedRows.value)) return;
+  if (isRuntime.value || !shouldTriggerFillRules || isEmpty(selectedRows.value)) return;
 
   await widget.onFillData(toRaw(selectedRows.value));
 }
 
 const refreshSelectData = async (shouldTriggerFillRules = false) => {
   const showRows = nocodeTableRef.value?.getShowRows();
-  if (widget.isMultiple) {
+  if (isMultiple.value) {
     const rows = {}
     showRows.forEach(row => {
       if (isSelected(row)) {

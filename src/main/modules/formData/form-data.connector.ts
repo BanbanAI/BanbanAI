@@ -234,7 +234,12 @@ export class FormDataConnector implements IConnector<FormDataOptions, RawData, F
           if (column.subType === "date") {
             row[column.uid] = dayjs(row[column.uid]).format(format);
           } else if (column.subType === "daterange") {
-            row[column.uid] = row[column.uid].map(item => dayjs(item).format(format));
+            row[column.uid] = row[column.uid].map(item => {
+              if (item === null || item === undefined || item === "") return item;
+              const date = dayjs(item);
+              if (!date.isValid()) return item === "Invalid Date" ? "" : item;
+              return date.format(format);
+            });
           }
         } catch (err) {
           this.logger.error(`[formatData] format data context table=${table?.meta?.uid || options?.optionTableId} uuid=${row?.[SystemField.UUID]} todoId=${row?.[SystemField.TODO_ID]} columnUid=${column.uid} columnName=${column.name} valueType=${Array.isArray(row[column.uid]) ? "array" : typeof row[column.uid]}`);

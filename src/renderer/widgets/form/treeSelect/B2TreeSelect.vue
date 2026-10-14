@@ -572,7 +572,7 @@ const confirmAddOption = async () => {
 
 
 onMounted(() => {
-  if (!widget.isEditable) {
+  if (!widget.isEditable && !widget.usesRuntimeOptionService) {
     handleFilterRulesFieldsValue()
   }
 })

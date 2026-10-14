@@ -28,6 +28,32 @@ export class DbManager {
 
   private _dbs = new Map<string, Promise<BaseDb>>();
   private connections: Record<string, DatabaseConnection> = {};
+  private connectionPromises = new Map<string, Promise<void>>();
+
+  private async getConnectedConnection(
+    key: string,
+    type: Exclude<FormDatabaseType, FormDatabaseType.EMBEDDED>,
+    config: FormDatabaseConfig,
+  ) {
+    const connection = this.connections[key] || (this.connections[key] = new DatabaseConnection(type, config));
+    let connectPromise = this.connectionPromises.get(key);
+    if (!connectPromise) {
+      const pendingConnect: Promise<void> = connection.connect().catch(error => {
+        if (this.connectionPromises.get(key) === pendingConnect) {
+          this.connectionPromises.delete(key);
+        }
+        if (!connection.isConnected && this.connections[key] === connection) {
+          delete this.connections[key];
+        }
+        throw error;
+      });
+      this.connectionPromises.set(key, pendingConnect);
+      connectPromise = pendingConnect;
+    }
+    await connectPromise;
+    return connection;
+  }
+
   private async _getDB(nocodeId: string, table: FormDataTable, options: DBInfo & { type: FormDatabaseType }, scope: FormDataStoreScope = "main"): Promise<BaseDb> {
     const { type, ...config } = options;
     if (type === FormDatabaseType.EMBEDDED) {
@@ -41,11 +67,8 @@ export class DbManager {
       if (isEmpty(config)) throw new Error(global.i18next.t('dbManager.dbConnNotConfigured'));
       const connectionConfig = config as FormDatabaseConfig;
       const key = md5(JSON.stringify(connectionConfig));
-      if (!this.connections[key]) {
-        this.connections[key] = new DatabaseConnection(type, connectionConfig);
-        await this.connections[key].connect();
-      }
-      const db = await this.connections[key].getDb(nocodeId, table.uid, scope);
+      const connection = await this.getConnectedConnection(key, type, connectionConfig);
+      const db = await connection.getDb(nocodeId, table.uid, scope);
       return db;
     }
   }

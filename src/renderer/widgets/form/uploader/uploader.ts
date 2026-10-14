@@ -140,13 +140,15 @@ export class Uploader extends FormElement {
     formData.append("nocodeId", this.getBoard().nocodeId || "");
     const res = await axios.post("/uploader/uploadFile", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      signal: (options as UploadRequestOptions & { signal?: AbortSignal }).signal,
       onUploadProgress: (progressEvent) => {
-        let percent = Math.floor((progressEvent.loaded / progressEvent.total) * 100);
-        options.onProgress({ ...progressEvent, percent });
+        const total = progressEvent.total || 0;
+        const percent = total ? Math.floor((progressEvent.loaded / total) * 100) : 0;
+        options.onProgress?.({ ...progressEvent, percent });
       },
-    }).catch(({ response }) => {
-      ElMessage.error(response?.data?.message);
-      throw response;
+    }).catch((error) => {
+      if (!axios.isCancel(error)) ElMessage.error(error?.response?.data?.message);
+      throw error;
     });
     return res;
   };

@@ -12,20 +12,21 @@ export class DatabaseConnection {
   }
 
   async connect() {
-    if (this.connection) {
+    if (this.connection && !this.isConnected) {
       return await this.connection.connect();
     }
     return null;
   }
 
   async disconnect() {
-    if (this.connection) {
+    if (this.connection && this.isConnected) {
       return await this.connection.close();
     }
     return null;
   }
 
   async getDb(nocodeId: string, tableId: string, scope: FormDataStoreScope = "main") {
+    if (!this.isConnected) await this.connect();
     if (this.connection) {
       const collectionName = scope === "draft"
         ? `${nocodeId}_draft_${tableId}`
