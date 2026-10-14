@@ -229,6 +229,25 @@ export function getWidgets(): FormFieldTypeClassify[] {
   ]
 }
 
+function excelSerialToDate(serial: number, date1904: boolean): Date | null {
+  const dateInfo = XLSX.SSF.parse_date_code(serial, { date1904 });
+  if (!dateInfo) return null;
+  return new Date(dateInfo.y, dateInfo.m - 1, dateInfo.d, dateInfo.H, dateInfo.M, dateInfo.S, Math.round((dateInfo.u ?? 0) * 1000));
+}
+
+function parseDateCells(rows: any[][], worksheet: XLSX.WorkSheet, range: XLSX.Range, date1904: boolean) {
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const row = rows[R - range.s.r];
+    if (!row) continue;
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const cell = worksheet[utilsXlsx.encode_cell({ c: C, r: R })];
+      if (cell?.t !== 'n' || !XLSX.SSF.is_date(cell.z)) continue;
+      const date = excelSerialToDate(cell.v, date1904);
+      if (date) row[C - range.s.c] = date;
+    }
+  }
+}
+
 export async function parseExcelData(file: File, maxRows?: number): Promise<ExcelFileData> {
   if (!file) {
     throw new Error(i18next.t("importExcelFileNotFound"));
@@ -245,7 +264,8 @@ export async function parseExcelData(file: File, maxRows?: number): Promise<Exce
 
   // 读取文件并解析为工作簿对象
   const fileArrayBuffer = await file.arrayBuffer();
-  const workbook = readXlsx(fileArrayBuffer, { cellDates: true, cellText: false });
+  const workbook = readXlsx(fileArrayBuffer, { cellDates: false, cellText: false, cellNF: true });
+  const date1904 = !!workbook.Workbook?.WBProps?.date1904;
   // 获取所有表名
   const sheetNames = workbook.SheetNames;
   let originSheetsData: ExcelFileData['originSheetsData'] = {};
@@ -263,6 +283,7 @@ export async function parseExcelData(file: File, maxRows?: number): Promise<Exce
 
     // 将工作表转换为JSON格式
     const jsonData = utilsXlsx.sheet_to_json(worksheet, { header: 1, raw: true });
+    parseDateCells(jsonData as any[][], worksheet, range, date1904);
 
     // 如果传入maxRows参数，则限制读取的行数，否则读取所有行
     let maxRowsToRead = maxRows !== undefined ? Math.min(jsonData.length, maxRows) : jsonData.length;
@@ -298,10 +319,12 @@ function parseDataType(worksheet: XLSX.WorkSheet, range: XLSX.Range): string[][]
     for (let C = range.s.c; C <= range.e.c; C++) {
       const cellAddress = { c: C, r: R };
       const cellRef = utilsXlsx.encode_cell(cellAddress);
-      const cellType = worksheet[cellRef]?.t ?? null;
+      const cell = worksheet[cellRef];
+      const cellType = cell?.t ?? null;
+      const type = cellType === 'n' && XLSX.SSF.is_date(cell.z) ? 'date' : typeMap[cellType];
 
       if (!typeData[R - range.s.r]) typeData[R - range.s.r] = [];
-      typeData[R - range.s.r][C - range.s.c] = typeMap[cellType];
+      typeData[R - range.s.r][C - range.s.c] = type;
     }
   }
   return typeData;
