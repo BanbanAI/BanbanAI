@@ -52,14 +52,42 @@
       <!-- 右侧options -->
       <div class="filter-wrapper" v-if="!isMobileDevice">
         <view-action-button-group
-          v-if="viewActionItems.length"
+          v-if="viewActionItems.length && !isCompact"
           class="view-actions"
           :items="viewActionItems"
           :maxVisible="2"
           size="small"
           @execute="emit('executeViewAction', $event)"
         />
-        <el-input :placeholder="$t('TableHeader.searchData')" v-model="searchValue" clearable @change="searchValueChange" v-if="tableProps.searchable" v-click-outside="onClickSearchOutside">
+        <el-dropdown
+          v-if="viewActionItems.length && isCompact"
+          trigger="click"
+          placement="bottom-end"
+          popper-class="table-view-actions-dropdown"
+          :teleported="false"
+          @command="handleCompactViewAction"
+        >
+          <div class="compact-action-button" :title="$t('TableHeader.viewActions')">
+            <el-icon :size="16"><i-ven-pick-operate /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="item in viewActionItems"
+                :key="item.action.id"
+                :command="item.action"
+                :disabled="item.disabled"
+                :title="item.disabled ? item.tip : ''"
+              >
+                <el-icon v-if="item.action.display?.icon" class="action-icon">
+                  <component :is="item.action.display.icon" />
+                </el-icon>
+                <span>{{ item.action.display?.label || item.action.name }}</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-input class="main-search-input" :placeholder="$t('TableHeader.searchData')" v-model="searchValue" clearable @change="searchValueChange" v-if="tableProps.searchable && !isCompact" v-click-outside="onClickSearchOutside">
           <template #prefix>
             <el-icon :size="16"><i-ep-search /></el-icon>
           </template>
@@ -81,6 +109,64 @@
           </el-popover>
         </template>
       </el-input>
+        <el-popover
+          v-if="tableProps.searchable && isCompact"
+          placement="bottom-end"
+          trigger="click"
+          :width="240"
+          :visible="searchVisible"
+          popper-class="compact-search-popover"
+          :popper-style="{'border':'none','backgroundColor':'#fff'}"
+          :teleported="false"
+          @show="handleSearchShow"
+        >
+          <template #reference>
+            <div class="compact-btn" ref="searchBtnRef" :title="$t('TableHeader.searchData')" @click="handleCompactSearchToggle">
+              <el-icon :size="16"><i-ep-search /></el-icon>
+            </div>
+          </template>
+          <div ref="compactSearchPanelRef">
+            <el-input
+              :placeholder="$t('TableHeader.searchData')"
+              v-model="searchValue"
+              clearable
+              @change="searchValueChange"
+              :ref="(el) => compactSearchInputRef = el"
+              :style="{'--el-input-border-radius':'4px'}"
+            >
+              <template #prefix>
+                <el-icon :size="16"><i-ep-search /></el-icon>
+              </template>
+              <template #append>
+                <el-popover
+                  :visible="searchFieldsPopoverVisible"
+                  popper-class="search-select-field-popover"
+                  trigger="click"
+                  placement="bottom-end"
+                  :show-arrow="false"
+                  :offset="4"
+                  :teleported="false"
+                >
+                  <template #reference>
+                    <el-button class="trigger-select-field-popover-btn" @click.stop="handlePopoverVisibleChange()">
+                      <el-icon :size="16" v-if="!searchFieldsPopoverVisible"><ArrowDown /></el-icon>
+                      <el-icon :size="16" v-else><ArrowUp /></el-icon>
+                    </el-button>
+                  </template>
+                  <template #default>
+                    <div ref="compactSearchFieldsPopoverContentRef">
+                      <el-scrollbar max-height="236">
+                        <div class="field-item" v-for="field in searchFields" :key="field.uid">
+                          <el-checkbox :label="field.alias" :model-value="activeSearchField.includes(field.uid)" @click="handleChangeSearchField(field.uid)"></el-checkbox>
+                        </div>
+                      </el-scrollbar>
+                    </div>
+                  </template>
+                </el-popover>
+              </template>
+            </el-input>
+          </div>
+        </el-popover>
         <table-filter v-if="tableProps.filterable && widget.filterDisplayMode === 'popover'" />
         <table-display-fields v-if="tableProps.hideColumnsAble" />
         <table-sort v-if="tableProps.sortable" />
@@ -616,11 +702,12 @@ const rowHeightRadio = ref(1);
 const headerRef = ref<HTMLElement>();
 const isCompact = ref(false);
 const searchBtnRef = ref<HTMLElement>();
+const COMPACT_HEADER_WIDTH = 900;
 
 const { stop: stopHeaderResizeObserver } = useResizeObserver(headerRef, (entries) => {
   const entry = entries[0];
   const { width } = entry.contentRect;
-  isCompact.value = width <= 830;
+  isCompact.value = width <= COMPACT_HEADER_WIDTH;
 });
 const searchInputRef = ref();
 
@@ -1558,11 +1645,15 @@ const handleCompactSearchToggle = () => {
   searchVisible.value = true;
 }
 
+const handleCompactViewAction = (action: ViewAction) => {
+  emit('executeViewAction', action);
+}
+
 const onClickOutside = (ev) => {
   morePopoverVisible.value = false;
+  const target = ev.target as HTMLElement;
 
-  if (headerOptionsShowMode.value === 'right-compact' && searchVisible.value) {
-    const target = ev.target as HTMLElement;
+  if ((headerOptionsShowMode.value === 'right-compact' || isCompact.value) && searchVisible.value) {
     const compactSearchInput = compactSearchInputRef.value?.$el;
     const compactSearchPanel = compactSearchPanelRef.value;
     const searchFieldPopover = compactSearchFieldsPopoverContentRef.value;
@@ -1700,6 +1791,7 @@ const onClickSearchOutside = () => {
     display: flex;
     column-gap: 8px;
     width: auto;
+    flex-shrink: 0;
     .el-button{
       width: 64px;
       height: 32px;
@@ -1753,6 +1845,31 @@ const onClickSearchOutside = () => {
     display: flex;
     align-items: center;
     column-gap: 8px;
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-end;
+
+    .compact-btn,
+    .compact-action-button {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+
+      &:hover {
+        background-color: var(--bg-color-overlay);
+        color: var(--color-primary);
+      }
+    }
+
+    .compact-action-button {
+      color: var(--text-color-regular);
+    }
 
     .view-actions {
       flex-shrink: 0;
@@ -1768,6 +1885,8 @@ const onClickSearchOutside = () => {
     :deep(.el-input) {
       --el-input-border-radius: 4px;
       width: 272px;
+      min-width: 200px;
+      flex: 0 1 272px;
 
       .el-input-group__append {
         padding: 0 16px !important;
@@ -1778,6 +1897,49 @@ const onClickSearchOutside = () => {
           justify-content: center;
           margin: 0 -16px;
         }
+      }
+    }
+
+    :deep(.table-filter .btn),
+    :deep(.table-display-fields .btn),
+    :deep(.table-sort .btn) {
+      white-space: nowrap;
+    }
+
+    :deep(.table-view-actions-dropdown) {
+      min-width: 160px;
+
+      .el-dropdown-menu__item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+
+        .action-icon {
+          flex-shrink: 0;
+        }
+      }
+    }
+
+    :deep(.compact-search-popover .el-input) {
+      width: 100%;
+      min-width: 0;
+      flex: none;
+    }
+
+    :deep(.compact-search-popover .el-input__wrapper) {
+      border-radius: 4px;
+    }
+
+    :deep(.compact-search-popover .el-input-group__append) {
+      padding: 0 16px !important;
+      background-color: var(--color-white);
+
+      .trigger-select-field-popover-btn {
+        width: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 -16px;
       }
     }
 
@@ -1915,8 +2077,6 @@ const onClickSearchOutside = () => {
     }
 
     :deep(.el-popper) {
-      inset: 35px 0px auto auto !important;
-
       .menu {
         padding: 2px;
         border-radius: 8px;
@@ -1988,9 +2148,15 @@ const onClickSearchOutside = () => {
     }
 
     .filter-wrapper {
+      :deep(.main-search-input) {
+        display: none;
+      }
+
       :deep(.table-filter), 
       :deep(.table-display-fields), 
       :deep(.table-sort) {
+        flex-shrink: 0;
+
         .btn {
           font-size: 0 !important;
           padding: 6px;
