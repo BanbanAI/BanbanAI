@@ -60,16 +60,29 @@ export class FlowFieldReferenceValidationError extends Error {
   constructor(issues: FlowFieldReferenceIssue[]) {
     const first = issues[0];
     const nodeName = first?.nodeName || global.i18next.t("flowFieldReferenceValidator.defaultNodeName");
-    const tableName = first?.tableName || first?.sourceTableName || global.i18next.t("flowFieldReferenceValidator.defaultTargetForm");
+    const tableName = first?.tableName || first?.sourceTableName || global.i18next.t("flowFieldReferenceValidator.targetForm");
     const fieldName = first?.fieldName || first?.sourceFieldName;
     const reason = first?.reason === "source_table_missing" || first?.reason === "form_missing"
-      ? global.i18next.t("flowFieldReferenceValidator.formMissing", { tableName, interpolation: { escapeValue: false } })
+      ? global.i18next.t("flowFieldReferenceValidator.formMissingOrInaccessible", {
+        tableName,
+        interpolation: { escapeValue: false },
+      })
       : fieldName
-        ? global.i18next.t("flowFieldReferenceValidator.fieldMissing", { tableName, fieldName, interpolation: { escapeValue: false } })
-        : global.i18next.t("flowFieldReferenceValidator.incomplete");
-    const location = first?.location ? global.i18next.t("flowFieldReferenceValidator.locationWrapper", { location: first.location }) : "";
-    const count = issues.length > 1 ? global.i18next.t("flowFieldReferenceValidator.issueCount", { issueCount: issues.length }) : "";
-    super(global.i18next.t("flowFieldReferenceValidator.nodeConfigInvalid", { nodeName, issueCount: count, reason, location, interpolation: { escapeValue: false } }));
+        ? global.i18next.t("flowFieldReferenceValidator.fieldMissingOrDeleted", {
+          tableName,
+          fieldName,
+          interpolation: { escapeValue: false },
+        })
+        : global.i18next.t("flowFieldReferenceValidator.nodeConfigIncomplete");
+    const location = first?.location ? global.i18next.t("flowFieldReferenceValidator.locationSuffix", { location: first.location }) : "";
+    const countText = issues.length > 1 ? global.i18next.t("flowFieldReferenceValidator.issueCountPrefix", { issueCount: issues.length }) : "";
+    super(global.i18next.t("flowFieldReferenceValidator.flowEndedMessage", {
+      nodeName,
+      countText,
+      reason,
+      location,
+      interpolation: { escapeValue: false },
+    }));
     this.name = "FlowFieldReferenceValidationError";
     this.issues = issues;
   }
@@ -182,20 +195,24 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
 
   const sourceTables = Array.isArray(options.sourceTables) ? options.sourceTables : [];
   sourceTables.forEach((sourceTable, index) => {
-    const resolved = resolveConfiguredTable(sourceTable, "source_table", global.i18next.t("flowFieldReferenceValidator.sourceTableItem", { index: index + 1 }));
-    if (resolved) validateFilterRule(sourceTable.filterRule, resolved, "source_field", global.i18next.t("flowFieldReferenceValidator.sourceTableFilter", { index: index + 1 }));
+    const location = global.i18next.t("flowFieldReferenceValidator.locationSourceTableItem", { index: index + 1 });
+    const resolved = resolveConfiguredTable(sourceTable, "source_table", location);
+    if (resolved) {
+      validateFilterRule(sourceTable.filterRule, resolved, "source_field", global.i18next.t("flowFieldReferenceValidator.locationSourceTableFilter", { index: index + 1 }));
+    }
   });
 
   const primarySourceTable = options.primarySourceTable as SourceTable | undefined;
   const primaryResolved = primarySourceTable
-    ? resolveConfiguredTable(primarySourceTable, "source_table", global.i18next.t("flowFieldReferenceValidator.primarySourceTable"))
+    ? resolveConfiguredTable(primarySourceTable, "source_table", global.i18next.t("flowFieldReferenceValidator.locationPrimarySourceTable"))
     : undefined;
   if (primaryResolved) {
-    validateFilterRule(primarySourceTable?.filterRule, primaryResolved, "source_field", global.i18next.t("flowFieldReferenceValidator.primarySourceTableFilter"));
+    validateFilterRule(primarySourceTable?.filterRule, primaryResolved, "source_field", global.i18next.t("flowFieldReferenceValidator.locationPrimarySourceTableFilter"));
   }
 
   const targetFields = Array.isArray(options.targetFields) ? options.targetFields as TargetFieldFillRule[] : [];
   targetFields.forEach((item, index) => {
+    const location = global.i18next.t("flowFieldReferenceValidator.locationTargetFieldRuleItem", { index: index + 1 });
     const targetPath = text(item?.fieldUID);
     const targetField = resolveFieldPath(targetTable, targetFormData, targetPath);
     if (!targetField) {
@@ -206,7 +223,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         tableName: targetTable.alias || targetTable.meta?.name,
         fieldUID: targetPath,
         fieldName: targetPath,
-        location: global.i18next.t("flowFieldReferenceValidator.targetFieldRule", { index: index + 1 }),
+        location,
       });
       return;
     }
@@ -214,9 +231,9 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
     if (item.type === TargetFieldFillType.FIELD) {
       const sourceValue = text(item.value);
       if (!sourceValue || sourceValue === "submitter") return;
-      validateSourceField(sourceValue, "source_field", global.i18next.t("flowFieldReferenceValidator.targetFieldRule", { index: index + 1 }), false);
+      validateSourceField(sourceValue, "source_field", location, false);
     } else if (item.type === TargetFieldFillType.FORMULA) {
-      validateFormula(text(item.value), global.i18next.t("flowFieldReferenceValidator.targetFieldFormula", { index: index + 1 }));
+      validateFormula(text(item.value), global.i18next.t("flowFieldReferenceValidator.locationTargetFieldFormulaItem", { index: index + 1 }));
     }
   });
 
@@ -226,13 +243,14 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
     table: targetTable,
     formData: targetFormData,
     alias: targetTable.alias,
-  }, "target_filter_field", global.i18next.t("flowFieldReferenceValidator.targetFormFilter"));
+  }, "target_filter_field", global.i18next.t("flowFieldReferenceValidator.locationTargetFormFilter"));
 
   const currentSubTableFilters = [
     ...(Array.isArray(options.currentSubTableFilters) ? options.currentSubTableFilters : []),
     ...(options.currentSubTableFilter ? [options.currentSubTableFilter] : []),
   ] as CurrentSubTableFilter[];
   currentSubTableFilters.forEach((filter, index) => {
+    const location = global.i18next.t("flowFieldReferenceValidator.locationCurrentSubTableFilterItem", { index: index + 1 });
     const currentSubTableField = findField(currentTable, text(filter.fieldUID));
     const subTableUID = currentSubTableField?.meta?.extra?.subTableUID?.at(-1);
     const subTable = nocodeBody.formData.tables.find(item => item.uid === filter.tableUID);
@@ -244,7 +262,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         tableName: currentTable.alias || currentTable.meta?.name,
         fieldUID: text(filter.fieldUID),
         fieldName: fieldLabel(currentSubTableField, text(filter.fieldUID)),
-        location: global.i18next.t("flowFieldReferenceValidator.currentSubTableFilter", { index: index + 1 }),
+        location,
       });
       return;
     }
@@ -255,7 +273,7 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
       formData: nocodeBody.formData,
       alias: subTable.alias,
     };
-    validateFilterRule(filter.filterRule, subRef, "current_subtable_filter_field", global.i18next.t("flowFieldReferenceValidator.currentSubTableFilter", { index: index + 1 }));
+    validateFilterRule(filter.filterRule, subRef, "current_subtable_filter_field", location);
   });
 
   return issues;
@@ -321,9 +339,9 @@ export function validateEditDataNodeFieldReferences(input: ValidatorInput): Flow
         });
       }
       if (condition?.type === FormConditionValueType.FORM && text(condition.value)) {
-        validateSourceField(text(condition.value), "target_filter_value_field", global.i18next.t("flowFieldReferenceValidator.conditionValue", { location }));
+        validateSourceField(text(condition.value), "target_filter_value_field", global.i18next.t("flowFieldReferenceValidator.locationFilterConditionValue", { location }));
       } else if (condition?.type === FormConditionValueType.FORMULA) {
-        validateFormula(text(condition.formula || condition.value), global.i18next.t("flowFieldReferenceValidator.conditionFormula", { location }));
+        validateFormula(text(condition.formula || condition.value), global.i18next.t("flowFieldReferenceValidator.locationFilterConditionFormula", { location }));
       }
     }
   }
