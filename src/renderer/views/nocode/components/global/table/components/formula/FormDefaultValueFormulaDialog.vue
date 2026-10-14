@@ -85,10 +85,15 @@ defineExpose({
     --el-dialog-padding-primary: 0;
     --el-dialog-bg-color: var(--color-white);
     border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    height: min(682px, 90vh);
     max-height: 90vh;
 
     .el-dialog__header {
+      flex: 0 0 40px;
       height: 40px;
+      box-sizing: border-box;
       border-bottom: 1px solid rgba(0, 0, 0, 0.1);
       display: flex;
       align-items: center;
@@ -100,12 +105,24 @@ defineExpose({
     }
 
     .el-dialog__body {
+      flex: 1 1 auto;
+      min-height: 0;
       padding: 16px;
-      height: 586px;
+      height: auto;
       box-sizing: border-box;
+      overflow: auto;
+
+      .form-default-value-formula-panel {
+        min-height: 516px;
+      }
+
+      .form-default-value-formula-panel__editor {
+        min-height: 516px;
+      }
     }
 
     .el-dialog__footer {
+      flex-shrink: 0;
       padding: 8px 16px 16px;
 
       .el-button {
