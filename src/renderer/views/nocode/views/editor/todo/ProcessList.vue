@@ -7,15 +7,36 @@
         </span>
         <div class="table-container">
           <el-scrollbar>
-            <div class="scrollbar-flex-content">
-              <div class="table-item" v-for="table in item.tables" :key="table.uid">
-                <span class="table-title" :title="table.alias">{{ table.alias }}</span>
-                <span class="table-detail" @click="handleCreate(table, item)">
-                  {{ $t('ProcessList.initiateProcess') }}
-                  <el-icon>
-                    <i-ep-arrow-right/>
-                  </el-icon>
-                </span>
+            <div class="process-table-groups">
+              <div class="scrollbar-flex-content" v-if="item.tables.some(table => table.canInitiate)">
+                <div class="table-item" v-for="table in item.tables.filter(table => table.canInitiate)" :key="table.uid">
+                  <span class="table-title" :title="table.alias">{{ table.alias }}</span>
+                  <span class="table-detail" @click="handleCreate(table, item)">
+                    {{ $t('ProcessList.initiateProcess') }}
+                    <el-icon>
+                      <i-ep-arrow-right/>
+                    </el-icon>
+                  </span>
+                </div>
+              </div>
+              <div class="scrollbar-flex-content" v-if="item.tables.some(table => table.timingTriggers.length)">
+                <template v-for="table in item.tables" :key="table.uid">
+                  <div
+                    class="table-item timing-trigger-item"
+                    v-for="trigger in table.timingTriggers"
+                    :key="`${table.uid}-${trigger.uid}`"
+                  >
+                    <span class="table-title" :title="table.alias">{{ table.alias }}</span>
+                    <span class="timing-trigger-name" :title="trigger.name || $t('ProcessList.timingTrigger')">
+                      <span class="timing-trigger-label">
+                        {{ trigger.name || $t('ProcessList.timingTrigger') }}
+                      </span>
+                      <el-icon :size="14">
+                        <i-ven-icon-timing />
+                      </el-icon>
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </el-scrollbar>
@@ -102,6 +123,12 @@ const handleCreate = (table, nocode) => {
     .table-container {
       width: 100%;
 
+      .process-table-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
       .scrollbar-flex-content {
         height: 100%;
         display: grid;
@@ -116,6 +143,10 @@ const handleCreate = (table, nocode) => {
           border: 1px solid var(--border-color);
           border-left: 4px solid var(--primary-color);
           padding: 8px;
+
+          &.timing-trigger-item {
+            border-left-color: #13b3c2;
+          }
 
           .table-title {
             display: block;
@@ -148,6 +179,23 @@ const handleCreate = (table, nocode) => {
 
             &:hover {
               color: var(--primary-color);
+            }
+          }
+
+          .timing-trigger-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            overflow: hidden;
+            color: var(--text-color-inactive);
+            font-size: 12px;
+            line-height: 16px;
+            white-space: nowrap;
+
+            .timing-trigger-label {
+              min-width: 0;
+              overflow: hidden;
+              text-overflow: ellipsis;
             }
           }
         }

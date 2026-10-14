@@ -1394,11 +1394,22 @@ export type ProjectNode = {
   children?: ProjectNode[],
 }
 
+export type NocodeProcessTimingTrigger = {
+  uid: string,
+  name: string,
+}
+
+export type NocodeProcessTableItem = Table & {
+  canInitiate: boolean,
+  timingTriggers: NocodeProcessTimingTrigger[],
+}
+
 export type NocodeProcessItem = {
   id: string,
   name: string,
   connectionId: ConnectionUID,
-  tables: Table[],
+  formDataUID: string,
+  tables: NocodeProcessTableItem[],
 }
 
 export type KeyValue = {

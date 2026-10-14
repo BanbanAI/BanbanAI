@@ -6710,6 +6710,7 @@
   },
   "ProcessList": {
     "initiateProcess": "发起流程",
+    "timingTrigger": "定时触发",
     "noProcess": "暂无流程"
   },
   "TodoEmpty": {
