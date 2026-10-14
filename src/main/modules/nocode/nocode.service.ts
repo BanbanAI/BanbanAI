@@ -2147,6 +2147,7 @@ export class NocodeService implements OnApplicationBootstrap {
 
   async exportImageAttachment(selectedColumns, rows, excelData, tableName, tableUID) {
     const baseUrl = path.join(os.tmpdir(), "static")
+    const safeTableName = replaceIllegalChars(tableName)
 
     // 过滤图片和附件列
     const filteredColumns = selectedColumns.filter(column => 
@@ -2186,7 +2187,7 @@ export class NocodeService implements OnApplicationBootstrap {
 
     // 将要导出的图片和附件列表保存在本地，并返回给前端
     const excelDownLoadDir = path.join(baseUrl, tableUID);
-    const fileDownLoadDir = path.join(excelDownLoadDir, `${tableName}_${global.i18next.t('nocodeService.attachment')}`);
+    const fileDownLoadDir = path.join(excelDownLoadDir, `${safeTableName}_${global.i18next.t('nocodeService.attachment')}`);
     // 文件夹不存在即创建文件夹
     try {
       await mkdir(fileDownLoadDir, { recursive: true });
@@ -2197,7 +2198,7 @@ export class NocodeService implements OnApplicationBootstrap {
     // 保存Excel文件
     try {
       const excelBuffer = Buffer.from(excelData);
-      const excelFileName = `${replaceIllegalChars(tableName)}.xlsx`;
+      const excelFileName = `${safeTableName}.xlsx`;
       const excelFilePath = path.join(excelDownLoadDir, excelFileName);
       await writeFile(excelFilePath, new Uint8Array(excelBuffer));
       this.logger.log(`${global.i18next.t('nocodeService.excelFileSavedTo')} ${excelFilePath}`);
@@ -2224,11 +2225,11 @@ export class NocodeService implements OnApplicationBootstrap {
     await Promise.all(copyPromises);
     
     // 创建zip文件路径
-    let zipFileName = `${tableName}(${global.i18next.t('nocodeService.data')}+${global.i18next.t('nocodeService.attachment')}).zip`;
+    let zipFileName = `${safeTableName}(${global.i18next.t('nocodeService.data')}+${global.i18next.t('nocodeService.attachment')}).zip`;
     let zipFilePath = path.join(baseUrl, zipFileName);
     // 检查文件是否存在，如果存在则添加uid后缀
     if (existsSync(zipFilePath)) {
-      zipFileName = `${tableName}(${global.i18next.t('nocodeService.data')}+${global.i18next.t('nocodeService.attachment')})_${unique()}.zip`;
+      zipFileName = `${safeTableName}(${global.i18next.t('nocodeService.data')}+${global.i18next.t('nocodeService.attachment')})_${unique()}.zip`;
       zipFilePath = path.join(baseUrl, zipFileName);
     }
 
