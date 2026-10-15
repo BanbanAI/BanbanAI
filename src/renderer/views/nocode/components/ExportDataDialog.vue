@@ -722,9 +722,7 @@ const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
                 dataRow.push(safeCellValue(column, header));
               }
             } else {  // 子表单字段
-              const forwardRow = row[header.parentUID]
-              const reverseRow = [...forwardRow].reverse()  // 创建副本再反转
-              const subRow = reverseRow[i]
+              const subRow = row[header.parentUID]?.[i]
               if (subRow) {
                 const column = subRow[header.uid];
                 if (header.subType === 'relatedData') {
