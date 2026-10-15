@@ -967,7 +967,7 @@ export class Table implements RelatedData {
         const time = this._refreshDataTime.value; // 鏀堕泦鍒锋柊鏃堕棿鍝嶅簲渚濊禆
         const currentPage = this.currentPage; // 鏀堕泦褰撳墠椤电爜鍝嶅簲渚濊禆
         const pageSize = this.pageSize; // 鏀堕泦姣忛〉鏉℃暟鍝嶅簲渚濊禆
-        const orderBy = this.sortFieldsMap;
+        const orderBy = this.requestSortFieldsMap;
         const topLimit = this.normalizedTopLimit;
 
         return { time, currentPage, pageSize, orderBy, topLimit };
@@ -1383,7 +1383,7 @@ export class Table implements RelatedData {
       start = (safeCurrentPage - 1) * safePageSize;
     }
     const limit = topLimit ? Math.min(safePageSize, Math.max(1, topLimit - start)) : safePageSize;
-    const orderBy = value?.orderBy || this.sortFieldsMap || {};
+    const orderBy = value?.orderBy || this.requestSortFieldsMap;
     let response: FormDataFindResponse;
     try {
       response = await formDataApi.find({
@@ -2384,6 +2384,21 @@ export class Table implements RelatedData {
       return prev;
     }, {});
   }
+  get requestSortFieldsMap() {
+    const orderBy = { ...this.sortFieldsMap };
+    if (isEmpty(orderBy)) {
+      const createTimeField = this.getTable(this.formTableUID)?.fields
+        ?.find(field => field.meta?.name === SystemField.CREATE_TIME);
+      if (createTimeField) {
+        orderBy[createTimeField.uid] = SortType.DESC;
+      }
+    }
+    const uniqueKey = this.rowKey;
+    if (!isEmpty(orderBy) && uniqueKey && !(uniqueKey in orderBy)) {
+      orderBy[uniqueKey] = SortType.DESC;
+    }
+    return orderBy;
+  }
   private _filterRules = ref<FilterRule>({
     logic: LogicalOperator.AND,
     conditions: [],
@@ -2772,6 +2787,7 @@ export class Table implements RelatedData {
       const filters = await this.getTableFilter();
       const data = await this.getData(this.formTableUID, {
         filters: filters,
+        orderBy: this.requestSortFieldsMap,
         transformFormData: true,
       });
       rows = data?.rows ?? [];
@@ -2784,13 +2800,19 @@ export class Table implements RelatedData {
       const table = this.getTable(this.formTableUID);
       const uuidFieldUID = table.fields.find((field) => field.meta.name === SystemField.UUID).uid;
       const selectRowUids = checkRows.map((row) => row[uuidFieldUID]);
-      const data = await this.getData(this.formTableUID, { transformFormData: true });
+      const data = await this.getData(this.formTableUID, {
+        orderBy: this.requestSortFieldsMap,
+        transformFormData: true,
+      });
       rows = data?.rows ?? [];
       rows = rows.filter((row) => selectRowUids.includes(row[uuidFieldUID]));
       await this.readSubTableData(rows, new Set(Array.from(this._subTableUIDs.keys())));
       await this.readRelatedTableData(rows);
     } else if(type === ExportType.AllData){
-      const data = await this.getData(this.formTableUID, { transformFormData: true });
+      const data = await this.getData(this.formTableUID, {
+        orderBy: this.requestSortFieldsMap,
+        transformFormData: true,
+      });
       rows = data?.rows ?? [];
     }
 
@@ -2802,7 +2824,7 @@ export class Table implements RelatedData {
       const subTablesRows = {};
       if(type === ExportType.AllData){
         for (const [fieldUID, tableUID] of this._subTableUIDs) {
-          const data = await this.getData(tableUID[1], { transformFormData: true });
+          const data = await this.getData(tableUID[1], { transformFormData: true, orderBy: SortType.ASC });
           subTablesRows[fieldUID] = data?.rows ?? [];
         }
       }
