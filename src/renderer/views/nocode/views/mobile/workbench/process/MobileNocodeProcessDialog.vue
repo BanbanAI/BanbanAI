@@ -66,7 +66,7 @@
 
       <template #footer>
         <div class="button-container" v-if="editable || buttonData.length">
-          <ul>
+          <ul :class="{ 'is-continuing': continueLoading }">
             <li v-for="button in buttonData" :key="button.name" :class="[button.className, { 'is-disabled': actionLoading }]" @click="!actionLoading && button.click()">
               <el-icon>
                 <i-ep-loading v-if="actionLoading" class="is-loading" />
@@ -162,7 +162,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { OptionTableUID, ProcessNodeType, ProcessNodeStatus, Row } from '@common/types/project';
 import { TODO, TodoCategory } from '@common/types/nocode';
 import { formFlowApi, getOperationEmptyRowDisplayText } from '../../../../utils';
-import { canRollbackFlow, getFlowById } from "@common/utils";
+import { canRollbackFlow, getFlowById, isDataProcessingNode } from "@common/utils";
 import i18next from 'i18next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { canShowProcessSubmitButton } from '../../../../utils/process-submit-button';
@@ -187,6 +187,7 @@ const emit = defineEmits<{
   (event: "closed"),
   (event: "opened"),
   (event: "submit"),
+  (event: "continue"),
   (event: "stash"),
   (event: "back"),
   (event: "deleteTodo"),
@@ -200,6 +201,7 @@ const emit = defineEmits<{
 const nocodeFormRef = ref();
 const approvalOpinionDialogRef = ref();
 const finishFlowTipDialogRef = ref();
+const continueLoading = ref(false);
 const passportState = usePassportStore();
 const title = ref("");
 const isBackNode = ref(false);
@@ -242,7 +244,14 @@ const formPlaceholderText = computed(() => {
   return singleOnceNoFormDataText.value;
 });
 const canSubmitTodo = computed(() => {
-  return canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+  return !isDataProcessingNode(props.todo?.type)
+    && canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+});
+const isShowContinueFlow = computed(() => {
+  return !transferOnly.value
+    && props.editable
+    && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
+    && props.todo?.canHandleStuckDataProcessing === true;
 });
 const reportRow = computed(() => {
   return props.todo?.reportData || null;
@@ -618,6 +627,29 @@ const finishFlow = async () => {
   }
 }
 
+const continueFlow = async () => {
+  if (continueLoading.value) {
+    return;
+  }
+  continueLoading.value = true;
+  try {
+    await formFlowApi.continueTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      flowId: resolvedFlowId.value,
+      id: props.todo.id,
+      todoId: props.todo.todoId,
+    });
+    closeDialog();
+    emit("continue");
+  } catch (err) {
+    ElMessage.error(err?.message || i18next.t('formFlowService.statusChangedRefreshTips'));
+  } finally {
+    continueLoading.value = false;
+  }
+}
+
 const isShowTransfer = computed(() => {
   const flow = getFlowById(props.todo?.flows || [], resolvedFlowId.value);
   const allowTransfer = flow?.options?.allowTransfer
@@ -635,11 +667,14 @@ const isShowCanceled = computed(() => {
 })
 
 const isShowFinishFlow = computed(() => {
-  const flow = getFlowById(props.todo?.flows || [], props.todo?.flowId || '');
+  const flow = getFlowById(props.todo?.flows || [], resolvedFlowId.value);
   return !transferOnly.value
     && props.editable
     && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
-    && !!flow?.options?.allowFinishFlow;
+    && (
+      props.todo?.canHandleStuckDataProcessing === true
+      || (!isDataProcessingNode(props.todo?.type) && !!flow?.options?.allowFinishFlow)
+    );
 })
 
 const buttonData = computed(() => {
@@ -689,6 +724,15 @@ const buttonData = computed(() => {
       className: 'danger',
       click: () => {
         finishFlow()
+      },
+    },
+    {
+      name: i18next.t('MobileNocodeProcessDialog.continueFlow'),
+      icon: INocodeProcessFlowGoOn,
+      visible: isShowContinueFlow.value,
+      className: 'primary',
+      click: () => {
+        continueFlow()
       },
     },
     {
@@ -929,6 +973,15 @@ watch(() => ({
             &.danger {
               color: #f9484e;
             }
+
+            &.primary {
+              color: var(--color-primary);
+            }
+          }
+
+          &.is-continuing {
+            pointer-events: none;
+            opacity: 0.6;
           }
         }
       }

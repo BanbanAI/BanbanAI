@@ -1148,6 +1148,9 @@ export type BackTodoOptions = SubmitTodoOptions & {
 export type RejectTodoOptions = Omit<SubmitTodoOptions, "row">;
 export type CancelTodoOptions = Omit<SubmitTodoOptions, "row" | "comment">;
 export type FinishTodoOptions = CancelTodoOptions;
+export type ContinueTodoOptions = Omit<CancelTodoOptions, "todoId"> & {
+  todoId: string,
+};
 export type TransferTodoOptions = CancelTodoOptions & {
   transferOwner: string,
 }
@@ -1348,6 +1351,7 @@ export type TODO = {
   processingTime?: {
     deadlineAt?: number | null,
   },
+  canHandleStuckDataProcessing?: boolean,
   upstream?: {
     todoId: string,
     termination?: "canceled" | "rejected",

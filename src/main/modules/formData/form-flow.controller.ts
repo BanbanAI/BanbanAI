@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, Inject } from '@nestjs/common';
 import { FormFlowService } from './form-flow.service';
-import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, DeleteTodoOptions, FinishTodoOptions, GetAllCategoryTodoCountParams, GetAllProcessParams, GetFlowRecordsParams, GetTodosParams, GetTodoParams, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TransferTodoOptions, TodoCategory, DeleteTodosOptions } from '@common/types/nocode';
+import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, ContinueTodoOptions, DeleteTodoOptions, FinishTodoOptions, GetAllCategoryTodoCountParams, GetAllProcessParams, GetFlowRecordsParams, GetTodosParams, GetTodoParams, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TransferTodoOptions, TodoCategory, DeleteTodosOptions } from '@common/types/nocode';
 import { isSystemAdminAccount } from '@common/types/account';
 import { Request } from 'express';
 import { getNocodeBody } from '@main/utils';
@@ -64,6 +64,11 @@ export class FormFlowController {
   async finishTodo(@Body() options: FinishTodoOptions, @Req() req: Request) {
     const isAdmin = isSystemAdminAccount(req.account);
     return await this.formFlowService.finishTodo(options, req.account.id, isAdmin);
+  }
+
+  @Post("/continue-todo")
+  async continueTodo(@Body() options: ContinueTodoOptions, @Req() req: Request) {
+    return await this.formFlowService.continueTodo(options, req.account.id);
   }
 
   @Post("/transfer-todo")

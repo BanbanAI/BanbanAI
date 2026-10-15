@@ -1,4 +1,4 @@
-import { FlowOpinionFile, ProcessNodeStatus, ProcessNodeType, SubmitRecord, TableUID, TimeTaskRepeat, TODOTriggerType, TransfersRecord as TransferRecord, TriggerMode, DataChangeType } from "@common/types/project";
+import { FlowOpinionFile, ProcessNodeStatus, ProcessNodeType, Row, SubmitRecord, TableUID, TimeTaskRepeat, TODOTriggerType, TransfersRecord as TransferRecord, TriggerMode, DataChangeType } from "@common/types/project";
 import { FlowTriggerSkipReason } from "@common/types/nocode";
 import { Entity, EntityRepository, Property, Unique } from "@mikro-orm/core";
 import { unique } from "@common/utils/unique";
@@ -30,12 +30,49 @@ export type FlowExecutionRecordMeta = {
   crossAppWriteAction?: DataChangeType,
   crossAppTriggeredTodoId?: string,
   crossAppTriggerSkippedReason?: FlowTriggerSkipReason,
+  previousDataProcessingRecordId?: string,
   timeoutDeadlineAt?: number,
   timeoutRuleExecutedAtMap?: Record<string, number>,
   scheduledStartProgress?: "recorded" | "row_updated" | "next_node_enqueued",
   stashedTargetNocodeId?: string,
   stashedTargetTableUID?: TableUID,
   stashedTargetUUID?: string,
+}
+
+export type FlowDataProcessingStage =
+  | "write_started"
+  | "data_written"
+  | "mutation_recorded"
+  | "trigger_created"
+  | "completed";
+
+export type FlowDataProcessingMutation = {
+  action: DataChangeType,
+  targetNocodeId: string,
+  targetTableId: TableUID,
+  targetUuid?: string,
+  beforeRows: Row[],
+  afterRows: Row[],
+  changedFieldUids?: string[],
+}
+
+export type FlowDataProcessingMeta = FlowExecutionRecordMeta & {
+  data_started?: boolean,
+  data_completed?: boolean,
+  execution_started_at?: number,
+  execution_heartbeat_at?: number,
+  next_node_created?: boolean,
+  record_meta?: Record<string, unknown>,
+  messages?: string[],
+  previousDataProcessingRecordId?: string,
+  stage?: FlowDataProcessingStage,
+  mutation_occurrence_id?: string,
+  target_nocode_id?: string,
+  target_table_id?: TableUID,
+  target_uuids?: string[],
+  mutation?: FlowDataProcessingMutation,
+  immediate_mutation_ids?: string[],
+  post_finish_task_ids?: string[],
 }
 
 @Entity({
