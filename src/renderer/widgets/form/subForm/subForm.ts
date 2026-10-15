@@ -180,6 +180,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     return i18next.t("defaultName");
   }
   private watchedRows = false;
+  private dataFillWatcherInitialized = false;
   private _subSerialNumberFillTasks = new Map<string, Promise<Record<string, any>>>();
   private _runtime: SubFormRuntime | null = null;
   private _runtimeSchema: ReturnType<typeof compileSubFormSchema> | null = null;
@@ -654,13 +655,22 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     const stop = watch(()=>this.isProjectReady && this.enabled && this.isReady(), (value)=>{
       if (value) {
         this.watchRows();
-        this.effectScope.run(() => {
-          this.watchDataFill();
-        });
         nextTick(() => {
           stop();
         })
       }
+    }, { immediate: true });
+
+    const stopEnsureInputValue = watch(() => {
+      return this.isProjectReady && this.container.hasWidgetSynced();
+    }, (value) => {
+      if (!value) return;
+      this.ensureInputValue().catch(error => {
+        console.error("initialize subform rows failed", error);
+      });
+      nextTick(() => {
+        stopEnsureInputValue();
+      });
     }, { immediate: true });
 
     this.effectScope.run(() => {
@@ -1023,6 +1033,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   private fillFieldValue = ref(null)
 
   private watchDataFill() {
+    if (!this.topForm) return;
     const rule: DataFillRule = this.getOption("data-fill-rules") || {};
     // 当前表单中子表单的字段
     // 当前表单映射项不在所选数据源表结构中，这里按数据源字段集合排除误判。
@@ -1054,7 +1065,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         if (widgetIds.length > 1) {
           const widget = this.topForm.getChildElement(widgetIds[0]);
           const subWidget = widget?.form?.getChildElement(widgetIds[1]);
-          if (widget) prev[item.id] = widget.inputValue?.map(i => i[subWidget.fieldId]);
+          if (widget && subWidget) prev[item.id] = widget.inputValue?.map(i => i[subWidget.fieldId]);
         } else {
           const widget = (this.topForm as AbstractForm).getChildElement(item.value);
           if (widget) prev[item.id] = widget.inputValue;
@@ -1082,7 +1093,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
         if (widgetIds.length > 1) {
           const widget = this.topForm.getChildElement(widgetIds[0]) as SubForm;
           const subWidget = widget?.form?.getChildElement(widgetIds[1]);
-          if (widget) prev[item.id] = getSubFormDataFillChangeToken(widget, subWidget.fieldId);
+          if (widget && subWidget) prev[item.id] = getSubFormDataFillChangeToken(widget, subWidget.fieldId);
         } else {
           const widget = (this.topForm as AbstractForm).getChildElement(item.value);
           if (widget) prev[item.id] = widget?.status?.lastChangeTime;
@@ -1511,6 +1522,12 @@ export class SubForm extends AbstractSubForm implements RelatedData {
    * values in _rows.
    */
   override async ensureInputValue() {
+    if (!this.dataFillWatcherInitialized) {
+      this.dataFillWatcherInitialized = true;
+      this.effectScope.run(() => {
+        this.watchDataFill();
+      });
+    }
     if (this.hasRuntime && this._runtime) {
       await this._runtimeInitialRowsReady;
       const snapshots = this._runtime.snapshot();

@@ -100,7 +100,6 @@ const initSubform = async () => {
     })
   });
   subForm.value.isEditingDefaultValue = true;
-  subForm.value.watchRows();
 };
 
 const initData = async () => {
@@ -143,6 +142,7 @@ const onOpen = async () => {
   }
   await initSubform();
   await initData();
+  await subForm.value?.ensureInputValue();
 }
 
 const onClosed = async () => {
