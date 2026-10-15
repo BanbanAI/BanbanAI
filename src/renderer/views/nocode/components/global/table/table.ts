@@ -103,8 +103,8 @@ export class Table implements RelatedData {
   private loadingConnectionBucketPromises: Map<string, Promise<any | undefined>> = new Map();
 
   constructor(private tableProps: TableProps) {
-    this.getOrganizeUsers();
-    this.getOrganizeDepartments();
+    // this.getOrganizeUsers();
+    // this.getOrganizeDepartments();
   }
   private _effectScope: EffectScope | null = null;
   private _disposeVersion = 0;
