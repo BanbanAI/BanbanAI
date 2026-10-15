@@ -3,10 +3,10 @@
 @use "element-plus/theme-chalk/src/index.scss" as *;
 @use "element-plus/theme-chalk/src/dark/css-vars.scss" as *;
 
-.el-tag.el-zoom-in-center-enter-from,
+.el-tag.el-zoom-in-center-enter-active,
 .el-tag.el-zoom-in-center-leave-active {
-  opacity: 1 !important;
-  transform: none !important;
+  transition: none !important;
+  animation: none !important;
 }
 
 @font-face {
