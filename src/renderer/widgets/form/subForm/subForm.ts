@@ -1535,10 +1535,12 @@ export class SubForm extends AbstractSubForm implements RelatedData {
       for (const row of this._rows.value || []) {
         const rowId = String(row?.[UUID] || "");
         const snapshot = rowsById.get(rowId);
-        if (snapshot) {
-          const next = { ...snapshot };
-          delete next.__rowId;
-          Object.assign(row, next, { [UUID]: rowId });
+        if (!snapshot) continue;
+        const target = row as Record<string, unknown>;
+        for (const [key, value] of Object.entries(snapshot)) {
+          if (key === "__rowId") continue;
+          if (Object.prototype.hasOwnProperty.call(target, key) && equals(target[key], value)) continue;
+          target[key] = value;
         }
       }
       return;

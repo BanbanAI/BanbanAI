@@ -487,12 +487,15 @@ export abstract class AbstractForm extends BaseWidget {
     }
     // 监听页面真实显隐和值变化，使所有现有控件共享同一套快照和冻结语义。
     this._stopHiddenFieldSubmitStateWatch = this.effectScope.run(() => watch(
-      () => this.formInputs.map(formInput => ({
-        fieldId: formInput.fieldId,
-        value: deepClone(formInput.inputValue),
-        isBusinessHidden: !!formInput.fieldId && formInput.isHidden && !formInput.isHiddenByFieldPermission,
-        mode: getHiddenFieldSubmitMode(this.getSoul().options, formInput.fieldId),
-      })).filter(item => !!item.fieldId),
+      () => this.formInputs.map(formInput => {
+        const isBusinessHidden = !!formInput.fieldId && formInput.isHidden && !formInput.isHiddenByFieldPermission;
+        return {
+          fieldId: formInput.fieldId,
+          value: isBusinessHidden ? deepClone(formInput.inputValue) : undefined,
+          isBusinessHidden,
+          mode: getHiddenFieldSubmitMode(this.getSoul().options, formInput.fieldId),
+        };
+      }).filter(item => !!item.fieldId),
       (inputs) => {
         if (this._isRestoringHiddenFieldSubmitValue) return;
         const restoreActions = this._hiddenFieldSubmitState.sync(inputs);
