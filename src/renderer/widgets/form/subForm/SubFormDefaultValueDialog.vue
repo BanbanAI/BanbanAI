@@ -31,7 +31,7 @@
           </template>
         </SubFormGrid>
         <div class="btn-list">
-          <span @click="subForm.addRow()">
+          <span :class="{ disabled: !subForm.canAddRows() }" @click="handleAddRow">
             <el-icon class="add-icon">
               <i-ep-plus/>
             </el-icon>
@@ -129,6 +129,11 @@ const handleConfirm = () => {
     rows.push(oldUIDRow);
   }
   emit("update", rows);
+}
+
+const handleAddRow = () => {
+  if (!subForm.value?.canAddRows()) return;
+  subForm.value.addRow();
 }
 
 const handleDeleteRow = (index: number) => {
@@ -231,6 +236,11 @@ const onClosed = async () => {
         align-items: center;
         justify-self: center;
         gap: 3px;
+
+        &.disabled {
+          color: var(--text-color-disabled);
+          cursor: not-allowed;
+        }
       }
 
       .el-button {

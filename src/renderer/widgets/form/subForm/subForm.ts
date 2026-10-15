@@ -151,14 +151,6 @@ const getDeduplicationKey = (value: any, widget?: FormElement | null) => {
   }));
 };
 
-const RUNTIME_LINKAGE_WAIT_MS = 5000;
-const waitForRuntimeLinkage = (runtime: SubFormRuntime) => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    runtime.flush(),
-    new Promise<void>(resolve => { timer = setTimeout(resolve, RUNTIME_LINKAGE_WAIT_MS); }),
-  ]).finally(() => { if (timer) clearTimeout(timer); });
-};
 
 function emptyValueOfFieldType(fieldType: FormElement["fieldType"]) {
   switch (fieldType) {
@@ -172,6 +164,14 @@ function emptyValueOfFieldType(fieldType: FormElement["fieldType"]) {
       return "";
   }
 }
+const RUNTIME_LINKAGE_WAIT_MS = 5000;
+const waitForRuntimeLinkage = (runtime: SubFormRuntime) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    runtime.flush(),
+    new Promise<void>(resolve => { timer = setTimeout(resolve, RUNTIME_LINKAGE_WAIT_MS); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+};
 
 export class SubForm extends AbstractSubForm implements RelatedData {
   static resource = resource as any;
@@ -1692,6 +1692,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   private _rowInitializationVersion = ref(0);
   private _lazyRowInitializationEnabled = false;
   private fieldFillWatchVersions = new Map<string, number>();
+  private fieldFillTasks = new Map<string, Promise<void>>();
   private _dynamicValueCache = new Map<string, Map<string, any>>();
   private _dynamicValueTasks = new Map<string, Promise<void>>();
   private _dynamicValueVersions = new Map<string, number>();
@@ -2378,64 +2379,87 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     const watchKey = `${rowForm.uid}:${rule.id || JSON.stringify(rule)}`;
     watch(() => {
       return this.getFieldFillConditionValues(rowData, rule.conditions);
-    }, async (newVal, oldVal) => {
-      if (this.topForm.isViewing) return;
-      const isInitialRun = oldVal === undefined;
-      const isChanged = newVal ? Object.keys(newVal).some(key => !equals(newVal?.[key], oldVal?.[key])) : false;
-      const hasNoValueCondition = (rule.conditions || []).some(condition => this.isNoValueRequiredFunc(condition.func));
-      // Virtual rows can be initialized after their source fields already have
-      // values. Run the fill once on initialization, but skip genuinely empty
-      // conditions so we do not issue useless linkage queries for blank rows.
-      if (!isChanged && !Object.values(newVal || {}).some(value => !isEmpty(value)) && !hasNoValueCondition) {
-        return;
-      }
-      const watchVersion = (this.fieldFillWatchVersions.get(watchKey) || 0) + 1;
-      this.fieldFillWatchVersions.set(watchKey, watchVersion);
-      const rows = await this.resolveFieldFillRows(rowData, rule);
-      if (rows === undefined || this.fieldFillWatchVersions.get(watchKey) !== watchVersion) return;
-      for (const item of currentSubFormFillWidgets) {
-        for (const itemField of item.linkageSubFields || []) {
-          // 这里只回填当前 rowForm 里的控件，避免把结果广播到子表其他行。
-          const widget = this.getRowChildElement(rowForm, itemField.fillWidget) as any;
-          if (!widget) continue;
-          const [tableField, subField] = itemField.linkageField.split(".");
-          if (["widget.form.treeSelect", "widget.form.treeMultipleSelect"].includes(widget?.type)) {
-            if (!rows?.length) {
-              const fieldId = widget.fieldId || this.getSubWidgetFieldId(widget);
-              if (isInitialRun && fieldId && !isEmpty(rowData[fieldId])) continue;
-              widget.onFillData([]);
-              continue;
-            }
-            let data;
-            if (subField) {
-              data = [];
-              for (const matchedRow of rows) {
-                const subRows = matchedRow?.[tableField];
-                if (Array.isArray(subRows)) {
-                  data.push(...subRows.map(subRow => subRow?.[subField]));
-                }
+    }, (newVal, oldVal) => {
+      const rowId = String(rowForm.uid);
+      const previousTask = this.fieldFillTasks.get(rowId);
+      const task = (previousTask || Promise.resolve()).then(async () => {
+        if (this.topForm.isViewing) return;
+        const isInitialRun = oldVal === undefined;
+        const isChanged = newVal ? Object.keys(newVal).some(key => !equals(newVal?.[key], oldVal?.[key])) : false;
+        const hasNoValueCondition = (rule.conditions || []).some(condition => this.isNoValueRequiredFunc(condition.func));
+        // Virtual rows can be initialized after their source fields already have
+        // values. Run the fill once on initialization, but skip genuinely empty
+        // conditions so we do not issue useless linkage queries for blank rows.
+        if (!isChanged && !Object.values(newVal || {}).some(value => !isEmpty(value)) && !hasNoValueCondition) {
+          return;
+        }
+        const watchVersion = (this.fieldFillWatchVersions.get(watchKey) || 0) + 1;
+        this.fieldFillWatchVersions.set(watchKey, watchVersion);
+        const rows = await this.resolveFieldFillRows(rowData, rule);
+        if (rows === undefined || this.fieldFillWatchVersions.get(watchKey) !== watchVersion) return;
+        for (const item of currentSubFormFillWidgets) {
+          for (const itemField of item.linkageSubFields || []) {
+            // 这里只回填当前 rowForm 里的控件，避免把结果广播到子表其他行。
+            const widget = this.getRowChildElement(rowForm, itemField.fillWidget) as any;
+            if (!widget) continue;
+            const [tableField, subField] = itemField.linkageField.split(".");
+            if (["widget.form.treeSelect", "widget.form.treeMultipleSelect"].includes(widget?.type)) {
+              if (!rows?.length) {
+                const fieldId = widget.fieldId || this.getSubWidgetFieldId(widget);
+                if (isInitialRun && fieldId && !isEmpty(rowData[fieldId])) continue;
+                widget.onFillData([]);
+                continue;
               }
+              let data;
+              if (subField) {
+                data = [];
+                for (const matchedRow of rows) {
+                  const subRows = matchedRow?.[tableField];
+                  if (Array.isArray(subRows)) {
+                    data.push(...subRows.map(subRow => subRow?.[subField]));
+                  }
+                }
+              } else {
+                data = rows.map(matchedRow => matchedRow?.[tableField]);
+              }
+              widget.onFillData(data);
             } else {
-              data = rows.map(matchedRow => matchedRow?.[tableField]);
+              if (!rows?.length) {
+                // During virtual-row restoration the linkage query can finish
+                // before its source data or relation details are available. Do
+                // not erase a value that was already persisted on the row on
+                // this initial watcher run; later user changes still clear it.
+                const fieldId = widget.fieldId || this.getSubWidgetFieldId(widget);
+                if (isInitialRun && fieldId && !isEmpty(rowData[fieldId])) continue;
+                widget.clearValue();
+                continue;
+              }
+              const value = subField ? rows?.[0]?.[tableField]?.[0]?.[subField] : rows?.[0]?.[tableField];
+              widget.inputValue = value;
             }
-            widget.onFillData(data);
-          } else {
-            if (!rows?.length) {
-              // During virtual-row restoration the linkage query can finish
-              // before its source data or relation details are available. Do
-              // not erase a value that was already persisted on the row on
-              // this initial watcher run; later user changes still clear it.
-              const fieldId = widget.fieldId || this.getSubWidgetFieldId(widget);
-              if (isInitialRun && fieldId && !isEmpty(rowData[fieldId])) continue;
-              widget.clearValue();
-              continue;
-            }
-            const value = subField ? rows?.[0]?.[tableField]?.[0]?.[subField] : rows?.[0]?.[tableField];
-            widget.inputValue = value;
           }
         }
-      }
+      });
+      this.fieldFillTasks.set(rowId, task);
+      const clearFieldFillTask = () => {
+        if (this.fieldFillTasks.get(rowId) === task) {
+          this.fieldFillTasks.delete(rowId);
+        }
+      };
+      void task.then(clearFieldFillTask, clearFieldFillTask);
     }, { deep: true, immediate: true });
+  }
+
+  public async waitForFieldFilling(rowIds: string[]) {
+    const ids = [...new Set(rowIds.filter(Boolean).map(String))];
+    for (let round = 0; round < 4; round++) {
+      await nextTick();
+      const tasks = ids
+        .map(rowId => this.fieldFillTasks.get(rowId))
+        .filter((task): task is Promise<void> => !!task);
+      if (!tasks.length) return;
+      await Promise.all(tasks);
+    }
   }
 
   private watchFieldsFillForRow(rowForm: SubFormRow, rowData: Record<string, any>, rowEffectScope: EffectScope) {
@@ -2640,7 +2664,6 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   }
 
   private _tableData: SubFormRow[] = reactive([]);
-  private _rowsSyncVersion = ref(0);
   // 批量更新只等待行模型和已创建子控件 watcher，不等待 Vue 渲染队列；可视行子控件按需初始化。
   private _pendingRowsSync: Array<{
     rows: object[];
@@ -2697,15 +2720,12 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     void this._runtimeInitialRowsReady.then(() => this.scheduleLoadingOff());
     this.effectScope.run(()=>{
       watch(()=>{
-        return {
-          uuids: this.inputValue.map((row)=>{
+        return this.inputValue.map((row)=>{
           if (!row[UUID]) {
             row[UUID] = unique();
           }
           return row[UUID];
-          }),
-          syncVersion: this._rowsSyncVersion.value,
-        };
+        });
       }, async (newVal, oldVal) => {
         const rows = this.inputValue;
         const pendingRowsSync = this._pendingRowsSync.find(item => item.rows === rows);

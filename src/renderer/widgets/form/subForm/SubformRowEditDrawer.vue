@@ -53,7 +53,7 @@
           </el-main>
 
           <el-footer>
-            <el-button class="btn-add" @click="handleCreateRow">{{ $t('create') }}</el-button>
+            <el-button class="btn-add" :disabled="!subForm.canAddRows()" @click="handleCreateRow">{{ $t('create') }}</el-button>
             <el-button class="btn-copy" @click="handleCopyRow(indexOfShowRow)">{{ $t('copy') }}</el-button>
             <el-button class="btn-confirm" type="primary" @click="visible = false">{{ $t('complete') }}</el-button>
           </el-footer>

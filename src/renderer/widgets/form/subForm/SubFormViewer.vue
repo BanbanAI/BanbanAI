@@ -7,7 +7,7 @@
       <div v-if="!subForm.isReadonly" class="table-editor">
         <div class="table-editor-left">
           <template v-if="!isBatchOperation">
-            <el-button  class="btn-add-row" type="primary" link :icon="IEpPlus" @click="addRow()">{{ $t('add') }}</el-button>
+            <el-button class="btn-add-row" type="primary" link :icon="IEpPlus" :disabled="isRowLimitReached" @click="addRow()">{{ $t('add') }}</el-button>
             <el-button  class="btn-import" type="default" link :icon="IVenIconImportButton" @click="handleImport">{{ $t('import') }}</el-button>
             <el-button  class="btn-quick-fill" type="default" link @click="handleQuickFill">
               <el-icon :size="14" style="margin-right: 6px;"><IVenIconEdit style="fill: currentColor;" /></el-icon>
@@ -159,6 +159,8 @@ const props = defineProps<{
   subForm: SubForm;
 }>();
 
+props.subForm.setLazyRowInitialization(true);
+
 const emit = defineEmits(['importExcel', 'quickFill']);
 
 const isBatchOperation = ref(false);
@@ -172,6 +174,7 @@ const editVisible = ref(false);
 const rowEditDrawerRef = ref();
 const subFormGridRef = ref();
 const subformViewerRef = ref();
+const isRowLimitReached = computed(() => !props.subForm.canAddRows());
 
 const enterNewlineInput = computed(() => props.subForm.enterNewlineInput);
 const showColumns = computed(() => {
@@ -547,6 +550,15 @@ const resolveOriginalRowData = (row: any) => {
     : props.subForm.rows.find(r => (r as any)[UUID] === row?.uid);
 }
 
+const ensureRowsCanBeAdded = (count = 1) => {
+  if (props.subForm.canAddRows(count)) return true;
+  ElMessage.warning({
+    message: i18next.t('subFormRowLimitExceeded'),
+    showClose: false,
+  });
+  return false;
+}
+
 let isCopyingRows = false;
 const handleCopy = async(rows: any[], index: number | undefined = undefined) => {
   if (isCopyingRows || !rows.length) return;
@@ -557,7 +569,7 @@ const handleCopy = async(rows: any[], index: number | undefined = undefined) => 
     }
 
     const originalRows = rows.map(resolveOriginalRowData);
-    if (originalRows.some(row => !row)) return;
+    if (originalRows.some(row => !row) || !ensureRowsCanBeAdded(originalRows.length)) return;
 
     const rowsToCopy = originalRows.map(originalRowData => {
       const copiedRow = {};
@@ -624,10 +636,12 @@ const handleCopyByDrawer = (index: number) => {
 }
 
 const handleCreateByDrawer = () => {
+  if (!ensureRowsCanBeAdded()) return;
   props.subForm.addRow(undefined, {}, true);
 }
 
 const insertRow = (index: number) => {
+  if (!ensureRowsCanBeAdded()) return;
   props.subForm.addRow(index, {}, true);
 }
 
@@ -768,7 +782,8 @@ const handleEnterPress = async (currentUid: string) => {
 
   // 新增一行
   if (nextRowIndex >= tableData.length) {
-    await props.subForm.addRowAsync(undefined, {}, true);
+    const added = await props.subForm.addRowAsync(undefined, {}, true);
+    if (!added) return;
     await nextTick();
   }
 
@@ -776,6 +791,10 @@ const handleEnterPress = async (currentUid: string) => {
   if (nextRowIndex < props.subForm.tableData.length) {
     const nextRow = props.subForm.tableData[nextRowIndex];
     if (!nextRow || !nextRow.children) return;
+
+    if (!props.subForm.isSubFormRowInitialized(nextRow)) {
+      await props.subForm.ensureSubFormRowInitialized(nextRow);
+    }
 
     const targetWidget = nextRow.children[columnIndex];
 

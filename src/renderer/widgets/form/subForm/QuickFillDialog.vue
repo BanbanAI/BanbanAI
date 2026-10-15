@@ -35,7 +35,10 @@
 
         <template v-else-if="mode === 'mapping'">
           <div class="quick-fill-tip quick-fill-tip--plain quick-fill-tip--between">
-            <span>{{ i18next.t('quickFillMappingTip') }}</span>
+            <div>
+              <p>{{ i18next.t('quickFillMappingTip') }}</p>
+              <p v-if="hasOverflowRows">{{ i18next.t('quickFillRowLimitTip') }}</p>
+            </div>
             <span class="mapping-count">
               <el-icon size="14">
                 <SuccessFilled />
@@ -77,7 +80,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, rowIndex) in draftRows" :key="row.id">
+              <tr v-for="(row, rowIndex) in draftRows" :key="row.id" :class="{ 'over-limit': isRowOverLimit(rowIndex) }">
                 <td
                   class="row-index"
                   :class="{ selected: selection.kind === 'row' && selection.rowIndex === rowIndex }"
@@ -141,7 +144,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, rowIndex) in displayRows" :key="row.id">
+              <tr v-for="(row, rowIndex) in displayRows" :key="row.id" :class="{ 'over-limit': isRowOverLimit(rowIndex) }">
                 <td class="row-index">{{ rowIndex + 1 }}</td>
                 <td
                   v-for="column in columns"
@@ -187,6 +190,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { cloneDeep as deepClone } from "lodash";
 import { SuccessFilled } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 import { buildQuickFillDraftRows, createEmptyDraftRow, ensureTrailingBlankRow, isDraftRowEmpty, getQuickFillColumns } from "./quickFillSchema";
 import { validateQuickFillRows } from "./quickFillValidator";
 import type {
@@ -197,7 +201,7 @@ import type {
   QuickFillTransientEditor,
   QuickFillValidationRow
 } from "./quickFillTypes";
-import { SubForm } from "./subForm";
+import { SubForm, SUB_FORM_ROW_LIMIT } from "./subForm";
 import IVenIconGlobalFullscreen from "~icons/ven-icon/widget-form-sub-form-global-fullscreen";
 import IVenIconGlobalShrinkScreen from "~icons/ven-icon/widget-form-sub-form-global-shrink-screen";
 import i18next, { $t } from "@renderer/widgets/i18next";
@@ -241,6 +245,9 @@ const editingInputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null)
 
 const displayRows = computed(() => {
   return mode.value === "fix" ? validationRows.value : compactRows.value;
+});
+const hasOverflowRows = computed(() => {
+  return Math.max(compactRows.value.length, props.subForm.rows?.length || 0) > SUB_FORM_ROW_LIMIT;
 });
 
 const mappedCount = computed(() => Object.values(mapping).filter(value => value && value !== "skip").length);
@@ -362,7 +369,12 @@ function handleNextFromEdit() {
 }
 
 async function handleNextFromMapping() {
-  const result = await validateQuickFillRows(props.subForm, compactRows.value, columns.value, mapping);
+  const result = await validateQuickFillRows(
+    props.subForm,
+    compactRows.value.slice(0, SUB_FORM_ROW_LIMIT),
+    columns.value,
+    mapping,
+  );
   validationRows.value = result.rows;
   issues.value = result.issues;
 
@@ -384,7 +396,12 @@ async function handleContinueFromFix() {
 
 async function applyValidatedRows(rows: QuickFillValidationRow[]) {
   const currentRows = deepClone(props.subForm.rows || []);
-  const nextRows = rows.map((row) => {
+  const canAddNewRows = currentRows.length < SUB_FORM_ROW_LIMIT;
+  const nextRows = rows.slice(0, SUB_FORM_ROW_LIMIT).filter((row) => {
+    if (row.meta.source === "new") return canAddNewRows;
+    return row.meta.originalRowIndex === undefined
+      || row.meta.originalRowIndex < SUB_FORM_ROW_LIMIT;
+  }).map((row) => {
     const isNewRow = row.meta.source === "new";
     const baseRow: Record<string, any> = !isNewRow && row.meta.originalRowIndex !== undefined
       ? deepClone(currentRows[row.meta.originalRowIndex] || {})
@@ -406,7 +423,10 @@ async function applyValidatedRows(rows: QuickFillValidationRow[]) {
     return baseRow;
   });
 
-  await props.subForm.batchReplaceRows(nextRows, "user");
+  await props.subForm.batchReplaceRows(
+    [...nextRows, ...currentRows.slice(SUB_FORM_ROW_LIMIT)],
+    "user",
+  );
 }
 
 async function buildTransientEditors() {
@@ -485,6 +505,7 @@ function handleMappingChange(columnKey: string, value: string | "skip") {
 
 function selectCell(rowIndex: number, columnIndex: number) {
   if (!columns.value.length) return;
+  if (isRowOverLimit(rowIndex)) return;
   selection.kind = "cell";
   selection.rowIndex = rowIndex;
   selection.columnIndex = columnIndex;
@@ -495,12 +516,14 @@ function selectCell(rowIndex: number, columnIndex: number) {
 
 function handleCellMouseDown(rowIndex: number, columnIndex: number, event: MouseEvent) {
   if (event.button !== 0) return;
+  if (isRowOverLimit(rowIndex)) return;
   isMouseSelecting.value = true;
   selectCell(rowIndex, columnIndex);
 }
 
 function selectRow(rowIndex: number) {
   if (!columns.value.length) return;
+  if (isRowOverLimit(rowIndex)) return;
   selection.kind = "row";
   selection.rowIndex = rowIndex;
   selection.endRowIndex = rowIndex;
@@ -540,6 +563,7 @@ function handleGridMouseDown(event: MouseEvent) {
 
 function handleCellHover(rowIndex: number, columnIndex: number) {
   if (!isMouseSelecting.value || selection.kind !== "cell") return;
+  if (isRowOverLimit(rowIndex)) return;
   selection.endRowIndex = rowIndex;
   selection.endColumnIndex = columnIndex;
 }
@@ -553,6 +577,10 @@ function getCellClass(rowIndex: number, columnIndex: number) {
     active: selection.kind === "cell" && selection.rowIndex === rowIndex && selection.columnIndex === columnIndex,
     selected: isCellSelected(rowIndex, columnIndex),
   };
+}
+
+function isRowOverLimit(rowIndex: number) {
+  return rowIndex >= SUB_FORM_ROW_LIMIT;
 }
 
 function getHeaderClass(columnIndex: number) {
@@ -639,7 +667,6 @@ function handleGridPaste(event: ClipboardEvent) {
 
   event.preventDefault();
   commitEditCell();
-  pushHistory();
 
   const rawRows = text.replace(/\r/g, "").split("\n");
   if (rawRows.length && rawRows[rawRows.length - 1] === "") {
@@ -650,13 +677,21 @@ function handleGridPaste(event: ClipboardEvent) {
 
   const startRow = selection.rowIndex;
   const startColumn = selection.columnIndex;
-  const needRows = startRow + matrix.length;
+  const allowedRowCount = Math.max(SUB_FORM_ROW_LIMIT - startRow, 0);
+  const rowsToPaste = matrix.slice(0, allowedRowCount);
+  const rejectedRowCount = matrix.length - rowsToPaste.length;
+  if (rejectedRowCount > 0) {
+    ElMessage.warning(i18next.t("quickFillPasteRowLimitExceeded", { count: rejectedRowCount }));
+  }
+  if (!rowsToPaste.length) return;
+  pushHistory();
+  const needRows = startRow + rowsToPaste.length;
 
   while (draftRows.value.length < needRows) {
     draftRows.value.push(createEmptyDraftRow(columns.value));
   }
 
-  matrix.forEach((cells, rowOffset) => {
+  rowsToPaste.forEach((cells, rowOffset) => {
     const row = draftRows.value[startRow + rowOffset];
     cells.forEach((value, columnOffset) => {
       const column = columns.value[startColumn + columnOffset];
@@ -696,6 +731,7 @@ function serializeSelection() {
 function clearSelection() {
   const range = getSelectionRange();
   for (let rowIndex = range.rowStart; rowIndex <= range.rowEnd; rowIndex++) {
+    if (isRowOverLimit(rowIndex)) continue;
     const currentRow = draftRows.value[rowIndex];
     if (!currentRow) continue;
     for (let columnIndex = range.colStart; columnIndex <= range.colEnd; columnIndex++) {
@@ -733,6 +769,8 @@ function getSelectionRange() {
 }
 
 function startEditCell(rowIndex: number, columnIndex: number, presetValue?: string) {
+  if (isRowOverLimit(rowIndex)) return;
+
   const column = columns.value[columnIndex];
   const row = draftRows.value[rowIndex];
   if (!column || !row) return;
@@ -1033,6 +1071,16 @@ function getEditorWidget(rowId: string, columnKey: string) {
 
   .issue-cell {
     background-color: #fff1f0;
+  }
+
+  .over-limit td {
+    background-color: #f5f6f7;
+    color: #a9aeb8;
+    cursor: not-allowed;
+  }
+
+  .over-limit .active {
+    box-shadow: none;
   }
 
   .empty-row {
