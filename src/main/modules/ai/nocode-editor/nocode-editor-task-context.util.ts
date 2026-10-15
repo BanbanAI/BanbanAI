@@ -14,12 +14,17 @@ import {
   isNocodeEditorCompleteNewFormIntent,
 } from '@common/utils/nocodeEditorSingleFormPlan'
 import {
+  isNocodeEditorConfirmationContinueReplyMessage,
+  isNocodeEditorStructuredConfirmationReplyMessage,
+} from '@common/utils/nocodeEditorTaskContextRequest'
+import {
   normalizeNocodeEditorPlanningOutline,
 } from '@common/utils/nocodeEditorPlanningOutline'
 import {
   buildNocodeEditorPendingFlowIntentFromEntryFlowIntent,
   matchNocodeEditorPendingFlowIntentTarget,
   normalizeNocodeEditorPendingFlowIntent,
+  shouldBlockNocodeEditorPendingFlowIntentRebind,
   type NocodeEditorPendingFlowIntent,
 } from '@common/utils/nocodeEditorPendingFlowIntent'
 import {
@@ -74,11 +79,15 @@ import {
 } from '@common/utils/nocodeEditorFlowIssueRouter'
 import {
   projectNocodeEditorConfirmationDecisions,
+  NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
   type NocodeEditorConfirmationDecision,
 } from '@common/utils/nocodeEditorConfirmationDecisionProjection'
+import { reconcileNocodeEditorConfirmationDecisions } from '@common/utils/nocodeEditorConfirmationDecisionReconciliation'
 import {
+  buildLogicalPlanningConfirmationContextKey,
   isSamePlanningConfirmationContext,
 } from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
+import { isCurrentFlowSchemeRevision } from '@common/utils/nocodeEditorFlowConfirmationTrust'
 import {
   buildStablePlanningQuestionId,
 } from '@common/utils/nocodeEditorPlanningQuestionContract'
@@ -109,10 +118,12 @@ type NocodeEditorTaskSummaryLike = {
   flowConfirmationQuestions?: string[]
   flowConfirmationResultSummary?: string[]
   flowConfirmationContextKey?: string
+  flowConfirmationSchemeRevision?: number
   flowConfirmationTargetFormId?: string
   flowConfirmationTargetFormName?: string
   flowConfirmationQuestionRecords?: NocodeEditorAiConfirmQuestion[]
   flowConfirmationDecisions?: NocodeEditorConfirmationDecision[]
+  blueprintConfirmationDecisions?: NocodeEditorConfirmationDecision[]
   flowBusinessStatus?: string
   flowDependencyStatus?: string
   flowMaterializationStatus?: string
@@ -251,13 +262,21 @@ const normalizeText = (value: unknown) => String(value || '').replace(/\s+/g, ' 
 const isNocodeEditorFreshCreationRequest = (input: {
   userMessage?: unknown
   planningScope: NocodeEditorPlanningScope
-}) => (
-  (input.planningScope === 'app' && isNocodeEditorAppCreationIntent(input.userMessage))
-  || (
-    input.planningScope === 'form'
-    && isNocodeEditorCompleteNewFormIntent({ userMessage: input.userMessage })
+}) => {
+  // 补确认回复不是新的创建请求：它的正文里可能提到"创建一张项目表"这类澄清选项，
+  // 直接判定成全新表单会把已经明确的流程意图和承接状态整体重置掉。
+  if (isNocodeEditorConfirmationContinueReplyMessage(input.userMessage)) {
+    return false
+  }
+
+  return (
+    (input.planningScope === 'app' && isNocodeEditorAppCreationIntent(input.userMessage))
+    || (
+      input.planningScope === 'form'
+      && isNocodeEditorCompleteNewFormIntent({ userMessage: input.userMessage })
+    )
   )
-)
+}
 const normalizePlanningContextKey = (value: unknown) => (
   typeof value === 'string' ? normalizeText(value) : ''
 )
@@ -720,10 +739,12 @@ const buildResetTaskSummaryForFreshNewFormRequest = (input: {
   flowConfirmationQuestions: [],
   flowConfirmationResultSummary: [],
   flowConfirmationContextKey: '',
+  flowConfirmationSchemeRevision: 0,
   flowConfirmationTargetFormId: '',
   flowConfirmationTargetFormName: '',
   flowConfirmationQuestionRecords: [],
   flowConfirmationDecisions: [],
+  blueprintConfirmationDecisions: [],
   flowBusinessStatus: '',
   flowDependencyStatus: '',
   flowMaterializationStatus: '',
@@ -872,7 +893,7 @@ const normalizeConfirmationQuestionTitles = (value: unknown) => (
     ? value
       .map(item => normalizeText((item as Record<string, unknown>)?.title))
       .filter(Boolean)
-      .slice(0, 6)
+      .slice(0, NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT)
     : []
 )
 
@@ -887,19 +908,232 @@ const buildConfirmationDecisionContextLines = (value: unknown) => (
         const answerSummary = normalizeText(item.answerSummary)
         const planningContextKey = normalizeText(item.planningContextKey)
         const approvalOwnerSource = normalizeText(item.approvalOwnerSource)
+        const decisionTarget = isPlainObject(item.decisionTarget)
+          && normalizeText(item.decisionTarget.kind) === 'field-source'
+          && normalizeText(item.decisionTarget.fieldKey)
+          ? `目标字段=${normalizeText(item.decisionTarget.formKey) ? `${normalizeText(item.decisionTarget.formKey)}.` : ''}${normalizeText(item.decisionTarget.fieldKey)}`
+          : ''
         return [
           questionId ? `问题=${questionId}` : '',
           questionTitle ? `标题=${questionTitle}` : '',
           selectedOptionValue ? `选项=${selectedOptionValue}` : '',
           answerSummary ? `结论=${answerSummary}` : '',
+          decisionTarget,
           approvalOwnerSource ? `审批人来源=${approvalOwnerSource}` : '',
           planningContextKey ? `上下文=${planningContextKey}` : '',
         ].filter(Boolean).join('；')
       })
       .filter(Boolean)
-      .slice(0, 6)
+      .slice(0, NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT)
     : []
 )
+
+const normalizeConfirmationQuestionMatch = (value: unknown) => normalizeText(value)
+  .replace(/\s+/g, '')
+  .replace(/[，。！？、；：,.!?;:'"“”‘’]/g, '')
+
+const resolveAnsweredBlueprintOpenQuestions = (
+  openQuestions: string[],
+  decisions: unknown,
+) => {
+  const answeredDecisions = normalizeBlueprintConfirmationDecisions(decisions)
+    .filter(decision => decision.questionTitle && (
+      decision.selectedOptionValue || decision.answerSummary || decision.answerDetail
+    ))
+  const matched = openQuestions.flatMap((question) => {
+    const normalizedQuestion = normalizeConfirmationQuestionMatch(question)
+    const decision = answeredDecisions.find(item => (
+      normalizeConfirmationQuestionMatch(item.questionTitle) === normalizedQuestion
+    ))
+    if (!decision) {
+      return []
+    }
+    return [{
+      question,
+      answer: decision.selectedOptionValue || decision.answerSummary || decision.answerDetail,
+    }]
+  })
+  const answeredTitles = new Set(matched.map(item => normalizeConfirmationQuestionMatch(item.question)))
+  return {
+    matched,
+    unanswered: openQuestions.filter(question => (
+      !answeredTitles.has(normalizeConfirmationQuestionMatch(question))
+    )),
+  }
+}
+
+const resolveStagedBlueprintOpenQuestions = (summary: string) => {
+  const markerIndex = summary.indexOf('待确认：')
+  if (markerIndex < 0) {
+    return []
+  }
+  return summary.slice(markerIndex + '待确认：'.length)
+    .split(/\r?\n/)
+    .map(item => normalizeText(item).replace(/^\d+[.、]\s*/, ''))
+    .filter(item => Boolean(item) && !item.startsWith('说明：'))
+}
+
+const BLUEPRINT_CONFIRMATION_ANSWER_SUMMARY_MAX_LENGTH = 120
+const BLUEPRINT_CONFIRMATION_ANSWER_DETAIL_MAX_LENGTH = 200
+
+const normalizeBlueprintConfirmationDecisions = (
+  value: unknown,
+): NocodeEditorConfirmationDecision[] => (
+  Array.isArray(value)
+    ? value
+      .filter(isPlainObject)
+      .map((item): NocodeEditorConfirmationDecision | null => {
+        const questionId = normalizeText(item.questionId)
+        const questionTitle = normalizeText(item.questionTitle)
+        const decisionKey = normalizeText(item.decisionKey) || questionId || questionTitle
+        if (!decisionKey) {
+          return null
+        }
+        const decisionKeySource = normalizeText(item.decisionKeySource)
+        const selectedOptionValue = normalizeText(item.selectedOptionValue)
+        const answerSummary = normalizeText(item.answerSummary)
+        const answerDetail = normalizeText(item.answerDetail)
+        const rawDecisionTarget = isPlainObject(item.decisionTarget)
+          ? item.decisionTarget
+          : null
+        const decisionTargetKind = normalizeText(rawDecisionTarget?.kind)
+        const decisionTargetFieldKey = normalizeText(rawDecisionTarget?.fieldKey)
+        const decisionTarget = decisionTargetKind === 'field-source' && decisionTargetFieldKey
+          ? {
+            kind: 'field-source' as const,
+            formKey: normalizeText(rawDecisionTarget?.formKey) || undefined,
+            fieldKey: decisionTargetFieldKey,
+          }
+          : undefined
+        return {
+          questionId: questionId || decisionKey,
+          questionTitle,
+          decisionKey,
+          ...(decisionKeySource === 'explicit' || decisionKeySource === 'legacy_question_id'
+            ? { decisionKeySource }
+            : {}),
+          ...(normalizeText(item.planningContextKey)
+            ? { planningContextKey: normalizeText(item.planningContextKey) }
+            : {}),
+          ...(selectedOptionValue ? { selectedOptionValue } : {}),
+          ...(answerSummary
+            ? { answerSummary: answerSummary.slice(0, BLUEPRINT_CONFIRMATION_ANSWER_SUMMARY_MAX_LENGTH) }
+            : {}),
+          ...(answerDetail
+            ? { answerDetail: answerDetail.slice(0, BLUEPRINT_CONFIRMATION_ANSWER_DETAIL_MAX_LENGTH) }
+            : {}),
+          ...(decisionTarget ? { decisionTarget } : {}),
+        }
+      })
+      .filter((item): item is NocodeEditorConfirmationDecision => Boolean(item))
+    : []
+)
+
+// 入参顺序即优先级：越靠前的决策越新，去重后只保留最近的若干条。
+const mergeBlueprintConfirmationDecisions = (
+  ...values: unknown[]
+): NocodeEditorConfirmationDecision[] => {
+  const merged: NocodeEditorConfirmationDecision[] = []
+  const seenDecisionKeys = new Set<string>()
+
+  values.forEach((value) => {
+    normalizeBlueprintConfirmationDecisions(value).forEach((decision) => {
+      if (seenDecisionKeys.has(decision.decisionKey)) {
+        return
+      }
+      seenDecisionKeys.add(decision.decisionKey)
+      merged.push(decision)
+    })
+  })
+
+  return merged.slice(0, NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT)
+}
+
+const mergeIncomingConfirmationDecisions = (input: {
+  taskSummary: NocodeEditorTaskContextObject
+  confirmationDecisions?: {
+    stage?: unknown
+    planningContextKey?: unknown
+    schemeRevision?: unknown
+    decisions?: unknown
+  } | null
+}) => {
+  const stage = normalizeText(input.confirmationDecisions?.stage)
+  if (
+    stage !== 'app-plan'
+    && stage !== 'form-plan'
+    && stage !== 'flow-scheme'
+    && stage !== 'blueprint'
+  ) {
+    return input.taskSummary
+  }
+  const incomingDecisions = normalizeBlueprintConfirmationDecisions(
+    input.confirmationDecisions?.decisions,
+  ).map(decision => ({
+    ...decision,
+    ...(stage !== 'blueprint' && normalizeText(input.confirmationDecisions?.planningContextKey)
+      ? { planningContextKey: normalizeText(input.confirmationDecisions?.planningContextKey) }
+      : {}),
+  }))
+  if (!incomingDecisions.length) {
+    return input.taskSummary
+  }
+
+  if (stage === 'blueprint') {
+    return {
+      ...input.taskSummary,
+      blueprintConfirmationDecisions: mergeBlueprintConfirmationDecisions(
+        incomingDecisions,
+        input.taskSummary.blueprintConfirmationDecisions,
+      ),
+    }
+  }
+
+  if (stage === 'flow-scheme') {
+    const incomingContextKey = normalizeText(input.confirmationDecisions?.planningContextKey)
+    const currentContextKey = normalizeText(input.taskSummary.flowConfirmationContextKey)
+    if (
+      !incomingContextKey
+      || !currentContextKey
+      || !isSamePlanningConfirmationContext(incomingContextKey, currentContextKey)
+      || !isCurrentFlowSchemeRevision(
+        input.confirmationDecisions?.schemeRevision,
+        input.taskSummary.flowConfirmationSchemeRevision,
+      )
+    ) {
+      return input.taskSummary
+    }
+    const previousDecisions = normalizeBlueprintConfirmationDecisions(
+      input.taskSummary.flowConfirmationDecisions,
+    ).filter(decision => (
+      normalizeText(decision.planningContextKey)
+      && isSamePlanningConfirmationContext(
+        normalizeText(decision.planningContextKey),
+        currentContextKey,
+      )
+    ))
+    return {
+      ...input.taskSummary,
+      flowConfirmationDecisions: mergeBlueprintConfirmationDecisions(
+        incomingDecisions,
+        previousDecisions,
+      ),
+    }
+  }
+
+  const incomingContextKey = normalizeText(input.confirmationDecisions?.planningContextKey)
+  const currentContextKey = normalizeText(input.taskSummary.planningConfirmationContextKey)
+  const previousDecisions = incomingContextKey && incomingContextKey === currentContextKey
+    ? input.taskSummary.planningConfirmationDecisions
+    : []
+  return {
+    ...input.taskSummary,
+    planningConfirmationDecisions: mergeBlueprintConfirmationDecisions(
+      incomingDecisions,
+      previousDecisions,
+    ),
+  }
+}
 
 const hasPendingFlowSchemeConvergence = (
   scheme?: NocodeEditorFlowScheme | null,
@@ -931,9 +1165,7 @@ const buildFlowSchemeConvergenceSummary = (
   })
 }
 
-const isStructuredPlanningConfirmationReply = (value: unknown) => (
-  String(value || '').trim().startsWith('我补充确认这几项')
-)
+const isStructuredPlanningConfirmationReply = isNocodeEditorStructuredConfirmationReplyMessage
 
 const isPlanningOrFlowConfirmationReply = (value: unknown) => (
   isStructuredPlanningConfirmationReply(value)
@@ -954,19 +1186,93 @@ const parseStructuredPlanningConfirmationReply = (value: unknown) => {
       continue
     }
 
-    const optionMatch = line.match(/^选择[：:]\s*(.+)$/)
-    if (optionMatch && current) {
-      current.answerSummary = normalizeText(optionMatch[1])
-      // continue
+    const answerMatch = line.match(/^(?:回答|选择)[：:]\s*(.+)$/)
+    if (answerMatch && current) {
+      current.answerSummary = normalizeText(answerMatch[1])
     }
 
-    // const noteMatch = line.match(/^补充说明[：:]\s*(.+)$/)
-    // if (noteMatch && current && !current.answerSummary) {
-    //   current.answerSummary = normalizeText(noteMatch[1])
-    // }
+    const noteMatch = line.match(/^(?:说明|补充说明)[：:]\s*(.+)$/)
+    if (noteMatch && current && !current.answerSummary) {
+      current.answerSummary = normalizeText(noteMatch[1])
+    }
   }
 
   return answers.filter(item => item.title)
+}
+
+const applyExplicitFlowPersonnelConfirmationFromMessage = (
+  taskSummary: NocodeEditorTaskSummaryLike,
+  userMessage: string,
+): NocodeEditorTaskSummaryLike => {
+  const questionRecords = Array.isArray(taskSummary.flowConfirmationQuestionRecords)
+    ? taskSummary.flowConfirmationQuestionRecords
+    : []
+  if (
+    normalizeText(taskSummary.flowConfirmationStatus) === 'completed'
+    || !/(?:审批人|审批人员).{0,20}(?:保留|保持|仍是|仍为|继续由|仍由)/u.test(userMessage)
+  ) {
+    return taskSummary
+  }
+
+  const pendingSourceQuestion = questionRecords.find(question => (
+    question.confirmed !== true
+    && question.personnelDecision?.slot === 'source'
+    && /审批(?:人|人员|来源|由谁)/u.test(normalizeText(question.title))
+  ))
+  if (!pendingSourceQuestion) return taskSummary
+
+  const matchingOptions = (pendingSourceQuestion.options || []).filter(option => (
+    normalizeText(option.label)
+    && userMessage.includes(normalizeText(option.label))
+  ))
+  if (matchingOptions.length !== 1) return taskSummary
+
+  const selectedOption = matchingOptions[0]
+  const questions = questionRecords.map(question => question.id === pendingSourceQuestion.id
+    ? {
+      ...question,
+      confirmed: true,
+      selectedOptionValue: selectedOption.value,
+      answerSummary: selectedOption.label,
+      options: question.options?.map(option => ({
+        ...option,
+        selected: option.value === selectedOption.value,
+      })),
+    }
+    : question)
+  const confirmation = {
+    stage: 'flow-scheme' as const,
+    status: 'completed' as const,
+    planningContextKey: normalizeText(taskSummary.flowConfirmationContextKey),
+    questions,
+  }
+  const projection = projectNocodeEditorConfirmationDecisions({
+    stage: 'flow-scheme',
+    confirmation,
+    expectedPlanningContextKey: normalizeText(taskSummary.flowConfirmationContextKey) || undefined,
+    preserveTrustedDecisionKeySource: true,
+  })
+  const pendingQuestions = projection.questions.filter(question => (
+    question.required !== false && question.confirmed !== true
+  ))
+  const resolvedTitle = normalizeText(pendingSourceQuestion.title)
+  const flowOpenQuestions = normalizeOpenQuestionsWithoutLimit(taskSummary.flowOpenQuestions)
+    .filter(title => normalizeQuestionKey(title) !== normalizeQuestionKey(resolvedTitle))
+
+  return {
+    ...taskSummary,
+    flowOpenQuestions,
+    flowConfirmationStatus: pendingQuestions.length ? 'pending' : 'completed',
+    flowConfirmationQuestionRecords: projection.questions,
+    flowConfirmationDecisions: projection.decisions,
+    flowConfirmationResultSummary: projection.decisions
+      .map(decision => normalizeText(decision.answerSummary || decision.selectedOptionValue))
+      .filter(Boolean)
+      .slice(0, NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT),
+    openQuestions: flowOpenQuestions.length
+      ? flowOpenQuestions
+      : normalizeOpenQuestionsWithoutLimit(taskSummary.planningOpenQuestions),
+  }
 }
 
 const findLatestPlanningConvergenceLateQuestions = (results: NocodeEditorTaskActionResultLike[]) => {
@@ -1005,6 +1311,43 @@ const findLatestAppPlan = (results: NocodeEditorTaskActionResultLike[]) => {
       return result.output!.plan as NocodeEditorTaskContextObject
     }
   }
+  return null
+}
+
+const findLatestPlanningConfirmation = (results: NocodeEditorTaskActionResultLike[]) => {
+  for (let index = results.length - 1; index >= 0; index -= 1) {
+    const result = results[index]
+    if (!result?.ok) {
+      continue
+    }
+
+    const name = String(result.name || '').trim()
+    if (name === 'editor_stage_single_form_plan') {
+      const outline = normalizeNocodeEditorPlanningOutline(result.output?.outline, {
+        confirmationStage: 'form-plan',
+      })
+      const confirmation = isPlainObject(outline?.confirmation)
+        ? outline.confirmation as NocodeEditorTaskContextObject
+        : null
+      if (confirmation) {
+        return { confirmation, stage: 'form-plan' as const }
+      }
+    }
+
+    if (name === 'editor_stage_app_plan') {
+      const plan = isPlainObject(result.output?.plan)
+        ? result.output!.plan as NocodeEditorTaskContextObject
+        : null
+      const confirmation = isPlainObject(plan?.outline)
+        && isPlainObject(plan.outline.confirmation)
+        ? plan.outline.confirmation as NocodeEditorTaskContextObject
+        : null
+      if (confirmation) {
+        return { confirmation, stage: 'app-plan' as const }
+      }
+    }
+  }
+
   return null
 }
 
@@ -1095,7 +1438,7 @@ const findLatestFormulaCheckpointSummary = (results: NocodeEditorTaskActionResul
     return null
   }
 
-  const rawTargets = result.output!.formulaTargetResults
+  const rawTargets = result.output!.formulaTargetResults as unknown[]
   if (!rawTargets.length) {
     return {
       status: 'not_applicable',
@@ -1209,21 +1552,26 @@ const parseToolNameFromRawToolContent = (message: NocodeEditorTaskHistoryMessage
   }
 }
 
-const isCompactableStageToolExchangeMessage = (message: NocodeEditorTaskHistoryMessageLike) => {
+const resolveStageToolExchangeName = (message: NocodeEditorTaskHistoryMessageLike) => {
   const metadata = asRecord(message?.metadata)
-  const toolName = normalizeText(asRecord(metadata.modelToolExchangeCall).name)
+  return normalizeText(asRecord(metadata.modelToolExchangeCall).name)
     || normalizeText(asRecord(metadata.modelToolExchangeResult).name)
     || parseToolNameFromRawToolContent(message)
-  return COMPACTABLE_STAGE_TOOL_NAMES.has(toolName)
 }
 
+const isCompactableStageToolExchangeMessage = (message: NocodeEditorTaskHistoryMessageLike) => (
+  COMPACTABLE_STAGE_TOOL_NAMES.has(resolveStageToolExchangeName(message))
+)
+
 const isFlowStageToolExchangeMessage = (message: NocodeEditorTaskHistoryMessageLike) => {
-  const metadata = asRecord(message?.metadata)
-  const toolName = normalizeText(asRecord(metadata.modelToolExchangeCall).name)
-    || normalizeText(asRecord(metadata.modelToolExchangeResult).name)
-    || parseToolNameFromRawToolContent(message)
+  const toolName = resolveStageToolExchangeName(message)
   return toolName === 'editor_plan_flow_scheme' || toolName === 'editor_stage_flow_blueprint' || toolName === 'editor_apply_staged_flow'
 }
+
+// 蓝图 patch 依赖真实 formKey / tableName / fieldKey，历史里丢掉最近一次暂存交换会让模型只能编造标识，导致补丁静默失效。
+const isAppBlueprintStageToolExchangeMessage = (message: NocodeEditorTaskHistoryMessageLike) => (
+  resolveStageToolExchangeName(message) === 'editor_stage_app_blueprint'
+)
 
 const hasStageSummaryContext = (
   messages: NocodeEditorTaskHistoryMessageLike[],
@@ -1247,22 +1595,31 @@ const compactStageHistoryMessagesForProvider = (
   }
 
   const latestAction = normalizeText(taskSummary?.latestAction)
-  const shouldRetainLatestFlowStageExchange = (
+  const retainedStageExchangeMatchers: Array<(message: NocodeEditorTaskHistoryMessageLike) => boolean> = []
+  if (
     latestAction === 'editor_plan_flow_scheme'
     || latestAction === 'editor_stage_flow_blueprint'
     || latestAction === 'editor_apply_staged_flow'
+  ) {
+    retainedStageExchangeMatchers.push(isFlowStageToolExchangeMessage)
+  }
+  if (latestAction === 'editor_stage_app_blueprint') {
+    retainedStageExchangeMatchers.push(isAppBlueprintStageToolExchangeMessage)
+  }
+  const isRetainableStageToolExchangeMessage = (message: NocodeEditorTaskHistoryMessageLike) => (
+    retainedStageExchangeMatchers.some(matches => matches(message))
   )
-  let latestRetainedFlowExchangeCallId = ''
-  if (shouldRetainLatestFlowStageExchange) {
+  let latestRetainedStageExchangeCallId = ''
+  if (retainedStageExchangeMatchers.length) {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]
-      if (!isFlowStageToolExchangeMessage(message)) {
+      if (!isRetainableStageToolExchangeMessage(message)) {
         continue
       }
       const metadata = asRecord(message?.metadata)
-      latestRetainedFlowExchangeCallId = normalizeText(asRecord(metadata.modelToolExchangeCall).id)
+      latestRetainedStageExchangeCallId = normalizeText(asRecord(metadata.modelToolExchangeCall).id)
         || normalizeText(asRecord(metadata.modelToolExchangeResult).callId)
-      if (latestRetainedFlowExchangeCallId) {
+      if (latestRetainedStageExchangeCallId) {
         break
       }
     }
@@ -1272,13 +1629,13 @@ const compactStageHistoryMessagesForProvider = (
     (
       !isCompactableStageToolExchangeMessage(message)
       || (
-        latestRetainedFlowExchangeCallId
-        && isFlowStageToolExchangeMessage(message)
+        latestRetainedStageExchangeCallId
+        && isRetainableStageToolExchangeMessage(message)
         && (() => {
           const metadata = asRecord(message?.metadata)
           const callId = normalizeText(asRecord(metadata.modelToolExchangeCall).id)
             || normalizeText(asRecord(metadata.modelToolExchangeResult).callId)
-          return callId === latestRetainedFlowExchangeCallId
+          return callId === latestRetainedStageExchangeCallId
         })()
       )
     )
@@ -1441,6 +1798,31 @@ export const buildNocodeEditorAppContextSnapshot = (input: {
   stagedBlueprintSummary?: string
 }) => {
   const latestTaskSummary = input.latestTaskSummary || null
+  const stagedBlueprintSummarySource = String(input.stagedBlueprintSummary || '').trim()
+  const taskOpenQuestions = Array.from(new Set([
+    ...normalizeOpenQuestions(latestTaskSummary?.openQuestions),
+    ...resolveStagedBlueprintOpenQuestions(stagedBlueprintSummarySource),
+  ]))
+  const blueprintQuestionState = resolveAnsweredBlueprintOpenQuestions(
+    taskOpenQuestions,
+    latestTaskSummary?.blueprintConfirmationDecisions,
+  )
+  const answeredBlueprintQuestions = new Map(blueprintQuestionState.matched.map(item => [
+    normalizeConfirmationQuestionMatch(item.question),
+    item.answer,
+  ]))
+  const stagedBlueprintSummaryForContext = stagedBlueprintSummarySource
+    .split(/\r?\n/)
+    .map((line) => {
+      const questionTitle = normalizeText(line).replace(/^\d+[.、]\s*/, '')
+      const answer = answeredBlueprintQuestions.get(normalizeConfirmationQuestionMatch(questionTitle))
+      if (!answer || !questionTitle || questionTitle.startsWith('说明：')) {
+        return line
+      }
+      const prefix = line.match(/^(\s*\d+[.、]\s*)/)?.[1] || ''
+      return `${prefix}${questionTitle}（已回答：${answer}，待写回）`
+    })
+    .join('\n')
   const lines = [
     latestTaskSummary?.userGoal
       ? `最近任务背景目标（仅供参考，不预设下一步）：${normalizeText(latestTaskSummary.userGoal)}`
@@ -1506,21 +1888,32 @@ export const buildNocodeEditorAppContextSnapshot = (input: {
     buildConfirmationDecisionContextLines(latestTaskSummary?.flowConfirmationDecisions).length
       ? `最近流程结构化确认结论：${buildConfirmationDecisionContextLines(latestTaskSummary?.flowConfirmationDecisions).join(' / ')}`
       : '',
+    buildConfirmationDecisionContextLines(latestTaskSummary?.blueprintConfirmationDecisions).length
+      ? `最近蓝图结构化确认结论：${buildConfirmationDecisionContextLines(latestTaskSummary?.blueprintConfirmationDecisions).join(' / ')}`
+      : '',
+    blueprintQuestionState.matched.length
+      ? `蓝图已回答、尚待写回当前草案：${blueprintQuestionState.matched.map(item => `${item.question} → ${item.answer}`).join('；')}`
+      : '',
     latestTaskSummary?.activeFormName
       ? `最近焦点表单：${normalizeText(latestTaskSummary.activeFormName)}`
       : '',
     latestTaskSummary?.latestAction
       ? `最近动作：${normalizeText(latestTaskSummary.latestAction)}`
       : '',
-    normalizeOpenQuestions(latestTaskSummary?.openQuestions).length
-      ? `待确认：${normalizeOpenQuestions(latestTaskSummary?.openQuestions).join('；')}`
+    blueprintQuestionState.unanswered.length
+      ? `待确认：${blueprintQuestionState.unanswered.join('；')}`
       : '',
     latestTaskSummary?.blueprintApplyGate?.mode
       ? `最近蓝图确认状态：${normalizeText(latestTaskSummary.blueprintApplyGate.mode)} / ${normalizeText(latestTaskSummary.blueprintApplyGate.status || 'pending')}`
       : '',
     normalizeLineSummary('暂存规划摘要', input.stagedPlanningSummary),
     normalizeLineSummary('暂存流程摘要', input.stagedFlowSummary),
-    normalizeLineSummary('暂存蓝图摘要', input.stagedBlueprintSummary),
+    normalizeLineSummary(
+      blueprintQuestionState.matched.length
+        ? '当前蓝图暂存结构（上方已回答结论尚未写入，仍需更新工具成功后才会改变）'
+        : '暂存蓝图摘要',
+      stagedBlueprintSummaryForContext,
+    ),
   ].filter(Boolean)
 
   return lines.join('\n')
@@ -1587,9 +1980,11 @@ export const buildNocodeEditorTaskSummary = (input: {
   const latestAppPlanOutline = isPlainObject(latestAppPlan?.outline)
     ? latestAppPlan.outline
     : null
-  const latestAppPlanConfirmation = isPlainObject(latestAppPlanOutline?.confirmation)
-    ? latestAppPlanOutline.confirmation as NocodeEditorTaskContextObject
-    : null
+  const latestPlanningConfirmation = findLatestPlanningConfirmation(actionResults)
+  const latestAppPlanConfirmation = latestPlanningConfirmation?.confirmation
+    || (isPlainObject(latestAppPlanOutline?.confirmation)
+      ? latestAppPlanOutline.confirmation as NocodeEditorTaskContextObject
+      : null)
   const latestSingleFormPlanOutline = findLatestSingleFormPlanOutline(input.actionResults || [])
   const planningConvergenceLateQuestions = findLatestPlanningConvergenceLateQuestions(input.actionResults || [])
   const normalizedFlowScheme = normalizeNocodeEditorFlowScheme(
@@ -1613,16 +2008,45 @@ export const buildNocodeEditorTaskSummary = (input: {
     : planningConvergenceLateQuestions.length
       ? planningConvergenceLateQuestions
       : fallbackPlanningOpenQuestions
-  const planningConfirmationStatus = normalizeText(latestAppPlanConfirmation?.status)
+  const latestPlanningOutline = latestSingleFormPlanOutline || latestAppPlanOutline
+  const latestPlanningContextKey = latestPlanningOutline
+    ? buildLogicalPlanningConfirmationContextKey({
+      stage: latestSingleFormPlanOutline ? 'form-plan' : 'app-plan',
+      outlineId: normalizeText(latestPlanningOutline.id),
+      primaryFormKey: normalizeText(
+        (Array.isArray(latestPlanningOutline.forms) ? latestPlanningOutline.forms[0] : null)?.formKey,
+      ),
+    })
+    : ''
+  const samePlanningIdentity = !latestPlanningOutline || isSamePlanningConfirmationContext(
+    input.latestTaskSummary?.planningConfirmationContextKey,
+    latestPlanningContextKey,
+  )
+  // 同一规划重试只返回空 confirmation 时，沿用已确认的决策。
+  const inheritedPlanningConfirmation = !latestAppPlanConfirmation
+    && samePlanningIdentity
+    && normalizeText(input.latestTaskSummary?.planningConfirmationStatus) === 'completed'
+    && Array.isArray(input.latestTaskSummary?.planningConfirmationQuestionRecords)
+    && input.latestTaskSummary.planningConfirmationQuestionRecords.length > 0
+    ? {
+      stage: input.latestTaskSummary.planningMode === 'single-form' ? 'form-plan' as const : 'app-plan' as const,
+      planningContextKey: input.latestTaskSummary.planningConfirmationContextKey,
+      status: 'completed' as const,
+      questions: input.latestTaskSummary.planningConfirmationQuestionRecords,
+      resultSummary: input.latestTaskSummary.planningConfirmationResultSummary,
+    }
+    : null
+  const effectivePlanningConfirmation = latestAppPlanConfirmation || inheritedPlanningConfirmation
+  const planningConfirmationStatus = normalizeText(effectivePlanningConfirmation?.status)
   const planningConfirmationQuestions = normalizeConfirmationQuestionTitles(
-    latestAppPlanConfirmation?.questions,
+    effectivePlanningConfirmation?.questions,
   )
   const planningConfirmationProjection = projectNocodeEditorConfirmationDecisions({
-    stage: 'app-plan',
-    confirmation: latestAppPlanConfirmation,
+    stage: latestPlanningConfirmation?.stage || inheritedPlanningConfirmation?.stage || 'app-plan',
+    confirmation: effectivePlanningConfirmation,
   })
   const planningConfirmationResultSummary = normalizeOpenQuestions(
-    latestAppPlanConfirmation?.resultSummary,
+    effectivePlanningConfirmation?.resultSummary,
   )
   const latestFlowSchemeBlockConfirmation = isPlainObject(latestFlowSchemeBlock?.confirmation)
     ? latestFlowSchemeBlock.confirmation as NocodeEditorTaskContextObject
@@ -2105,6 +2529,9 @@ export const buildNocodeEditorTaskSummary = (input: {
       : expectedFlowPlanningContextKey
         || flowConfirmationProjection.planningContextKey
         || '',
+    flowConfirmationSchemeRevision: shouldExcludeFlowConfirmation
+      ? 0
+      : Number(latestFlowSchemeBlock?.revision || latestTaskSummary?.flowConfirmationSchemeRevision || 0),
     flowConfirmationTargetFormId,
     flowConfirmationTargetFormName,
     flowConfirmationQuestionRecords: shouldExcludeFlowConfirmation
@@ -2195,6 +2622,9 @@ export const buildNocodeEditorTaskSummary = (input: {
     latestAction: latestActionName.slice(0, 80),
     openQuestions: resolvedOpenQuestions,
     blueprintApplyGate: latestBlueprintApplyGate || null,
+    blueprintConfirmationDecisions: isFreshNewFormRequest
+      ? []
+      : normalizeBlueprintConfirmationDecisions(latestTaskSummary?.blueprintConfirmationDecisions),
     formulaPlan,
     updatedAt,
   }
@@ -2205,6 +2635,12 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
   userMessage?: string
   updatedAt?: number
   validateFormulaPlanContext?: boolean
+  confirmationDecisions?: {
+    stage?: unknown
+    planningContextKey?: unknown
+    schemeRevision?: unknown
+    decisions?: unknown
+  } | null
   taskId?: string
   taskScopeKey?: string
   activeFormId?: string
@@ -2232,22 +2668,26 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
       || normalizeText(formulaSourceContext.formId) !== normalizeText(input.activeFormId)
     )
   )
-  const latestTaskSummary = shouldInvalidateFormulaPlan
-    ? {
-      ...previousTaskSummary,
-      formulaPlan: {
-        ...formulaPlan,
-        plan: {
-          ...asRecord(formulaPlan?.plan),
+  let latestTaskSummary = mergeIncomingConfirmationDecisions({
+    taskSummary: shouldInvalidateFormulaPlan
+      ? {
+        ...previousTaskSummary,
+        formulaPlan: {
+          ...formulaPlan,
+          plan: {
+            ...asRecord(formulaPlan?.plan),
+            confirmation: null,
+          },
           confirmation: null,
+          checkpoint: null,
         },
-        confirmation: null,
-        checkpoint: null,
-      },
-    }
-    : previousTaskSummary
+      }
+      : previousTaskSummary,
+    confirmationDecisions: input.confirmationDecisions,
+  })
 
   const reply = String(input.userMessage || '').trim()
+  latestTaskSummary = applyExplicitFlowPersonnelConfirmationFromMessage(latestTaskSummary, reply)
   const requestPlanningScope = resolveNocodeEditorPlanningScope(reply).scope
   const isFreshNewFormRequest = isNocodeEditorFreshCreationRequest({
     userMessage: reply,
@@ -2399,9 +2839,75 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
             ? 'flow'
             : latestAction === 'editor_stage_app_plan' || latestAction === 'editor_stage_single_form_plan'
               ? 'planning'
-              : ''
+        : ''
         )
         : ''
+
+  const incomingConfirmation = input.confirmationDecisions
+  const hasTrustedIncomingFlowConfirmation = Boolean(
+    incomingConfirmation?.stage === 'flow-scheme'
+    && normalizeText(incomingConfirmation.planningContextKey)
+    && isSamePlanningConfirmationContext(
+      normalizeText(incomingConfirmation.planningContextKey),
+      normalizeText(latestTaskSummary.flowConfirmationContextKey),
+    )
+    && isCurrentFlowSchemeRevision(
+      incomingConfirmation.schemeRevision,
+      latestTaskSummary.flowConfirmationSchemeRevision,
+    )
+    && normalizeBlueprintConfirmationDecisions(incomingConfirmation.decisions).length > 0,
+  )
+  // A confirmation card carries its own stage, context key, and revision. Trust that
+  // explicit scope after validation instead of letting the cross-stage heuristic
+  // discard a valid flow answer when another planning stage is also pending.
+  if (hasTrustedIncomingFlowConfirmation) {
+    const planningContextKey = normalizeText(latestTaskSummary.flowConfirmationContextKey)
+    const questionRecords = Array.isArray(latestTaskSummary.flowConfirmationQuestionRecords)
+      ? latestTaskSummary.flowConfirmationQuestionRecords
+      : []
+    if (!questionRecords.length) {
+      return latestTaskSummary
+    }
+    const reconciled = reconcileNocodeEditorConfirmationDecisions({
+      confirmation: {
+        stage: 'flow-scheme',
+        status: 'pending',
+        planningContextKey,
+        questions: questionRecords,
+      },
+      previousDecisions: normalizeBlueprintConfirmationDecisions(latestTaskSummary.flowConfirmationDecisions),
+      expectedPlanningContextKey: planningContextKey,
+      preserveTrustedDecisionKeySource: true,
+    })
+    const projection = projectNocodeEditorConfirmationDecisions({
+      stage: 'flow-scheme',
+      confirmation: reconciled.confirmation,
+      expectedPlanningContextKey: planningContextKey,
+      preserveTrustedDecisionKeySource: true,
+    })
+    const pendingQuestions = projection.questions.filter(question => (
+      question.required !== false && question.confirmed !== true
+    ))
+    const flowOpenQuestions = pendingQuestions.map(question => question.title)
+    const nextSummary = {
+      ...latestTaskSummary,
+      flowOpenQuestions,
+      flowConfirmationStatus: pendingQuestions.length ? 'pending' : 'completed',
+      flowConfirmationQuestionRecords: projection.questions,
+      flowConfirmationDecisions: projection.decisions,
+      flowConfirmationResultSummary: projection.decisions
+        .map(decision => normalizeText(decision.answerSummary || decision.selectedOptionValue))
+        .filter(Boolean)
+        .slice(0, 6),
+      updatedAt: Math.max(0, Math.round(Number(input.updatedAt || Date.now()))),
+    }
+    return {
+      ...nextSummary,
+      openQuestions: flowOpenQuestions.length
+        ? flowOpenQuestions
+        : normalizeOpenQuestionsWithoutLimit(latestTaskSummary.planningOpenQuestions),
+    }
+  }
 
   if (!targetStage) {
     return latestTaskSummary
@@ -2846,8 +3352,19 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
         : null,
       latestEntryFlowIntent: resolvedLatestEntryFlowIntent,
       latestBlueprintBlock: latestBlueprintApplyBlock,
+      latestPendingFlowIntent: latestTaskSummary.pendingFlowIntent,
       updatedAt,
     })
+    const pinnedEntryFlowIntent = (
+      resolvedLatestEntryFlowIntent?.state === 'explicit_positive'
+      && !normalizeText(resolvedLatestEntryFlowIntent.targetFormName)
+      && normalizeText(resolvedPendingFlowIntent?.targetFormName)
+    )
+      ? {
+        ...resolvedLatestEntryFlowIntent,
+        targetFormName: normalizeText(resolvedPendingFlowIntent?.targetFormName),
+      }
+      : resolvedLatestEntryFlowIntent
     const currentBlueprintTitle = normalizeText(
       latestBlueprintApplyBlock?.title
       || asRecord(latestBlueprintApplyBlock?.blueprint).title
@@ -2857,7 +3374,7 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
     return {
       ...latestTaskSummary,
       planningScope: metadataPlanningScope,
-      entryFlowIntent: resolvedLatestEntryFlowIntent,
+      entryFlowIntent: pinnedEntryFlowIntent,
       flowIntent: metadataFlowIntentSignal || normalizeNocodeEditorFlowIntentSignal(latestTaskSummary.flowIntent),
       currentBlueprintTitle: currentBlueprintTitle || latestTaskSummary.currentBlueprintTitle,
       latestAction: 'editor_apply_staged_app_blueprint',
@@ -2870,15 +3387,18 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
         && resolvedPendingFlowIntent
         ? decideNocodeEditorPostFormFlowFollowUp({
           planningScope: metadataPlanningScope,
-          entryFlowIntent: resolvedLatestEntryFlowIntent,
+          entryFlowIntent: pinnedEntryFlowIntent,
           pendingFlowIntent: resolvedPendingFlowIntent,
           postFormFlowSignals: metadataPostFormFlowSignals,
-          targetFormId: resolveExternalBlueprintApplyTargetIdentity({
-            blueprintBlock: latestBlueprintApplyBlock,
-          }).targetFormId,
-          targetFormName: resolveExternalBlueprintApplyTargetIdentity({
-            blueprintBlock: latestBlueprintApplyBlock,
-          }).targetFormName || resolvedLatestEntryFlowIntent?.targetFormName,
+          targetFormId: resolvedPendingFlowIntent.targetFormId
+            || resolveExternalBlueprintApplyTargetIdentity({
+              blueprintBlock: latestBlueprintApplyBlock,
+            }).targetFormId,
+          targetFormName: resolvedPendingFlowIntent.targetFormName
+            || resolveExternalBlueprintApplyTargetIdentity({
+              blueprintBlock: latestBlueprintApplyBlock,
+            }).targetFormName
+            || pinnedEntryFlowIntent?.targetFormName,
           now: updatedAt,
         })
         : resolvedPendingFlowIntent
@@ -2907,9 +3427,20 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
       || asRecord(latestFlowBlock?.flowPlan).summary
       || latestTaskSummary.flowSummary,
     ).slice(0, 200)
+    const pinnedEntryFlowIntent = (
+      resolvedLatestEntryFlowIntent?.state === 'explicit_positive'
+      && !normalizeText(resolvedLatestEntryFlowIntent.targetFormName)
+      && normalizeText(metadataPendingFlowIntent?.targetFormName)
+    )
+      ? {
+        ...resolvedLatestEntryFlowIntent,
+        targetFormName: normalizeText(metadataPendingFlowIntent?.targetFormName),
+      }
+      : null
 
     return {
       ...latestTaskSummary,
+      ...(pinnedEntryFlowIntent ? { entryFlowIntent: pinnedEntryFlowIntent } : {}),
       currentFlowTitle: currentFlowTitle || latestTaskSummary.currentFlowTitle,
       flowSummary: flowSummary || latestTaskSummary.flowSummary,
       latestAction: 'editor_apply_staged_flow',
@@ -2989,25 +3520,46 @@ const resolveExternalBlueprintApplyPendingFlowIntent = (input: {
   metadataPendingFlowIntent?: NocodeEditorPendingFlowIntent | null
   latestEntryFlowIntent?: NocodeEditorFlowEntryIntentLike | null
   latestBlueprintBlock?: NocodeEditorTaskContextObject | null
+  latestPendingFlowIntent?: NocodeEditorTaskContextObject | null
   updatedAt: number
 }) => {
-  if (input.metadataPendingFlowIntent) {
-    return input.metadataPendingFlowIntent
-  }
-
   const latestEntryFlowIntent = normalizeEntryFlowIntent(input.latestEntryFlowIntent)
-  if (latestEntryFlowIntent?.state !== 'explicit_positive') {
-    return null
-  }
-
+  const latestPendingFlowIntent = normalizeNocodeEditorPendingFlowIntent(input.latestPendingFlowIntent)
   const targetIdentity = resolveExternalBlueprintApplyTargetIdentity({
     blueprintBlock: input.latestBlueprintBlock,
   })
 
+  if (input.metadataPendingFlowIntent) {
+    if (shouldBlockNocodeEditorPendingFlowIntentRebind({
+      entryFlowIntent: latestEntryFlowIntent,
+      existingPendingFlowIntent: latestPendingFlowIntent,
+      candidateTargetFormId: input.metadataPendingFlowIntent.targetFormId,
+      candidateTargetFormName: input.metadataPendingFlowIntent.targetFormName,
+    })) {
+      return latestPendingFlowIntent
+    }
+    return input.metadataPendingFlowIntent
+  }
+
+  if (latestEntryFlowIntent?.state !== 'explicit_positive') {
+    return null
+  }
+
+  const targetFormId = targetIdentity.targetFormId || undefined
+  const targetFormName = targetIdentity.targetFormName || latestEntryFlowIntent.targetFormName || undefined
+  if (shouldBlockNocodeEditorPendingFlowIntentRebind({
+    entryFlowIntent: latestEntryFlowIntent,
+    existingPendingFlowIntent: latestPendingFlowIntent,
+    candidateTargetFormId: targetFormId,
+    candidateTargetFormName: targetFormName,
+  })) {
+    return latestPendingFlowIntent
+  }
+
   return buildNocodeEditorPendingFlowIntentFromEntryFlowIntent({
     entryFlowIntent: latestEntryFlowIntent,
-    targetFormId: targetIdentity.targetFormId || undefined,
-    targetFormName: targetIdentity.targetFormName || latestEntryFlowIntent.targetFormName || undefined,
+    targetFormId,
+    targetFormName,
     now: input.updatedAt,
   })
 }

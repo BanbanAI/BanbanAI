@@ -6,21 +6,22 @@ import type {
   NocodeEditorFlowScheme,
   NocodeEditorFlowSchemeDependency,
 } from '@common/utils/nocodeEditorFlowScheme'
+import {
+  flattenFlowApprovalOwnerSummaryFields,
+  hasFlowApprovalOwnerTargetContextMismatch,
+  hasFlowApprovalOwnerUnverifiedFieldConflict,
+  isApplicantRoleFieldName,
+  isFlowApprovalOwnerRecord,
+  isSameFlowApprovalOwnerToken,
+  normalizeFlowApprovalOwnerText,
+  normalizeFlowApprovalOwnerToken,
+  resolveFlowApprovalOwnerSummaryTarget,
+  resolveFlowSchemeDependencyState,
+  resolveFlowSchemeSingleDependency,
+  type FlowApprovalOwnerSummaryTarget,
+} from '@common/utils/nocodeEditorFlowApprovalOwnerRules'
 
-type UnknownRecord = Record<string, unknown>
-
-type FlowSummaryOwnerField = {
-  fieldId: string
-  fieldName: string
-  ownerPolicy: string
-  subFields?: FlowSummaryOwnerField[]
-}
-
-type FlowSummaryTarget = {
-  tableId: string
-  tableName: string
-  fields: FlowSummaryOwnerField[]
-}
+type FlowSummaryTarget = FlowApprovalOwnerSummaryTarget
 
 type ApprovalOwnerReferenceKind =
   | 'form_member'
@@ -38,14 +39,18 @@ export type FlowBlueprintApprovalOwnerPreflightDiagnostic = {
     | 'blueprint_approval_owner_dependency_mismatch'
     | 'blueprint_approval_owner_existing_field_invalid'
     | 'blueprint_approval_owner_planned_field_id_forbidden'
+    | 'blueprint_approval_owner_evidence_unverified'
     | 'blueprint_contains_confirmation_semantics'
   message: string
+  severity?: 'blocking' | 'config_gap'
+  routeToScheme?: boolean
   nodeKey?: string
   nodeName?: string
   expectedFieldId?: string
   expectedFieldName?: string
   actualFieldId?: string
   actualFieldName?: string
+  compatibleFields?: Array<{ fieldId: string; fieldName: string }>
 }
 
 export type FlowBlueprintApprovalOwnerPreflightResult = {
@@ -54,67 +59,16 @@ export type FlowBlueprintApprovalOwnerPreflightResult = {
   requiresUserConfirmation: false
 }
 
-const normalizeText = (value: unknown) => String(value ?? '').trim()
+export const hasBlockingFlowBlueprintApprovalOwnerDiagnostic = (
+  diagnostics: Array<{ severity?: 'blocking' | 'config_gap' }>,
+) => diagnostics.some(diagnostic => (diagnostic.severity || 'blocking') === 'blocking')
 
-const normalizeToken = (value: unknown) => normalizeText(value)
-  .toLowerCase()
-  .replace(/[\s\-_/\\]+/g, '')
-
-const isRecord = (value: unknown): value is UnknownRecord => (
-  Boolean(value)
-  && typeof value === 'object'
-  && !Array.isArray(value)
-)
-
-const isSameToken = (left: unknown, right: unknown) => {
-  const normalizedLeft = normalizeToken(left)
-  const normalizedRight = normalizeToken(right)
-  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
-}
-
-const collectSummaryFields = (value: unknown): FlowSummaryOwnerField[] => {
-  if (!isRecord(value)) {
-    return []
-  }
-  const fieldId = normalizeText(value.fieldId)
-  const fieldName = normalizeText(value.fieldName)
-  if (!fieldId || !fieldName) {
-    return []
-  }
-  const subFields = Array.isArray(value.subFields)
-    ? value.subFields.flatMap(collectSummaryFields)
-    : []
-  return [{
-    fieldId,
-    fieldName,
-    ownerPolicy: normalizeText(value.ownerPolicy),
-    ...(subFields.length ? { subFields } : {}),
-  }]
-}
-
-const flattenFields = (fields: FlowSummaryOwnerField[]) => fields.flatMap(field => [
-  field,
-  ...flattenFields(field.subFields || []),
-])
-
-const resolveCurrentTarget = (flowSummary: unknown): FlowSummaryTarget | null => {
-  if (!isRecord(flowSummary) || !isRecord(flowSummary.forms) || !isRecord(flowSummary.forms.currentForm)) {
-    return null
-  }
-  const currentForm = flowSummary.forms.currentForm
-  const tableId = normalizeText(currentForm.tableId)
-  const tableName = normalizeText(currentForm.tableName)
-  if (!tableId && !tableName) {
-    return null
-  }
-  return {
-    tableId,
-    tableName,
-    fields: Array.isArray(currentForm.fields)
-      ? currentForm.fields.flatMap(collectSummaryFields)
-      : [],
-  }
-}
+const normalizeText = normalizeFlowApprovalOwnerText
+const normalizeToken = normalizeFlowApprovalOwnerToken
+const isSameToken = isSameFlowApprovalOwnerToken
+const isRecord = isFlowApprovalOwnerRecord
+const flattenFields = flattenFlowApprovalOwnerSummaryFields
+const resolveCurrentTarget = resolveFlowApprovalOwnerSummaryTarget
 
 const collectApprovalNodes = (nodes: NocodeEditorFlowPlanNode[]) => nodes.flatMap((node) => [
   ...(node.type === 'approval' ? [node] : []),
@@ -206,29 +160,14 @@ const isDepartmentComponentType = (value: unknown) => {
   return normalized === 'departmentselect' || normalized === 'department'
 }
 
-const isApplicantRoleFieldName = (value: unknown) => (
-  ['报销人', '申请人'].includes(normalizeText(value))
-)
-
 const resolveApprovalOwnerDependency = (
   scheme: NocodeEditorFlowScheme,
   node: NocodeEditorFlowPlanNode,
-) => {
-  const dependencies = (scheme.dependencies || []).filter(dependency => (
-    dependency.requiredFor === 'approval_owner'
-  ))
-  const stepDependencies = dependencies.filter(dependency => (
-    dependency.scopeKind === 'step'
-    && normalizeText(dependency.scopeKey) === normalizeText(node.nodeKey)
-  ))
-  if (stepDependencies.length === 1) {
-    return stepDependencies[0] as NocodeEditorFlowSchemeDependency
-  }
-  const globalDependencies = dependencies.filter(dependency => dependency.scopeKind === 'global')
-  return stepDependencies.length === 0 && globalDependencies.length === 1
-    ? globalDependencies[0] as NocodeEditorFlowSchemeDependency
-    : null
-}
+) => resolveFlowSchemeSingleDependency({
+  dependencies: scheme.dependencies,
+  requiredFor: 'approval_owner',
+  scopeKey: node.nodeKey,
+})
 
 const isLegacyApprovalOwnerReferenceConsistent = (input: {
   scheme: NocodeEditorFlowScheme
@@ -270,19 +209,7 @@ const isLegacyApprovalOwnerReferenceConsistent = (input: {
   ].some(value => normalizeToken(value).includes(fieldNameToken))
 }
 
-const resolveDependencyState = (dependency: NocodeEditorFlowSchemeDependency) => {
-  const isExisting = (
-    dependency.resolutionStatus === 'resolved'
-    && dependency.resolutionMode === 'use_existing'
-    && dependency.materializationStatus === 'existing'
-  )
-  const isPlanned = (
-    dependency.resolutionStatus === 'resolved'
-    && dependency.resolutionMode === 'create_later'
-    && dependency.materializationStatus === 'planned'
-  )
-  return { isExisting, isPlanned }
-}
+const resolveDependencyState = resolveFlowSchemeDependencyState
 
 const resolveDependencyFieldKind = (input: {
   dependency: NocodeEditorFlowSchemeDependency
@@ -305,30 +232,6 @@ const resolveDependencyFieldKind = (input: {
     : null
 }
 
-const hasTargetMismatch = (input: {
-  plan: NocodeEditorFlowPlan
-  scheme: NocodeEditorFlowScheme
-  target: FlowSummaryTarget | null
-}) => {
-  const planFormId = normalizeText(input.plan.target?.formId)
-  const planFormName = normalizeText(input.plan.target?.formName)
-  const schemeFormId = normalizeText(input.scheme.target?.formId)
-  const schemeFormName = normalizeText(input.scheme.target?.formName)
-  if (
-    (planFormId && schemeFormId && planFormId !== schemeFormId)
-    || (!planFormId && !schemeFormId && planFormName && schemeFormName && !isSameToken(planFormName, schemeFormName))
-  ) {
-    return true
-  }
-  if (!input.target) {
-    return false
-  }
-  return Boolean(
-    (schemeFormId && schemeFormId !== input.target.tableId)
-    || (!schemeFormId && schemeFormName && !isSameToken(schemeFormName, input.target.tableName)),
-  )
-}
-
 export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
   plan: NocodeEditorFlowPlan
   scheme: NocodeEditorFlowScheme
@@ -347,10 +250,11 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
     }
   }
   const target = resolveCurrentTarget(input.flowSummary)
-  if (hasTargetMismatch({ ...input, target })) {
+  if (hasFlowApprovalOwnerTargetContextMismatch({ plan: input.plan, scheme: input.scheme, target })) {
     diagnostics.push({
       code: 'blueprint_approval_owner_target_context_mismatch',
       message: '当前流程蓝图、流程方案与表单上下文不一致，不能复用旧的审批人字段依赖。',
+      routeToScheme: true,
     })
     return {
       diagnostics,
@@ -435,10 +339,35 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
       }
 
       if (isExisting) {
+        const compatibleFields = flattenFields(target?.fields || [])
+          .filter(field => field.ownerPolicy === expectedFieldKind)
+        const compatibleFieldOptions = compatibleFields
+          .filter(field => !isApplicantRoleFieldName(field.fieldName))
+          .map(field => ({ fieldId: field.fieldId, fieldName: field.fieldName }))
         if (expectedFieldKind === 'member' && isApplicantRoleFieldName(expectedFieldName)) {
           diagnostics.push({
             code: 'blueprint_approval_owner_existing_field_invalid',
             message: '申请角色字段不能复用为审批人字段。',
+            routeToScheme: true,
+            nodeKey,
+            nodeName,
+            expectedFieldId: expectedFieldId || undefined,
+            expectedFieldName: expectedFieldName || undefined,
+            actualFieldId: reference.fieldId || undefined,
+            actualFieldName: reference.fieldName || undefined,
+            compatibleFields: compatibleFieldOptions.slice(0, 6),
+          })
+          return
+        }
+        const isUnverified = dependency.unverifiedReason === 'form_evidence_unavailable'
+        if (isUnverified && hasFlowApprovalOwnerUnverifiedFieldConflict({
+          dependency,
+          actualFieldId: reference.fieldId,
+          actualFieldName: reference.fieldName,
+        })) {
+          diagnostics.push({
+            code: 'blueprint_approval_owner_dependency_mismatch',
+            message: '审批节点引用的字段与已收敛审批人字段不一致。',
             nodeKey,
             nodeName,
             expectedFieldId: expectedFieldId || undefined,
@@ -448,8 +377,6 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
           })
           return
         }
-        const compatibleFields = flattenFields(target?.fields || [])
-          .filter(field => field.ownerPolicy === expectedFieldKind)
         const resolvedField = expectedFieldId
           ? compatibleFields.find(field => field.fieldId === expectedFieldId)
           : compatibleFields.find(field => isSameToken(field.fieldName, expectedFieldName))
@@ -463,6 +390,37 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
           ),
         )
         if (!matchesDependency) {
+          if (isUnverified && !target) {
+            diagnostics.push({
+              code: 'blueprint_approval_owner_evidence_unverified',
+              message: '该审批人字段依赖尚未与当前表单证据核对，将在流程生成后补齐配置。',
+              severity: 'config_gap',
+              nodeKey,
+              nodeName,
+              expectedFieldId: expectedFieldId || undefined,
+              expectedFieldName: expectedFieldName || undefined,
+            })
+            return
+          }
+          if (isUnverified) {
+            diagnostics.push({
+              code: 'blueprint_approval_owner_existing_field_invalid',
+              message: expectedFieldKind === 'member'
+                ? '已确认复用的成员字段与当前表单证据不一致，需要重新确认审批人字段绑定。'
+                : '已确认复用的部门字段与当前表单证据不一致，需要重新确认审批人字段绑定。',
+              routeToScheme: true,
+              nodeKey,
+              nodeName,
+              expectedFieldId: expectedFieldId || undefined,
+              expectedFieldName: expectedFieldName || undefined,
+              actualFieldId: reference.fieldId || undefined,
+              actualFieldName: reference.fieldName || undefined,
+              compatibleFields: expectedFieldKind === 'member'
+                ? compatibleFieldOptions.slice(0, 6)
+                : undefined,
+            })
+            return
+          }
           diagnostics.push({
             code: target
               ? 'blueprint_approval_owner_dependency_mismatch'
@@ -528,7 +486,7 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
 
   return {
     diagnostics,
-    requiresBlueprintRegeneration: diagnostics.length > 0,
+    requiresBlueprintRegeneration: hasBlockingFlowBlueprintApprovalOwnerDiagnostic(diagnostics),
     requiresUserConfirmation: false,
   }
 }

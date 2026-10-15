@@ -97,12 +97,14 @@ const getPlanningArtifactLogicalContextKey = (
   }
 
   const outline = getPlanningArtifactOutline(block)
+  const primaryFormKey = outline?.forms?.[0]?.formKey
+    || outline?.forms?.[0]?.tableName
+    || block.appPlan?.goal
   return buildLogicalPlanningConfirmationContextKey({
     stage: block.kind,
-    outlineId: outline?.id || block.appPlan?.id,
-    primaryFormKey: outline?.forms?.[0]?.formKey
-      || outline?.forms?.[0]?.tableName
-      || block.appPlan?.goal,
+    // 同一表单的多次规划暂存需归入同一展示家族，outlineId 每次重铸会导致版本号各自从 1 计起
+    outlineId: primaryFormKey ? '' : (outline?.id || block.appPlan?.id),
+    primaryFormKey,
   })
 }
 
@@ -198,9 +200,11 @@ const getBlueprintFamilyKey = (
     return ''
   }
 
+  const familyIdentity = sourceLogicalKey
+    ? `source:${sourceLogicalKey}`
+    : `id:${blueprintId || 'unknown'}`
   return [
-    blueprintId ? `id:${blueprintId}` : 'id:unknown',
-    `source:${sourceLogicalKey || 'global'}`,
+    familyIdentity,
     `primary:${primaryFormKey || 'unknown'}`,
   ].join(':')
 }
@@ -590,6 +594,11 @@ const compareReferencedSummaryCandidate = (
   return left.order - right.order
 }
 
+const resolveSummaryCurrentVersionNumber = (content: string) => {
+  const match = String(content || '').match(/当前为第\s*(\d+)\s*版/)
+  return match ? Number(match[1] || 0) : 0
+}
+
 export const rewriteArtifactSummaryDisplayVersionText = (
   content: string,
   blocks: Array<NocodeEditorAiArtifactBlock | null | undefined>,
@@ -616,10 +625,37 @@ export const rewriteArtifactSummaryDisplayVersionText = (
     .filter(candidate => doesSummaryReferenceArtifactTitle(normalizedContent, candidate.block))
     .sort(compareReferencedSummaryCandidate)
 
+  // 文案里的「当前为第 N 版」N 是暂存时刻的真实 revision，重写只用于对齐该 revision 对应卡片的
+  // 展示版本号；若直接取标题匹配中最新的展示版本，会把旧文案误写成新版本（4b7315iw80l4 事故形态）。
+  const rawVersion = resolveSummaryCurrentVersionNumber(normalizedContent)
+  const pickRevisionAnchoredCandidates = (
+    candidates: typeof displayCandidates,
+  ) => (
+    rawVersion > 0
+      ? candidates.filter(candidate => Number(candidate.block.revision || 0) === rawVersion)
+      : []
+  )
+
+  const anchoredTitleMatchedCandidates = pickRevisionAnchoredCandidates(titleMatchedCandidates)
+  if (anchoredTitleMatchedCandidates.length) {
+    return replaceCurrentVersionLabel(
+      normalizedContent,
+      anchoredTitleMatchedCandidates[0].displayVersionLabel,
+    )
+  }
+
   if (titleMatchedCandidates.length) {
     return replaceCurrentVersionLabel(
       normalizedContent,
       titleMatchedCandidates[0].displayVersionLabel,
+    )
+  }
+
+  const anchoredCandidates = pickRevisionAnchoredCandidates(displayCandidates)
+  if (anchoredCandidates.length) {
+    return replaceCurrentVersionLabel(
+      normalizedContent,
+      anchoredCandidates[0].displayVersionLabel,
     )
   }
 

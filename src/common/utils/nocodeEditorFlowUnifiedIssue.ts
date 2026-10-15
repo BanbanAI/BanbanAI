@@ -20,9 +20,20 @@ import {
 import {
   isNocodeEditorFlowApprovalOwnerSourceQuestion,
 } from './nocodeEditorFlowQuestionPolicy'
+import {
+  buildNocodeEditorFlowPersonnelSourceOptions,
+} from './nocodeEditorFlowPersonnelSourceOptions'
+import {
+  annotateNocodeEditorFlowPersonnelSourceQuestion,
+  resolveNocodeEditorFlowPersonnelSourceQuestionAnchor,
+} from './nocodeEditorFlowPersonnelSourceAnchor'
+import type {
+  NocodeEditorFlowPersonnelSourceEvidence,
+} from './nocodeEditorFlowPersonnelSourceAnchor'
 import type {
   NocodeEditorConfirmationDecisionConflict,
 } from './nocodeEditorConfirmationDecisionReconciliation'
+import { projectFlowDecisionQuestions, validateFlowDecisionGraph } from './nocodeEditorFlowDecisionGraph'
 
 export type UnifiedFlowIssueSourceStage =
   | 'flow-scheme'
@@ -89,6 +100,7 @@ type BuildUnifiedFlowIssuesFromFlowSchemeInput = {
   scheme?: NocodeEditorFlowScheme | null
   planningContextKey?: string
   userMessage?: string
+  personnelSourceEvidence?: NocodeEditorFlowPersonnelSourceEvidence | null
 }
 
 type BuildUnifiedFlowIssuesFromGroundingInput = {
@@ -131,6 +143,7 @@ type BuildUnifiedFlowIssuesFromExecutionBlockerInput = {
   path?: string
   title?: string
   message?: string
+  diagnostics?: UnifiedFlowIssueDiagnostic[]
 }
 
 const SOURCE_STAGES = new Set<UnifiedFlowIssueSourceStage>([
@@ -293,6 +306,84 @@ const buildNoteOnlyQuestionPayload = (input: {
   }
 }
 
+// 派生的人员来源题与模型来源题共用决策键与答案空间，确保卡片呈现五个来源选项、
+// 答复以标准来源值回传，并让审批人收敛网络能按 flow.approval.owner.source 命中。
+const buildApprovalOwnerSourceQuestionPayload = (input: {
+  id: string
+  title: string
+  description?: string
+  stepKey: string
+}): NocodeEditorAiConfirmQuestion => ({
+  id: input.id,
+  decisionKey: 'flow.approval.owner.source',
+  title: input.title,
+  questionKind: 'single_select',
+  description: normalizeText(input.description) || undefined,
+  required: true,
+  allowFreeText: true,
+  personnelDecision: {
+    stepKey: input.stepKey,
+    slot: 'source',
+  },
+  options: buildNocodeEditorFlowPersonnelSourceOptions(),
+})
+
+const resolveDependencyDecisionKey = (dependency: NocodeEditorFlowSchemeDependency) => {
+  const explicitDecisionKey = normalizeText(dependency.decisionKey)
+  if (explicitDecisionKey) {
+    return explicitDecisionKey
+  }
+
+  // Older personnel dependencies predate the shared decisionKey contract.
+  if (isUnresolvedApprovalOwnerSourcePersonnelDependency(dependency)) {
+    return 'flow.approval.owner'
+  }
+
+  return ''
+}
+
+const resolveIssueDecisionKey = (issue: UnifiedFlowIssue) => (
+  normalizeText(issue.questionPayload?.decisionKey)
+  || normalizeText(issue.questionPayload?.id)
+  || normalizeText(issue.issueId)
+)
+
+const normalizeDecisionKey = (value: unknown) => {
+  const key = normalizeText(value)
+  return key === 'flow.approval.owner.source' ? 'flow.approval.owner' : key
+}
+
+const isQuestionScopeCoveringDependency = (
+  questionScope?: UnifiedFlowIssueScope,
+  dependencyScope?: Pick<NocodeEditorFlowSchemeDependency, 'scopeKind' | 'scopeKey'>,
+) => {
+  const questionKind = questionScope?.kind || 'global'
+  const dependencyKind = dependencyScope?.scopeKind || 'global'
+  if (questionKind === 'global') {
+    return true
+  }
+  return questionKind === dependencyKind
+    && normalizeText(questionScope?.key) === normalizeText(dependencyScope?.scopeKey)
+}
+
+const isDependencyCoveredByPendingDecision = (input: {
+  dependency: NocodeEditorFlowSchemeDependency
+  questionIssues: UnifiedFlowIssue[]
+}) => {
+  const decisionKey = resolveDependencyDecisionKey(input.dependency)
+  if (!decisionKey) {
+    return false
+  }
+
+  return input.questionIssues.some(issue => (
+    issue.sourceStage === 'flow-scheme'
+    && issue.userActionRequired
+    && !hasResolvedQuestionAnswer(issue.questionPayload)
+    && normalizeDecisionKey(resolveIssueDecisionKey(issue)) === normalizeDecisionKey(decisionKey)
+    && isQuestionScopeCoveringDependency(issue.scope, input.dependency)
+  ))
+}
+
 const getQuestionKey = (question: NocodeEditorAiConfirmQuestion) => (
   normalizeText(question.id) || normalizeText(question.title)
 )
@@ -419,6 +510,17 @@ const isUnresolvedApprovalOwnerFallbackPersonnelDependency = (
   && normalizeText(dependency.id).endsWith(':fallback'),
 )
 
+const isUnresolvedApprovalOwnerLevelPersonnelDependency = (
+  dependency: NocodeEditorFlowSchemeDependency,
+) => Boolean(
+  isUnresolvedApprovalOwnerPersonnelDependency(dependency)
+  && normalizeText(dependency.id).endsWith(':level'),
+)
+
+// 层级题的答案空间是“方向 + 级数”，不给出取值说明与可照抄示例时，
+// 用户面对“XX 尚未确定”这类循环描述无从填写。
+const NOCODE_EDITOR_FLOW_DEPARTMENT_MANAGER_LEVEL_DESCRIPTION = '请补充取哪一级部门主管：「向上」从直属部门主管逐级向上，「向下」从最高部门主管逐级向下。例如：向上 1 级（直属部门主管）。'
+
 const resolveApprovalOwnerFallbackDecisionKey = (
   dependency: NocodeEditorFlowSchemeDependency,
 ) => {
@@ -455,6 +557,7 @@ const buildDependencyIssue = (input: {
     isUnresolvedApprovalOwnerSourcePersonnelDependency(input.dependency)
     && Boolean(approvalNodeTitle)
   )
+  const asksForApprovalOwnerLevel = isUnresolvedApprovalOwnerLevelPersonnelDependency(input.dependency)
   const fallbackDecisionKey = resolveApprovalOwnerFallbackDecisionKey(input.dependency)
   const asksForApprovalOwnerFallback = Boolean(fallbackDecisionKey)
   const questionTitle = asksForApprovalOwnerFallback
@@ -465,8 +568,10 @@ const buildDependencyIssue = (input: {
   const questionDescription = asksForApprovalOwnerFallback
     ? NOCODE_EDITOR_FLOW_APPROVAL_OWNER_EMPTY_HANDLER_DESCRIPTION
     : asksForApprovalOwnerSource
-      ? '请说明该节点的审批人如何确定。例如：使用表单中的成员字段，或在流程中指定固定人员、角色、部门主管、提交人上级。'
-      : `请补充或确认：${title}`
+      ? '请选择该节点的审批人来源。'
+      : asksForApprovalOwnerLevel
+        ? NOCODE_EDITOR_FLOW_DEPARTMENT_MANAGER_LEVEL_DESCRIPTION
+        : `请补充或确认：${title}`
   return {
     issueId,
     sourceStage: 'flow-scheme',
@@ -477,12 +582,19 @@ const buildDependencyIssue = (input: {
     returnToStage: 'flow-scheme',
     blockedNextAction: null,
     userMessage: normalizeText(input.userMessage) || questionTitle,
-    questionPayload: buildNoteOnlyQuestionPayload({
-      id: issueId,
-      decisionKey: fallbackDecisionKey,
-      title: questionTitle,
-      description: questionDescription,
-    }),
+    questionPayload: asksForApprovalOwnerSource
+      ? buildApprovalOwnerSourceQuestionPayload({
+        id: issueId,
+        title: questionTitle,
+        description: questionDescription,
+        stepKey: normalizeText(input.dependency.scopeKey),
+      })
+      : buildNoteOnlyQuestionPayload({
+        id: issueId,
+        decisionKey: resolveDependencyDecisionKey(input.dependency) || fallbackDecisionKey,
+        title: questionTitle,
+        description: questionDescription,
+      }),
     scope: {
       kind: input.dependency.scopeKind,
       key: normalizeText(input.dependency.scopeKey) || undefined,
@@ -533,8 +645,11 @@ const resolveCoveredPersonnelQuestionKeys = (input: {
   const dependencyScopeKey = normalizeText(dependency.scopeKey)
   const scopedQuestions = input.openQuestions
     .filter(question => (
-      question.scopeKind === 'step'
-      && normalizeText(question.scopeKey) === dependencyScopeKey
+      question.scopeKind === 'global'
+      || (
+        question.scopeKind === 'step'
+        && normalizeText(question.scopeKey) === dependencyScopeKey
+      )
     ))
     .map((question) => {
       const questionPayload = findConfirmationQuestionForOpenQuestion(
@@ -578,14 +693,11 @@ const isPersonnelDependencyCoveredByPendingQuestion = (input: {
     return false
   }
 
-  const dependencyScopeKey = normalizeText(input.dependency.scopeKey)
-
   return input.questionIssues.some(issue => (
     issue.sourceStage === 'flow-scheme'
     && issue.category === 'business_gap'
     && issue.userActionRequired
-    && issue.scope?.kind === 'step'
-    && normalizeText(issue.scope.key) === dependencyScopeKey
+    && isQuestionScopeCoveringDependency(issue.scope, input.dependency)
     && isNocodeEditorFlowApprovalOwnerSourceQuestion(issue.questionPayload)
   ))
 }
@@ -613,6 +725,38 @@ export const buildUnifiedFlowIssuesFromDecisionConflicts = (input: {
   }],
 }))
 
+// 人员来源题锚定：步骤业务线索（标题/意图/actorHint）或项目证据点名了具体来源时，
+// 在题面与对应选项上标注推荐；模型来源题与依赖收敛派生来源题共用同一标注。
+const annotatePersonnelSourceQuestionIssues = (input: {
+  issues: UnifiedFlowIssue[]
+  scheme: NocodeEditorFlowScheme
+  evidence?: NocodeEditorFlowPersonnelSourceEvidence | null
+}): UnifiedFlowIssue[] => input.issues.map((issue) => {
+  const question = issue.questionPayload
+  if (!question) {
+    return issue
+  }
+  const personnelDecisionSource = question.personnelDecision?.slot === 'source'
+  const dependencySource = !personnelDecisionSource
+    && normalizeText(issue.diagnostics?.[0]?.kind) === 'org_anchor_missing'
+    && normalizeText(issue.issueId).endsWith(':source')
+  if (!personnelDecisionSource && !dependencySource) {
+    return issue
+  }
+  const anchor = resolveNocodeEditorFlowPersonnelSourceQuestionAnchor({
+    scheme: input.scheme,
+    stepKey: question.personnelDecision?.stepKey || issue.scope?.key,
+    evidence: input.evidence,
+  })
+  if (!anchor) {
+    return issue
+  }
+  const annotatedQuestion = annotateNocodeEditorFlowPersonnelSourceQuestion({ question, anchor })
+  return annotatedQuestion === question
+    ? issue
+    : { ...issue, questionPayload: annotatedQuestion }
+})
+
 export const buildUnifiedFlowIssuesFromFlowScheme = (
   input: BuildUnifiedFlowIssuesFromFlowSchemeInput,
 ): UnifiedFlowIssue[] => {
@@ -628,6 +772,8 @@ export const buildUnifiedFlowIssuesFromFlowScheme = (
       .map((item, index) => normalizeQuestionPayload(item, index))
       .filter((item): item is NocodeEditorAiConfirmQuestion => Boolean(item))
     : []
+  const decisionStates = validateFlowDecisionGraph(confirmationQuestions).length
+    ? null : projectFlowDecisionQuestions(confirmationQuestions).states
   const openQuestions = Array.isArray(scheme.openQuestions) ? scheme.openQuestions : []
   const dependencies = Array.isArray(scheme.dependencies) ? scheme.dependencies : []
   const coveredPersonnelQuestionKeys = resolveCoveredPersonnelQuestionKeys({
@@ -641,6 +787,7 @@ export const buildUnifiedFlowIssuesFromFlowScheme = (
   const usedQuestionKeys = new Set<string>()
 
   openQuestions.forEach((question, index) => {
+    if (decisionStates?.get(normalizeText(question.key)) === 'inapplicable') return
     const questionPayload = findConfirmationQuestionForOpenQuestion(
       question,
       confirmationQuestions,
@@ -673,6 +820,7 @@ export const buildUnifiedFlowIssuesFromFlowScheme = (
   confirmationQuestions.forEach((question, index) => {
     const questionIdentityKey = normalizeText(question.decisionKey)
       || normalizeText(question.id)
+    if (decisionStates?.get(questionIdentityKey) === 'inapplicable') return
     if (
       usedQuestionKeys.has(getQuestionKey(question))
       || fallbackQuestionIdentityKeys.has(questionIdentityKey)
@@ -701,10 +849,10 @@ export const buildUnifiedFlowIssuesFromFlowScheme = (
   })
 
   dependencies.forEach((dependency, index) => {
-    if (isPersonnelDependencyCoveredByPendingQuestion({
-      dependency,
-      questionIssues: issues,
-    })) {
+    if (
+      isDependencyCoveredByPendingDecision({ dependency, questionIssues: issues })
+      || isPersonnelDependencyCoveredByPendingQuestion({ dependency, questionIssues: issues })
+    ) {
       return
     }
     const issue = buildDependencyIssue({
@@ -718,7 +866,11 @@ export const buildUnifiedFlowIssuesFromFlowScheme = (
     }
   })
 
-  return issues
+  return annotatePersonnelSourceQuestionIssues({
+    issues,
+    scheme,
+    evidence: input.personnelSourceEvidence || null,
+  })
 }
 
 const resolveGroundingIssueCategory = (
@@ -799,6 +951,155 @@ export const buildUnifiedFlowIssuesFromGrounding = (
     diagnostics: group.diagnostics,
   }
 })
+
+export type SchemeRestageBlueprintDiagnosticLike = {
+  code?: string
+  message?: string
+  severity?: string
+  routeToScheme?: boolean
+  nodeKey?: string
+  nodeName?: string
+  expectedFieldId?: string
+  expectedFieldName?: string
+  actualFieldId?: string
+  actualFieldName?: string
+  compatibleFields?: Array<{ fieldId?: string; fieldName?: string }>
+  [key: string]: unknown
+}
+
+type BuildUnifiedFlowIssuesFromSchemeRestageDiagnosticsInput = {
+  diagnostics: SchemeRestageBlueprintDiagnosticLike[]
+  sourceStage: UnifiedFlowIssueSourceStage
+  planningContextKey?: string
+  blockedNextAction?: UnifiedFlowIssueBlockedNextAction | string | null
+}
+
+const SCHEME_RESTAGE_OWNER_FIELD_CODES = new Set([
+  'blueprint_approval_owner_existing_field_invalid',
+  'approval_owner_existing_field_invalid',
+])
+
+const isSchemeRestageOwnerFieldCode = (code: string) => (
+  SCHEME_RESTAGE_OWNER_FIELD_CODES.has(code)
+)
+
+const isSchemeRestageTargetContextCode = (code: string) => (
+  code.endsWith('target_context_mismatch')
+)
+
+const buildSchemeRestageCompatibleFieldOptions = (value: unknown) => (
+  (Array.isArray(value) ? value : []).flatMap((field) => {
+    if (!isRecord(field)) {
+      return []
+    }
+    const fieldId = normalizeText(field.fieldId)
+    const fieldName = normalizeText(field.fieldName)
+    return fieldId && fieldName
+      ? [{
+        value: `use-existing-owner-field:${fieldId}`,
+        label: `使用现有成员字段（${fieldName}）`,
+        description: '复用该表单成员字段作为审批人来源。',
+      }]
+      : []
+  }).slice(0, 6)
+)
+
+const buildSchemeRestageOwnerFieldQuestion = (input: {
+  diagnostic: SchemeRestageBlueprintDiagnosticLike
+  index: number
+}): NocodeEditorAiConfirmQuestion => {
+  const stepKey = normalizeText(input.diagnostic.nodeKey) || `step-${input.index + 1}`
+  const id = `flow.approval.owner.field_ref.${stepKey}`
+  const compatibleFieldOptions = buildSchemeRestageCompatibleFieldOptions(
+    input.diagnostic.compatibleFields,
+  )
+  return {
+    id,
+    decisionKey: id,
+    title: '重新确认审批人字段绑定',
+    description: compatibleFieldOptions.length
+      ? '当前审批人绑定与表单字段证据不一致，请重新选择该节点的审批人来源。'
+      : '当前审批人绑定与表单字段证据不一致，请重新确认该节点的审批人来源（现有成员字段、新增成员字段或其他固定人员）。',
+    questionKind: compatibleFieldOptions.length ? 'single_select' : 'note_only',
+    scopeKind: 'overview',
+    required: true,
+    allowFreeText: true,
+    options: compatibleFieldOptions.length
+      ? [
+        ...compatibleFieldOptions,
+        {
+          value: 'choose-another-owner-source',
+          label: '改用其他审批人来源',
+          description: '改用新增成员字段、固定人员或其他可用的审批人来源。',
+        },
+      ]
+      : undefined,
+  }
+}
+
+const buildSchemeRestageNoteQuestion = (input: {
+  diagnostic: SchemeRestageBlueprintDiagnosticLike
+  index: number
+  idPrefix: string
+  fallbackTitle: string
+  fallbackDescription: string
+}): NocodeEditorAiConfirmQuestion => {
+  const nodeKey = normalizeText(input.diagnostic.nodeKey)
+  return buildNoteOnlyQuestionPayload({
+    id: `${input.idPrefix}-${nodeKey || input.index + 1}`,
+    title: input.fallbackTitle,
+    description: normalizeText(input.diagnostic.message) || input.fallbackDescription,
+  })
+}
+
+export const buildUnifiedFlowIssuesFromSchemeRestageDiagnostics = (
+  input: BuildUnifiedFlowIssuesFromSchemeRestageDiagnosticsInput,
+): UnifiedFlowIssue[] => {
+  const planningContextKey = normalizeText(input.planningContextKey) || undefined
+  const blockedNextAction = normalizeUnifiedFlowIssueBlockedNextAction(input.blockedNextAction)
+    || 'editor_stage_flow_blueprint'
+  return (Array.isArray(input.diagnostics) ? input.diagnostics : []).map((diagnostic, index) => {
+    const code = normalizeText(diagnostic.code) || 'flow_scheme_restage_required'
+    const nodeKey = normalizeText(diagnostic.nodeKey) || undefined
+    const nodeName = normalizeText(diagnostic.nodeName) || undefined
+    const questionPayload = isSchemeRestageOwnerFieldCode(code)
+      ? buildSchemeRestageOwnerFieldQuestion({ diagnostic, index })
+      : isSchemeRestageTargetContextCode(code)
+        ? buildSchemeRestageNoteQuestion({
+          diagnostic,
+          index,
+          idPrefix: 'flow-scheme-restage-target-context',
+          fallbackTitle: '重新确认流程目标表单',
+          fallbackDescription: '当前表单证据与流程方案的目标表单不一致，请重新确认目标表单后再继续。',
+        })
+        : buildSchemeRestageNoteQuestion({
+          diagnostic,
+          index,
+          idPrefix: 'flow-scheme-restage-personnel-field',
+          fallbackTitle: '重新确认人员字段绑定',
+          fallbackDescription: '当前人员字段绑定与表单字段证据不一致，请重新确认后再继续。',
+        })
+    const userMessage = normalizeText(diagnostic.message)
+      || normalizeText(questionPayload.description)
+      || questionPayload.title
+    return {
+      issueId: `flow-scheme-restage:${code}:${nodeKey || index + 1}`,
+      sourceStage: input.sourceStage,
+      category: 'business_gap' as const,
+      severity: 'blocking' as const,
+      userActionRequired: true,
+      planningContextKey,
+      returnToStage: 'flow-scheme' as const,
+      blockedNextAction,
+      userMessage,
+      questionPayload,
+      scope: nodeKey
+        ? { kind: 'step' as const, key: nodeKey, title: nodeName }
+        : undefined,
+      diagnostics: [{ ...diagnostic, code, requiresSchemeRestage: true }],
+    }
+  })
+}
 
 const normalizeFlowIssueResolution = (
   value: unknown,
@@ -911,11 +1212,42 @@ export const buildUnifiedFlowIssuesFromExecutionBlocker = (
       || normalizeText(input.title)
       || message,
     questionPayload: null,
-    diagnostics: [{
-      code: normalizeText(input.code) || issueId || 'flow_execution_blocker',
-      message,
-      ...(normalizeText(input.path) ? { path: normalizeText(input.path) } : {}),
-    }],
+    diagnostics: input.diagnostics?.length
+      ? input.diagnostics
+      : [{
+        code: normalizeText(input.code) || issueId || 'flow_execution_blocker',
+        message,
+        ...(normalizeText(input.path) ? { path: normalizeText(input.path) } : {}),
+      }],
+  }]
+}
+
+// 无方案 / 无 confirmation 时暂存或应用蓝图：以 business_gap + return_to_flow_scheme 让宿主
+// 映射 requiredNextAction='editor_plan_flow_scheme'，而不是当作环境阻塞放行或死拦。
+export const buildUnifiedFlowIssuesFromFlowSchemeNotReady = (input: {
+  planningContextKey?: string
+  blockedNextAction?: UnifiedFlowIssueBlockedNextAction | string | null
+  userMessage?: string
+}): UnifiedFlowIssue[] => {
+  const message = normalizeText(input.userMessage)
+    || '流程方案尚未生成或确认，请先生成并确认流程方案，再继续流程蓝图。'
+  return [{
+    issueId: 'flow-scheme-not-ready-for-blueprint',
+    sourceStage: 'flow-plan',
+    category: 'business_gap',
+    severity: 'blocking',
+    userActionRequired: true,
+    planningContextKey: normalizeText(input.planningContextKey) || undefined,
+    returnToStage: 'flow-scheme',
+    blockedNextAction: normalizeUnifiedFlowIssueBlockedNextAction(input.blockedNextAction)
+      || 'editor_stage_flow_blueprint',
+    userMessage: message,
+    questionPayload: buildNoteOnlyQuestionPayload({
+      id: 'flow-scheme-not-ready-for-blueprint',
+      title: '先生成并确认流程方案',
+      description: message,
+    }),
+    diagnostics: [{ code: 'flow_scheme_not_ready_for_blueprint', message }],
   }]
 }
 

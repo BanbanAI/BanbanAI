@@ -55,13 +55,22 @@ export type NocodeEditorBlueprintFormulaPlan = {
 type FormulaBinding = NocodeEditorAiBlueprintFieldBinding & {
   fieldName: string
   widgetId: string
-  token: string
+  token?: string
   formulaPaths: Array<'default-formula' | 'compute-formula'>
 }
 
 const normalizeText = (value: unknown): string => String(value || '').trim()
 
 const cloneValue = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
+const buildStableGeneratedFieldKey = (fieldPath: string) => {
+  let hash = 2166136261
+  for (const character of fieldPath) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `field_${(hash >>> 0).toString(36)}`
+}
 
 const resolveFieldIdentity = (field: NocodeEditorAiAppBlueprintField) => (
   normalizeText(field.fieldKey) || normalizeText(field.name)
@@ -70,9 +79,15 @@ const resolveFieldIdentity = (field: NocodeEditorAiAppBlueprintField) => (
 const normalizeFieldFormulaSettings = (input: {
   field: NocodeEditorAiAppBlueprintField
   formKey?: string
+  fieldPath?: string
   issues: NocodeEditorBlueprintFormulaIssue[]
 }): NocodeEditorAiAppBlueprintField => {
   const field = cloneValue(input.field)
+  const fieldPath = normalizeText(input.fieldPath) || normalizeText(field.name)
+  if (!normalizeText(field.fieldKey)) {
+    // 兼容旧蓝图：字段身份缺失时由 Host 生成稳定 key。新蓝图仍应由模型显式提供 fieldKey。
+    field.fieldKey = buildStableGeneratedFieldKey(fieldPath)
+  }
   const rawFormulaSettings = (field as Record<string, unknown>).formulaSettings
   const normalizedDefaultValue = normalizeBlueprintDefaultValue(
     (field as Record<string, unknown>).defaultValue,
@@ -136,6 +151,7 @@ const normalizeFieldFormulaSettings = (input: {
     field.children = field.children.map(child => normalizeFieldFormulaSettings({
       field: child,
       formKey: input.formKey,
+      fieldPath: `${fieldPath}.${normalizeText(child.name)}`,
       issues: input.issues,
     }))
   }
@@ -152,12 +168,13 @@ export const normalizeBlueprintFormulaSettings = (
   const issues: NocodeEditorBlueprintFormulaIssue[] = []
   const normalizedBlueprint = cloneValue(blueprint)
   normalizedBlueprint.forms = (normalizedBlueprint.forms || []).map(form => ({
-    ...form,
-    fields: (form.fields || []).map(field => normalizeFieldFormulaSettings({
-      field,
-      formKey: form.formKey,
-      issues,
-    })),
+      ...form,
+      fields: (form.fields || []).map(field => normalizeFieldFormulaSettings({
+        field,
+        formKey: normalizeText(form.formKey) || normalizeText(form.tableName),
+        fieldPath: normalizeText(field.name),
+        issues,
+      })),
   }))
 
   return { blueprint: normalizedBlueprint, issues }
@@ -266,11 +283,10 @@ const buildPreflightForms = (input: {
         widgetId: binding.widgetId,
         token: binding.token,
         formulaPaths: resolveBlueprintFormulaPaths(binding),
-      }))
-      .filter((binding): binding is FormulaBinding => (
+      }) as FormulaBinding)
+      .filter(binding => (
         Boolean(normalizeText(binding.fieldName))
         && Boolean(normalizeText(binding.widgetId))
-        && Boolean(normalizeText(binding.token))
       )),
   }))
 )
@@ -368,6 +384,31 @@ export const applyBlueprintFormulaPlan = async (input: {
   }) => Promise<string | null | undefined> | string | null | undefined
   persistenceMode?: 'saved' | 'draft_only'
 }): Promise<NocodeEditorFormulaApplyResult> => {
+  const blueprintIssues: NocodeEditorFormulaPreflightIssue[] = input.formulaPlan.issues.map(issue => ({
+    code: issue.code,
+    severity: issue.severity,
+    itemKey: `${normalizeText(issue.target.formKey)}:${normalizeText(issue.target.fieldKey) || normalizeText(issue.target.fieldName)}`,
+    target: {
+      ...(normalizeText(issue.target.formKey) ? { formKey: normalizeText(issue.target.formKey) } : {}),
+      ...(normalizeText(issue.target.fieldKey) ? { fieldKey: normalizeText(issue.target.fieldKey) } : {}),
+      fieldName: issue.target.fieldName,
+    },
+    message: issue.message,
+    userActionRequired: true,
+  }))
+  if (blueprintIssues.length) {
+    const targetResults = blueprintIssues.map(issue => createSkippedResult({
+      issue,
+      formResults: input.formResults,
+    }))
+    return {
+      status: 'failed',
+      ...(input.persistenceMode ? { persistenceMode: input.persistenceMode } : {}),
+      targetResults,
+      issues: blueprintIssues,
+      checkpoint: null,
+    }
+  }
   if (!input.formulaPlan.plan.items.length) {
     return {
       status: 'not_applicable',
@@ -386,7 +427,7 @@ export const applyBlueprintFormulaPlan = async (input: {
   const preflightResult = input.preflight
     ? await input.preflight({ preflight })
     : preflight()
-  const targetResults = preflightResult.issues.map(issue => createSkippedResult({
+  const targetResults = [...blueprintIssues, ...preflightResult.issues].map(issue => createSkippedResult({
     issue,
     formResults: input.formResults,
   }))
@@ -463,7 +504,7 @@ export const applyBlueprintFormulaPlan = async (input: {
     status: resolveBlueprintFormulaApplyStatus(targetResults),
     ...(input.persistenceMode ? { persistenceMode: input.persistenceMode } : {}),
     targetResults,
-    issues: preflightResult.issues,
+    issues: [...blueprintIssues, ...preflightResult.issues],
     checkpoint: input.persistenceMode === 'draft_only'
       ? null
       : buildCheckpoint({

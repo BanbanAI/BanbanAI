@@ -70,6 +70,7 @@
 import type { NocodeEditorAiConfirmQuestionOption } from '@common/types/nocodeEditorConfirmation'
 import {
   resolveAiArtifactQuestionAnswerDetail,
+  resolveAiArtifactQuestionAnswerSummary,
   resolveAiArtifactQuestionSelectedOption,
   type AiArtifactConfirmationQuestion,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
@@ -231,6 +232,10 @@ const getQuestionDescription = (question: AiArtifactConfirmationQuestion) => (
   normalizeNocodeEditorConfirmationVisibleDescription(question.description)
 )
 
+const resolveQuestionNoteText = (value: unknown) => normalizeQuestionNoteText(
+  normalizeNocodeEditorConfirmationVisibleDescription(value),
+)
+
 const getQuestionNote = (question: AiArtifactConfirmationQuestion) => {
   const draftNote = normalizeQuestionNoteText(props.responseDrafts?.[question.id]?.note)
   if (draftNote) {
@@ -238,12 +243,19 @@ const getQuestionNote = (question: AiArtifactConfirmationQuestion) => {
   }
 
   const descriptionText = normalizeQuestionNoteText(getQuestionDescription(question))
-  const detailText = normalizeQuestionNoteText(
-    normalizeNocodeEditorConfirmationVisibleDescription(
-      resolveAiArtifactQuestionAnswerDetail(question),
-    ),
-  )
-  return detailText && detailText !== descriptionText ? detailText : ''
+  const detailText = resolveQuestionNoteText(resolveAiArtifactQuestionAnswerDetail(question))
+  if (detailText && detailText !== descriptionText) {
+    return detailText
+  }
+
+  // 纯文本问题（没有可选项）的确认结论只落在 answerSummary，需回退才能看到；
+  // 有选中项时结论已由选项行呈现，避免重复。
+  if (resolveAiArtifactQuestionSelectedOption(question)) {
+    return ''
+  }
+
+  const summaryText = resolveQuestionNoteText(resolveAiArtifactQuestionAnswerSummary(question))
+  return summaryText && summaryText !== descriptionText ? summaryText : ''
 }
 
 const isInlineNoteOpen = (questionId: string) => (

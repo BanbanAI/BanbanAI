@@ -834,6 +834,12 @@ export enum ProcessVersionStatus {
   ENABLED = "enabled",
   HISTORY = "history",
 }
+export type NocodeProcessAiDeferredConfigItem = {
+  id: string
+  summary: string
+  nodeKey?: string
+  settingPath?: string
+}
 export type NocodeProcess = {
   enabled: boolean,
   /** @deprecated */
@@ -843,6 +849,10 @@ export type NocodeProcess = {
   },
   versionStatusByVersion?: {
     [version: `v${number}`]: ProcessVersionStatus
+  },
+  /** AI 生成流程时记录的「必需但延期配置」项，供启用前门禁校验 */
+  aiDeferredConfigByVersion?: {
+    [version: `v${number}`]: NocodeProcessAiDeferredConfigItem[]
   },
   version: number,
 }

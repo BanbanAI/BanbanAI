@@ -9,8 +9,10 @@
       :initial-focus-card-key="previewFocusCardKey"
       :flow-artifact-blocks="flowArtifactBlocks"
       :applying-id="applyingId"
+      :action-locked="actionLocked"
       :allow-review-actions="canReviewBlueprintActions"
       :show-batch-apply-action="canApply"
+      :historical="isHistoricalPreview"
       :get-confirmation-response-drafts="resolveResponseDrafts"
       :get-active-confirmation-input-question-ids="resolveActiveInputQuestionIds"
       :get-inline-confirmation-note-question-ids="resolveInlineNoteQuestionIds"
@@ -114,6 +116,14 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  blueprintActionLocked: {
+    type: Boolean,
+    default: false,
+  },
+  historical: {
+    type: Boolean,
+    default: false,
+  },
   responseDrafts: {
     type: Object as PropType<NocodeEditorAiConfirmationResponseDraftMap>,
     default: () => ({}),
@@ -184,6 +194,9 @@ const resolvedAppName = computed(() => (
     ? props.appName
     : snapshot.value?.appName || props.appName
 ))
+const isHistoricalPreview = computed(() => (
+  props.historical && !props.workbenchItems.length
+))
 const previewFocusCardKey = computed(() => {
   const explicitFocusCardKey = String(props.blueprintPreviewFocusCardKey || '').trim()
   if (explicitFocusCardKey) {
@@ -202,9 +215,15 @@ const previewMode = computed<BlueprintWorkbenchMode>(() => (
   isBlueprintAppliedPhase(snapshot.value?.item.phase) ? 'generated' : 'review'
  ))
 const canReviewBlueprintActions = computed(() => Boolean(props.canApply || props.canContinue))
+// 在途轮次（预提交/模型回复/应用）期间锁定生成类动作，避免与正在改写蓝图的链路并发。
+const actionLocked = computed(() => Boolean(props.applying || props.blueprintActionLocked))
 const applyingId = computed(() => {
-  if (!props.applying || !resolvedWorkbenchItems.value.length) {
+  if (!actionLocked.value || !resolvedWorkbenchItems.value.length) {
     return ''
+  }
+
+  if (!props.applying) {
+    return '__action-locked__'
   }
 
   const pendingItems = resolvedWorkbenchItems.value.filter(item => (

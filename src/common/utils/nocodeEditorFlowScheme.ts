@@ -11,11 +11,13 @@ import {
 import {
   filterPendingNocodeEditorFlowConfirmationQuestions,
   filterPendingNocodeEditorFlowQuestionRecords,
+  pruneDanglingFlowDecisionReferences,
 } from './nocodeEditorFlowQuestionPolicy'
 import {
   type NocodeEditorFlowPersonnelRequirement,
   normalizeNocodeEditorFlowPersonnelRequirement,
 } from './nocodeEditorFlowPersonnel'
+import { projectFlowDecisionContract, projectFlowDecisionQuestions, validateFlowDecisionGraph, type FlowDecisionDiagnostic } from './nocodeEditorFlowDecisionGraph'
 
 export type NocodeEditorFlowSchemeStepKind =
   | 'approval'
@@ -60,6 +62,8 @@ export type NocodeEditorFlowSchemeBranch = {
 
 export type NocodeEditorFlowSchemeDependency = {
   id: string
+  decisionKey?: string
+  lifecycleStatus?: 'pending' | 'planned' | 'materialized' | 'resolved' | 'completed'
   kind:
     | 'field_missing'
     | 'field_policy_mismatch'
@@ -94,13 +98,16 @@ export type NocodeEditorFlowSchemeDependency = {
     | 'remove_design'
     | 'specify_org_anchor'
   materializationStatus: 'existing' | 'planned' | 'not_available'
+  unverifiedReason?: 'form_evidence_unavailable'
   summary: string
 }
 
 export type NocodeEditorFlowSchemeDeferredConfigItem = {
   id: string
+  lifecycleStatus?: 'pending' | 'planned' | 'materialized' | 'resolved' | 'completed'
   nodeKey?: string
   nodeTitle?: string
+  settingPath?: string
   category:
     | 'owner_binding'
     | 'fallback_handler'
@@ -119,7 +126,37 @@ export type NocodeEditorFlowSchemeDeferredConfigItem = {
   fillTiming: 'after_generation'
   severity: 'low' | 'medium' | 'high'
   recommendedDefault?: string
+  canEnable?: boolean
+  editLocation?: string
+  impact?: string
   relatedIssueCodes?: string[]
+}
+
+export type NocodeEditorFlowAppliedSetting = {
+  nodeKey: string
+  nodeTitle: string
+  nodeType: string
+  settingPath: string
+  actualValue: boolean | string | number
+  displayLabel?: string
+  displayValue?: string
+  ruleSource: string
+  impact: string
+  editLocation: string
+  auditVersion: number
+}
+
+export type NocodeEditorFlowRiskAlert = {
+  riskKey: string
+  severity: 'medium' | 'high'
+  title: string
+  impact: string
+  editLocation: string
+  nodes: Array<{
+    nodeKey: string
+    nodeTitle: string
+    source: 'system_default' | 'user_requested' | 'system_fallback'
+  }>
 }
 
 export type NocodeEditorFlowSchemeConvergence = {
@@ -151,6 +188,14 @@ export type NocodeEditorFlowScheme = {
   dependencies?: NocodeEditorFlowSchemeDependency[]
   deferredConfigItems?: NocodeEditorFlowSchemeDeferredConfigItem[]
   convergence?: NocodeEditorFlowSchemeConvergence | null
+  decisionContractVersion?: 2
+  factSnapshot?: Record<string, {
+    value: string
+    source: 'user' | 'history' | 'runtime'
+    producerDecisionKey?: string
+    version?: string
+  }>
+  decisionDiagnostics?: FlowDecisionDiagnostic[]
   confirmation?: NocodeEditorAiConfirmPayload | null
 }
 
@@ -327,6 +372,14 @@ const normalizeFlowSchemeDependency = (
 
   return {
     id,
+    ...(normalizeText(value.decisionKey)
+      ? { decisionKey: normalizeText(value.decisionKey) }
+      : {}),
+    lifecycleStatus: ['pending', 'planned', 'materialized', 'resolved', 'completed'].includes(normalizeText(value.lifecycleStatus))
+      ? normalizeText(value.lifecycleStatus) as NocodeEditorFlowSchemeDependency['lifecycleStatus']
+      : resolutionStatus === 'unresolved'
+        ? 'pending'
+        : materializationStatus === 'planned' ? 'planned' : 'resolved',
     kind: kind as NocodeEditorFlowSchemeDependency['kind'],
     requiredFor: requiredFor as NocodeEditorFlowSchemeDependency['requiredFor'],
     scopeKind: scopeKind as NocodeEditorFlowSchemeDependency['scopeKind'],
@@ -343,6 +396,9 @@ const normalizeFlowSchemeDependency = (
       ? resolutionMode as NocodeEditorFlowSchemeDependency['resolutionMode']
       : undefined,
     materializationStatus: materializationStatus as NocodeEditorFlowSchemeDependency['materializationStatus'],
+    unverifiedReason: normalizeText(value.unverifiedReason) === 'form_evidence_unavailable'
+      ? 'form_evidence_unavailable'
+      : undefined,
     summary,
   }
 }
@@ -382,8 +438,12 @@ const normalizeFlowSchemeDeferredConfigItem = (
 
   return {
     id,
+    lifecycleStatus: ['pending', 'planned', 'materialized', 'resolved', 'completed'].includes(normalizeText(value.lifecycleStatus))
+      ? normalizeText(value.lifecycleStatus) as NocodeEditorFlowSchemeDeferredConfigItem['lifecycleStatus']
+      : 'pending',
     nodeKey: normalizeText(value.nodeKey) || undefined,
     nodeTitle: normalizeText(value.nodeTitle) || undefined,
+    settingPath: normalizeText(value.settingPath) || undefined,
     category: category as NocodeEditorFlowSchemeDeferredConfigItem['category'],
     requirementLevel: requirementLevel as NocodeEditorFlowSchemeDeferredConfigItem['requirementLevel'],
     supportStatus: supportStatus as NocodeEditorFlowSchemeDeferredConfigItem['supportStatus'],
@@ -391,6 +451,9 @@ const normalizeFlowSchemeDeferredConfigItem = (
     fillTiming: 'after_generation',
     severity: severity as NocodeEditorFlowSchemeDeferredConfigItem['severity'],
     recommendedDefault: normalizeText(value.recommendedDefault) || undefined,
+    canEnable: typeof value.canEnable === 'boolean' ? value.canEnable : undefined,
+    editLocation: normalizeText(value.editLocation) || undefined,
+    impact: normalizeText(value.impact) || undefined,
     relatedIssueCodes: normalizeStringList(value.relatedIssueCodes),
   }
 }
@@ -782,6 +845,20 @@ export const normalizeNocodeEditorFlowScheme = (
   const convergence = value.convergence === undefined
     ? undefined
     : normalizeFlowSchemeConvergence(value.convergence)
+  const rawContractConfirmation = isRecord(value.confirmation) ? value.confirmation : null
+  const decisionContractVersion = Number(rawContractConfirmation?.decisionContractVersion ?? value.decisionContractVersion) === 2 ? 2 as const : undefined
+  const rawFactSnapshot = rawContractConfirmation?.factSnapshot ?? value.factSnapshot
+  const factSnapshot = isRecord(rawFactSnapshot)
+    ? Object.fromEntries(Object.entries(rawFactSnapshot).flatMap(([key, item]) => {
+      if (!isRecord(item) || typeof item.value !== 'string' || !['user', 'history', 'runtime'].includes(String(item.source))) return []
+      return [[key, {
+        value: item.value,
+        source: item.source as 'user' | 'history' | 'runtime',
+        producerDecisionKey: normalizeText(item.producerDecisionKey) || undefined,
+        version: normalizeText(item.version) || undefined,
+      }]]
+    }))
+    : undefined
   const openQuestions = Array.isArray(value.openQuestions)
     ? value.openQuestions.flatMap((item, index): NocodeEditorFlowSchemeQuestion[] => {
       const normalized = normalizeFlowSchemeQuestion(item, index)
@@ -791,19 +868,25 @@ export const normalizeNocodeEditorFlowScheme = (
   const filteredOpenQuestions = dedupeFlowSchemeQuestions(
     filterPendingNocodeEditorFlowQuestionRecords(openQuestions),
   )
-  const synthesizedConfirmation = filteredOpenQuestions.length > 0 && !isRecord(value.confirmation)
+  const rawConfirmation = isRecord(value.confirmation) ? value.confirmation : null
+  const confirmationQuestions = Array.isArray(rawConfirmation?.questions)
+    ? rawConfirmation.questions
+    : []
+  const synthesizedConfirmation = filteredOpenQuestions.length > 0 && confirmationQuestions.length === 0
     ? {
+      ...(rawConfirmation || {}),
       stage: 'flow-scheme' as const,
       status: 'pending' as const,
       questions: filteredOpenQuestions.map(question => ({
         id: question.key,
+        decisionKey: question.key,
         title: question.title,
         description: question.reason,
         required: true,
         allowFreeText: true,
       })),
     }
-    : value.confirmation
+    : rawConfirmation || undefined
   const baseConfirmation = normalizeNocodeEditorConfirmationPayload({
     stage: 'flow-scheme',
     confirmation: synthesizedConfirmation,
@@ -811,13 +894,25 @@ export const normalizeNocodeEditorFlowScheme = (
     summary,
     preserveTrustedDecisionKeySource: options.preserveTrustedDecisionKeySource,
   })
+  const retainedConfirmationQuestions = dedupeFlowSchemeConfirmationQuestions(
+    filterPendingNocodeEditorFlowConfirmationQuestions(baseConfirmation?.questions || []),
+  )
+  const baseConfirmationKeys = new Set((baseConfirmation?.questions || [])
+    .map(question => normalizeText(question.decisionKey || question.id))
+    .filter(Boolean))
+  const retainedConfirmationKeys = new Set(retainedConfirmationQuestions
+    .map(question => normalizeText(question.decisionKey || question.id))
+    .filter(Boolean))
+  const droppedConfirmationKeys = new Set([...baseConfirmationKeys]
+    .filter(key => !retainedConfirmationKeys.has(key)))
   const preReconciliationConfirmation = baseConfirmation
     ? normalizeNocodeEditorConfirmationPayload({
       stage: 'flow-scheme',
       confirmation: {
         ...baseConfirmation,
-        questions: dedupeFlowSchemeConfirmationQuestions(
-          filterPendingNocodeEditorFlowConfirmationQuestions(baseConfirmation.questions || []),
+        questions: pruneDanglingFlowDecisionReferences(
+          retainedConfirmationQuestions,
+          droppedConfirmationKeys,
         ),
       },
       openQuestions: [],
@@ -836,9 +931,27 @@ export const normalizeNocodeEditorFlowScheme = (
     resolvedDecisionKeys: confirmationReconciliation.resolvedDecisionKeys,
   })
   const reconciledConfirmation = confirmationReconciliation.confirmation
-  const confirmation = reconciledConfirmation && reconciledOpenQuestions.length > 0
-    ? { ...reconciledConfirmation, status: 'pending' as const }
-    : reconciledConfirmation
+  const factProjection = decisionContractVersion === 2
+    ? projectFlowDecisionContract(reconciledConfirmation?.questions || [], factSnapshot)
+    : null
+  const decisionQuestions = factProjection?.questions || reconciledConfirmation?.questions || []
+  const decisionDiagnostics = validateFlowDecisionGraph(decisionQuestions)
+  decisionDiagnostics.push(...(factProjection?.diagnostics || []))
+  const decisionStates = decisionDiagnostics.length
+    ? null : projectFlowDecisionQuestions(decisionQuestions).states
+  const applicableOpenQuestions = reconciledOpenQuestions.filter(question => (
+    decisionStates?.get(question.key) !== 'inapplicable'
+    && !droppedConfirmationKeys.has(normalizeText(question.key))
+  ))
+  const confirmation = reconciledConfirmation
+    ? {
+      ...reconciledConfirmation,
+      questions: decisionQuestions,
+      ...(decisionContractVersion ? { decisionContractVersion } : {}),
+      ...(factSnapshot ? { factSnapshot } : {}),
+      ...(applicableOpenQuestions.length > 0 ? { status: 'pending' as const } : {}),
+    }
+    : null
   const stepKeyAllocationState = createFlowSchemeStepKeyAllocationState(value)
 
   return {
@@ -865,10 +978,13 @@ export const normalizeNocodeEditorFlowScheme = (
       : [],
     confirmedFacts: normalizeStringList(value.confirmedFacts),
     assumptions: normalizeStringList(value.assumptions),
-    openQuestions: reconciledOpenQuestions,
+    openQuestions: applicableOpenQuestions,
     dependencies,
     deferredConfigItems,
     convergence,
+    decisionContractVersion,
+    factSnapshot,
+    decisionDiagnostics: decisionDiagnostics.length ? decisionDiagnostics : undefined,
     confirmation,
   }
 }

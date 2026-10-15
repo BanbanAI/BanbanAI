@@ -8,7 +8,6 @@
       'is-pointer-dragging': pointerDrag?.moved,
     }"
   >
-    <div v-if="props.blueprintApplyingReadonly" class="form-designer-readonly-tip">{{ $t('formDesigner.generatingFromBlueprintLockedTip') }}</div>
     <div
       v-if="props.fieldCatalogVisible"
       ref="fieldCatalogPanelRef"
@@ -406,7 +405,14 @@ const isWidgetInDesignerView = (widget: FormElement) => {
 const getFieldCatalogPanelMetrics = () => {
   const containerRect = formDesignerHostRef.value?.getBoundingClientRect?.();
   const panelRect = fieldCatalogPanelRef.value?.getBoundingClientRect();
-  if (!containerRect || !panelRect) {
+  if (
+    !containerRect
+    || !panelRect
+    || containerRect.width <= 0
+    || containerRect.height <= 0
+    || panelRect.width <= 0
+    || panelRect.height <= 0
+  ) {
     return null;
   }
   return {
@@ -424,7 +430,14 @@ const getFieldCatalogPanelMetrics = () => {
 const getPropertyPanelMetrics = () => {
   const containerRect = formDesignerHostRef.value?.getBoundingClientRect?.();
   const panelRect = propertyPanelRef.value?.getBoundingClientRect();
-  if (!containerRect || !panelRect) {
+  if (
+    !containerRect
+    || !panelRect
+    || containerRect.width <= 0
+    || containerRect.height <= 0
+    || panelRect.width <= 0
+    || panelRect.height <= 0
+  ) {
     return null;
   }
   return {
@@ -510,6 +523,7 @@ const resetPropertyPanelPosition = () => {
       bottom: 0,
     },
   );
+  updateEditorPanelFloatingPosition('formProperty', propertyPanelPosition.value);
 }
 
 const clearDesignValidationIssueHighlight = () => {
@@ -560,7 +574,7 @@ const activateDesignValidationIssueHighlight = async (
 ) => {
   emit('update:property-panel-visible', true);
   await nextTick();
-  syncPropertyPanelPosition();
+  resetPropertyPanelPosition();
   await applyDesignValidationIssueHighlight(widget, issue, highlight);
 }
 provide(FORM_DESIGNER_ACTIVE_ISSUE_HIGHLIGHT, designValidationIssueHighlight);
@@ -2651,7 +2665,7 @@ defineExpose({
     }
     emit('update:property-panel-visible', true);
     await nextTick();
-    syncPropertyPanelPosition();
+    resetPropertyPanelPosition();
     return {
       widget,
       widgetId: widget.uid,
@@ -2898,24 +2912,6 @@ provide(OPEN_FORM_DESIGNER_PROPERTY_PANEL, () => {
     gap: 12px;
   }
 
-  .form-designer-readonly-tip {
-    position: absolute;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 30;
-    padding: 6px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(8, 115, 255, 0.12);
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 8px 24px rgba(29, 33, 41, 0.12);
-    color: #1d2129;
-    font-size: 12px;
-    line-height: 18px;
-    font-weight: 500;
-    pointer-events: none;
-  }
-  
   .designer {
     flex: 1 1 0;
     background-color: var(--bg-color);

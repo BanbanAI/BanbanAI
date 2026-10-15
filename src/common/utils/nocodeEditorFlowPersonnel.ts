@@ -132,6 +132,20 @@ const unresolvedRequirement = (): NocodeEditorFlowPersonnelRequirement => ({
   sourceType: 'unresolved',
 })
 
+export const isManagerFlowPersonnelSourceType = (
+  value: NocodeEditorFlowPersonnelSourceType,
+) => value === 'submitter_manager' || value === 'department_manager'
+
+// 运行时的部门负责人节点同时覆盖「提交人主管」与「部门负责人」两种语义，
+// 蓝图侧只能用 department-manager 表达，因此两者在来源比较时视为同一类。
+export const isSameFlowPersonnelSourceType = (
+  left: NocodeEditorFlowPersonnelSourceType,
+  right: NocodeEditorFlowPersonnelSourceType,
+) => (
+  left === right
+  || (isManagerFlowPersonnelSourceType(left) && isManagerFlowPersonnelSourceType(right))
+)
+
 export const normalizeNocodeEditorFlowPersonnelRequirement = (
   value: unknown,
 ): NocodeEditorFlowPersonnelRequirement | null => {

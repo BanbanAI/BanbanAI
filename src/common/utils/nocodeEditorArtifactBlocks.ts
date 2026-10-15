@@ -1,4 +1,5 @@
 import { compareBlueprintPhase } from './nocodeEditorBlueprintLifecycle'
+import { mergeSingleFormBlueprintFragments } from './nocodeEditorBlueprintFormNormalization'
 
 type NocodeEditorArtifactBlockLike = {
   type?: unknown
@@ -148,7 +149,10 @@ export const getNocodeEditorBlueprintArtifactPlanningContextKey = (
 export const getNocodeEditorBlueprintArtifactLineageKey = (
   block: NocodeEditorArtifactBlockLike,
 ) => {
-  const forms = getBlueprintFormsRecord(block)
+  // 先按同一性归并同一张表的重复表单再算签名：模型补丁漏传 formKey 时，
+  // 历史块数据里会残留两个并列同名表单，不归并会让同一份蓝图在
+  // 块数据与运行态（已归并）之间算出不同签名，被误判成不同版本。
+  const forms = mergeSingleFormBlueprintFragments(getBlueprintFormsRecord(block))
   if (!forms.length) {
     return ''
   }

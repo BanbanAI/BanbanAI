@@ -10,6 +10,8 @@ import {
   isSamePlanningConfirmationContext,
 } from './nocodeEditorPlanningConfirmationIdentity'
 
+export const NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT = 12
+
 export const NOCODE_EDITOR_APPROVAL_OWNER_FORM_MEMBER_FIELD_OPTION_VALUE = 'use-existing-owner-field'
 
 export type NocodeEditorConfirmationDecision = {
@@ -17,6 +19,7 @@ export type NocodeEditorConfirmationDecision = {
   questionTitle: string
   decisionKey: string
   decisionKeySource?: NocodeEditorConfirmationDecisionKeySource
+  decisionTarget?: NocodeEditorAiConfirmQuestion['decisionTarget']
   selectedOptionValue?: string
   answerSummary?: string
   answerDetail?: string
@@ -231,6 +234,7 @@ export const projectNocodeEditorConfirmationDecisions = (
         questionTitle: normalizeText(question.title),
         decisionKey,
         decisionKeySource,
+        decisionTarget: question.decisionTarget,
         selectedOptionValue: resolvedSelectedOptionValue || undefined,
         answerSummary: answerSummary || undefined,
         answerDetail: answerDetail || undefined,

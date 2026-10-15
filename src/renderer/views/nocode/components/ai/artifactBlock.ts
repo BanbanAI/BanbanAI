@@ -1,4 +1,4 @@
-import type { AiAssistantArtifactBlock } from '@common/types/ai'
+import type { AiAssistantArtifactBlock, AiAssistantFlowSchemeArtifactBlock } from '@common/types/ai'
 import type {
   NocodeEditorAiConfirmPayload,
   NocodeEditorAiConfirmQuestion,
@@ -28,6 +28,9 @@ import {
   normalizeNocodeEditorFlowScheme,
 } from '@common/utils/nocodeEditorFlowScheme'
 import {
+  resolveFlowConfirmationPendingQuestionProjection,
+} from '@common/utils/nocodeEditorFlowConfirmationPendingQuestions'
+import {
   countNocodeEditorFlowPlanTotalNodes,
   normalizeNocodeEditorFlowPlan,
 } from '@common/utils/nocodeEditorFlowPlan'
@@ -37,8 +40,17 @@ import {
   getNocodeEditorPendingContinueLabel,
 } from '@common/utils/nocodeEditorConfirmationCopy'
 import {
+  applyNocodeEditorFlowConfirmationDependencyCompatibility,
   normalizeNocodeEditorConfirmationQuestion,
 } from '@common/utils/nocodeEditorConfirmationNormalization'
+import {
+  filterPendingNocodeEditorFlowConfirmationQuestions,
+  pruneDanglingFlowDecisionReferences,
+} from '@common/utils/nocodeEditorFlowQuestionPolicy'
+import {
+  canonicalizeNocodeEditorFlowPersonnelSourceQuestions,
+  carryOverNocodeEditorFlowPersonnelProjectionFields,
+} from '@common/utils/nocodeEditorFlowPersonnelSourceOptions'
 import {
   resolveNocodeEditorPlanningQuestionProjection,
 } from '@common/utils/nocodeEditorPlanningQuestionProjection'
@@ -53,6 +65,9 @@ import {
   isBlueprintAppliedPhase,
   resolveBlueprintVersionKeyFromPhase,
 } from '@common/utils/nocodeEditorBlueprintLifecycle'
+import {
+  mergeSingleFormBlueprintFragments,
+} from '@common/utils/nocodeEditorBlueprintFormNormalization'
 import {
   getDraftPersistenceActionIssueCount,
   hasDraftPersistenceBlockingActionIssues,
@@ -149,9 +164,11 @@ const collectBlueprintFieldLineageTokens = (fields: unknown): string[] => {
 
 const getBlueprintLineageKeyFromValue = (value?: unknown) => {
   const blueprint = toRecord(value)
-  const forms = Array.isArray(blueprint.forms)
-    ? blueprint.forms.filter(form => isRecord(form))
-    : []
+  // 与 nocodeEditorArtifactBlocks 的签名实现保持一致：先按同一性归并同一张表的重复表单，
+  // 否则块里的原始双表单数据会算出与运行态（已归并）不同的血统签名。
+  const forms = mergeSingleFormBlueprintFragments(
+    (Array.isArray(blueprint.forms) ? blueprint.forms : []).filter(form => isRecord(form)),
+  )
 
   if (!forms.length) {
     return ''
@@ -635,6 +652,74 @@ const isConfirmedQuestion = (
   )
 )
 
+const collectFlowIssueQuestionPayloadsByKey = (
+  block?: AiAssistantArtifactBlock | null,
+) => {
+  const payloadsByKey = new Map<string, NocodeEditorAiConfirmQuestion>()
+  if (block?.kind !== 'flow-scheme') {
+    return payloadsByKey
+  }
+  const blockRecord = toRecord(block)
+  const issues = Array.isArray(blockRecord.flowUnifiedIssues) && blockRecord.flowUnifiedIssues.length
+    ? blockRecord.flowUnifiedIssues
+    : toRecord(blockRecord.flowIssueRouting).activeIssues
+  for (const issue of Array.isArray(issues) ? issues : []) {
+    const payload = isRecord(issue) && isRecord(issue.questionPayload)
+      ? issue.questionPayload
+      : null
+    const key = normalizeText(payload?.decisionKey) || normalizeText(payload?.id)
+    if (key && !payloadsByKey.has(key)) {
+      payloadsByKey.set(key, payload as NocodeEditorAiConfirmQuestion)
+    }
+  }
+  return payloadsByKey
+}
+
+// 历史方案消息的确认题曾按展示白名单投影，丢失 personnelDecision / 选项 personnelCandidate，
+// 渲染前从 block.flowUnifiedIssues 原题按 decisionKey 对账回挂，人员来源规范化才能命中。
+const reconcileFlowIssuePersonnelProjectionFields = (
+  block: AiAssistantArtifactBlock | null | undefined,
+  question: AiArtifactConfirmationQuestion,
+) => {
+  const payloadsByKey = collectFlowIssueQuestionPayloadsByKey(block)
+  if (!payloadsByKey.size) {
+    return question
+  }
+  const payload = [normalizeText(question.decisionKey), normalizeText(question.id)]
+    .map(key => key ? payloadsByKey.get(key) : null)
+    .find((entry): entry is NocodeEditorAiConfirmQuestion => Boolean(entry))
+  return carryOverNocodeEditorFlowPersonnelProjectionFields(payload, question)
+}
+
+// 历史已落库的流程卡曾按 issue 展示白名单投影，只保留待答问题，已答父题被丢弃；
+// 依赖校验会把悬空决策引用判为契约失败，卡片退化成“不可作答”。渲染前剪掉指向题集外的引用，
+// 让旧卡降级为可作答（新载荷由服务端保留完整题集，不再产生悬空引用）。
+const pruneAiArtifactFlowDecisionDanglingReferences = (
+  questions: AiArtifactConfirmationQuestion[],
+) => {
+  const questionKeys = new Set(questions
+    .map(question => normalizeText(question.decisionKey || question.id))
+    .filter(Boolean))
+  const danglingKeys = new Set<string>()
+  questions.forEach((question) => {
+    question.dependsOn?.forEach((key) => {
+      const normalized = normalizeText(key)
+      if (normalized && !questionKeys.has(normalized)) {
+        danglingKeys.add(normalized)
+      }
+    })
+    question.prerequisites?.forEach((condition) => {
+      const normalized = normalizeText(condition?.decisionKey)
+      if (normalized && !questionKeys.has(normalized)) {
+        danglingKeys.add(normalized)
+      }
+    })
+  })
+  return danglingKeys.size
+    ? pruneDanglingFlowDecisionReferences(questions, danglingKeys)
+    : questions
+}
+
 const normalizeAiArtifactConfirmationQuestions = (
   block?: AiAssistantArtifactBlock | null,
 ) => {
@@ -645,9 +730,22 @@ const normalizeAiArtifactConfirmationQuestions = (
   }
 
   // Reuse shared normalization so historical artifact questions keep questionKind semantics.
-  return confirmation.questions
+  const questions = confirmation.questions
     .map((question, index) => normalizeNocodeEditorConfirmationQuestion(question, index, stage))
     .filter((question): question is AiArtifactConfirmationQuestion => Boolean(question))
+  const reconciledQuestions = stage === 'flow-scheme'
+    ? questions.map(question => reconcileFlowIssuePersonnelProjectionFields(block, question))
+    : questions
+  const visibleQuestions = stage === 'flow-scheme'
+    ? filterPendingNocodeEditorFlowConfirmationQuestions(reconciledQuestions)
+    : reconciledQuestions
+  const canonicalQuestions = stage === 'flow-scheme'
+    ? canonicalizeNocodeEditorFlowPersonnelSourceQuestions(visibleQuestions)
+    : visibleQuestions
+  const closedQuestions = stage === 'flow-scheme'
+    ? pruneAiArtifactFlowDecisionDanglingReferences(canonicalQuestions)
+    : canonicalQuestions
+  return applyNocodeEditorFlowConfirmationDependencyCompatibility(closedQuestions, stage)
 }
 
 export const resolveAiArtifactConfirmation = (
@@ -684,9 +782,24 @@ export const resolveAiArtifactConfirmation = (
     const summary = normalizeText(confirmation.summary)
     const completionSummary = normalizeText(confirmation.completionSummary)
     const resultSummary = normalizeTextList(confirmation.resultSummary)
+    const flowScheme = block?.kind === 'flow-scheme'
+      ? normalizeNocodeEditorFlowScheme(block.scheme)
+      : null
+    const flowSchemeBlockRevision = flowScheme
+      ? Number((block as AiAssistantFlowSchemeArtifactBlock)?.revision || 0) || undefined
+      : undefined
     return {
       ...confirmation,
       stage: confirmation.stage || resolveAiArtifactConfirmationStage(block) || undefined,
+      ...(flowScheme ? {
+        planningContextKey: normalizeText(flowScheme.confirmation?.planningContextKey)
+          || normalizeText(confirmation.planningContextKey)
+          || undefined,
+        schemeRevision: Number(flowScheme.confirmation?.schemeRevision || 0)
+          || flowSchemeBlockRevision
+          || confirmation.schemeRevision
+          || undefined,
+      } : {}),
       status: normalizeConfirmationStatus(confirmation.status) || undefined,
       summary: summary || undefined,
       completionSummary: completionSummary || undefined,
@@ -730,13 +843,16 @@ export const resolveAiArtifactPendingQuestions = (
 ): AiArtifactConfirmationQuestion[] => {
   const allQuestions = resolveAiArtifactQuestions(block)
   if (block?.kind === 'flow-scheme') {
-    const openQuestionIds = new Set(resolveAiArtifactOpenQuestionIds(block))
-    if (openQuestionIds.size > 0) {
-      return allQuestions.filter((question) => {
-        const decisionKey = normalizeText(question.decisionKey) || normalizeText(question.id)
-        return openQuestionIds.has(decisionKey)
-      })
-    }
+    const confirmation = resolveAiArtifactConfirmation(block)
+    const openQuestionIds = resolveAiArtifactOpenQuestionIds(block)
+    const { pendingQuestions } = resolveFlowConfirmationPendingQuestionProjection({
+      questions: allQuestions,
+      factSnapshot: confirmation?.factSnapshot,
+      decisionSnapshot: confirmation?.decisionSnapshot,
+      restrictToDecisionKeys: openQuestionIds.length ? openQuestionIds : null,
+      requireReady: true,
+    })
+    return pendingQuestions
   }
   return allQuestions.filter(question => question.confirmed !== true)
 }
@@ -1167,7 +1283,11 @@ export type AiArtifactStatusTag = string
 
 export type AiArtifactFormPlanStructuredView = null
 
-type ResolveArtifactStatusTagInput = {
+type ResolveArtifactDisplayInput = {
+  historical?: boolean
+}
+
+type ResolveArtifactStatusTagInput = ResolveArtifactDisplayInput & {
   applying?: boolean
 }
 
@@ -1225,6 +1345,10 @@ export const resolveAiArtifactStatusTag = (
     return i18next.t('artifactBlock.generating')
   }
 
+  if (input.historical) {
+    return i18next.t('artifactBlock.historicalVersion')
+  }
+
   const openQuestionCount = getBlueprintOpenQuestionCount(block)
   if (openQuestionCount > 0) {
     return i18next.t('artifactBlock.pendingConfirmation')
@@ -1233,7 +1357,7 @@ export const resolveAiArtifactStatusTag = (
   return i18next.t('artifactBlock.pendingGeneration')
 }
 
-export type BlueprintStatusTagTone = 'pending' | 'ready' | 'applying' | 'applied'
+export type BlueprintStatusTagTone = 'pending' | 'ready' | 'applying' | 'applied' | 'historical'
 
 export const resolveAiArtifactStatusTagTone = (
   label: AiArtifactStatusTag | '',
@@ -1243,6 +1367,7 @@ export const resolveAiArtifactStatusTagTone = (
   if (label === i18next.t('artifactBlock.pendingGeneration')) return 'ready'
   if (label === i18next.t('artifactBlock.generating')) return 'applying'
   if (label === i18next.t('artifactBlock.generated')) return 'applied'
+  if (label === i18next.t('artifactBlock.historicalVersion')) return 'historical'
   if (label === i18next.t('artifactBlock.draftIncomplete')) return 'pending'
   return ''
 }
@@ -1271,7 +1396,10 @@ export const resolveAiArtifactFormPlanStructuredView = (
   return null
 }
 
-export const resolveAiArtifactCaption = (block: AiAssistantArtifactBlock) => {
+export const resolveAiArtifactCaption = (
+  block: AiAssistantArtifactBlock,
+  input: ResolveArtifactDisplayInput = {},
+) => {
   if (block.status === 'loading') {
     if (block.kind === 'nocode-app') {
       return i18next.t('artifactBlock.appCreating')
@@ -1351,6 +1479,10 @@ export const resolveAiArtifactCaption = (block: AiAssistantArtifactBlock) => {
     return i18next.t('artifactBlock.generatedFromBlueprint')
   }
 
+  if (input.historical) {
+    return i18next.t('artifactBlock.blueprintSupersededCaption')
+  }
+
   return getBlueprintOpenQuestionCount(block) > 0
     ? i18next.t('artifactBlock.blueprintPendingConfirmation')
     : i18next.t('artifactBlock.blueprintReady')
@@ -1392,7 +1524,10 @@ export const resolveAiArtifactTitle = (block: AiAssistantArtifactBlock) => {
   }) || i18next.t('artifactBlock.blueprintDraft')
 }
 
-export const resolveAiArtifactSubtitle = (block: AiAssistantArtifactBlock) => {
+export const resolveAiArtifactSubtitle = (
+  block: AiAssistantArtifactBlock,
+  input: ResolveArtifactDisplayInput = {},
+) => {
   if (block.status === 'loading') {
     return block.message || i18next.t('artifactBlock.processingViewLater')
   }
@@ -1467,6 +1602,15 @@ export const resolveAiArtifactSubtitle = (block: AiAssistantArtifactBlock) => {
     const scheme = getFlowScheme(block)
     const pendingQuestionCount = resolveAiArtifactPendingQuestionCount(block)
     const planningStatus = normalizeText((block as any).planningStatus)
+    const hasUnrenderablePendingQuestions = (
+      Array.isArray(scheme?.openQuestions)
+      && scheme.openQuestions.length > 0
+      && pendingQuestionCount === 0
+      && resolveAiArtifactConfirmationStatus(block) === 'pending'
+    )
+    if (hasUnrenderablePendingQuestions) {
+      return i18next.t('artifactBlock.flowSchemeConfirmationUnavailableSubtitle')
+    }
     return block.summary
       || String(scheme?.summary || '').trim()
       || resolveAiArtifactConfirmationSummary(block)
@@ -1512,13 +1656,20 @@ export const resolveAiArtifactSubtitle = (block: AiAssistantArtifactBlock) => {
     })
   }
 
+  if (input.historical && !isBlueprintAppliedPhase(block.phase)) {
+    return i18next.t('artifactBlock.blueprintSupersededSubtitle')
+  }
+
   const openQuestionCount = getBlueprintOpenQuestionCount(block)
   return openQuestionCount > 0
     ? i18next.t('artifactBlock.blueprintPendingQuestionsSubtitle', { count: openQuestionCount })
     : i18next.t('artifactBlock.blueprintReadySubtitle')
 }
 
-export const resolveAiArtifactViewLabel = (block?: AiAssistantArtifactBlock | null) => {
+export const resolveAiArtifactViewLabel = (
+  block?: AiAssistantArtifactBlock | null,
+  input: ResolveArtifactDisplayInput = {},
+) => {
   if (!block) {
     return i18next.t('artifactBlock.view')
   }
@@ -1567,6 +1718,14 @@ export const resolveAiArtifactViewLabel = (block?: AiAssistantArtifactBlock | nu
     && isBlueprintDraftPersistenceResolved(block)
   ) {
     return i18next.t('artifactBlock.viewDraft')
+  }
+
+  if (
+    block.kind === 'blueprint'
+    && input.historical
+    && !isBlueprintAppliedPhase(block.phase)
+  ) {
+    return i18next.t('artifactBlock.viewHistoricalVersion')
   }
 
   return isBlueprintAppliedArtifact(block)

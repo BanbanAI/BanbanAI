@@ -124,6 +124,52 @@ export const buildNocodeEditorPendingFlowIntentFromEntryFlowIntent = (input: {
   }
 }
 
+// 一条显式流程需求只允许绑定一张目标表单：入口意图已固化目标、或同源既有挂账已绑定过目标时，
+// 不允许再向另一张表单重建挂账（否则表单切换后会把原始需求里的流程要求错误带过去）。
+export const shouldBlockNocodeEditorPendingFlowIntentRebind = (input: {
+  entryFlowIntent?: NocodeEditorFlowEntryIntent | null
+  existingPendingFlowIntent?: unknown
+  candidateTargetFormId?: unknown
+  candidateTargetFormName?: unknown
+}) => {
+  const entryFlowIntent = normalizeEntryFlowIntent(input.entryFlowIntent)
+  if (entryFlowIntent?.state !== 'explicit_positive') {
+    return false
+  }
+  const existingPendingFlowIntent = normalizeNocodeEditorPendingFlowIntent(
+    input.existingPendingFlowIntent,
+  )
+  const candidateTargetFormId = normalizeText(input.candidateTargetFormId)
+  const candidateTargetFormName = normalizeText(input.candidateTargetFormName)
+
+  const entryTargetFormName = normalizeText(entryFlowIntent.targetFormName)
+  if (
+    entryTargetFormName
+    && candidateTargetFormName
+    && entryTargetFormName !== candidateTargetFormName
+  ) {
+    return true
+  }
+
+  const existingSourceUserMessage = normalizeText(existingPendingFlowIntent?.sourceUserMessage)
+  if (
+    !existingSourceUserMessage
+    || existingSourceUserMessage !== normalizeText(entryFlowIntent.sourceUserMessage)
+  ) {
+    return false
+  }
+  const existingTargetFormId = normalizeText(existingPendingFlowIntent?.targetFormId)
+  if (existingTargetFormId && candidateTargetFormId) {
+    return existingTargetFormId !== candidateTargetFormId
+  }
+  const existingTargetFormName = normalizeText(existingPendingFlowIntent?.targetFormName)
+  return Boolean(
+    existingTargetFormName
+    && candidateTargetFormName
+    && existingTargetFormName !== candidateTargetFormName,
+  )
+}
+
 export const matchNocodeEditorPendingFlowIntentTarget = (input: {
   pendingFlowIntent?: NocodeEditorPendingFlowIntent | null
   targetFormId?: unknown

@@ -87,9 +87,9 @@
         <span class="ai-blueprint-decision-panel__question-badge">{{ questionBadgeText }}</span>
       </div>
       <nocode-editor-ai-confirmation-question-list
-        v-if="questions.length"
+        v-if="displayQuestions.length"
         class="ai-blueprint-decision-panel__confirmation-list"
-        :questions="questions"
+        :questions="displayQuestions"
         :response-drafts="responseDrafts"
         :active-input-question-ids="activeInputQuestionIds"
         :inline-note-question-ids="inlineNoteQuestionIds"
@@ -124,6 +124,7 @@ import {
 } from '@common/utils/nocodeEditorBlueprintLifecycle'
 import {
   resolveAiArtifactPendingQuestionCount,
+  resolveAiArtifactPendingQuestions,
   resolveAiArtifactQuestions,
   type AiArtifactConfirmationQuestion,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
@@ -177,6 +178,10 @@ const props = defineProps({
     default: false,
   },
   applyDisabled: {
+    type: Boolean,
+    default: false,
+  },
+  historical: {
     type: Boolean,
     default: false,
   },
@@ -254,6 +259,16 @@ const showOpenGeneratedButton = computed(() => (
 ))
 
 const questions = computed(() => resolveAiArtifactQuestions(props.block))
+const pendingQuestions = computed(() => resolveAiArtifactPendingQuestions(props.block))
+
+// 已确认的记录只在历史版本和已应用状态回看；当前待确认的版本只列待确认项，避免重复展示上一轮的结论。
+const showConfirmedRecords = computed(() => props.historical || isAppliedState.value)
+
+const displayQuestions = computed(() => (
+  showConfirmedRecords.value
+    ? questions.value
+    : pendingQuestions.value
+))
 
 const pendingQuestionCount = computed(() => resolveAiArtifactPendingQuestionCount(props.block))
 
@@ -265,8 +280,9 @@ const draftActionIssues = computed(() => draftPersistenceState.value?.actionIssu
 const draftIssueCount = computed(() => getDraftPersistenceActionIssueCount(draftPersistenceState.value))
 const draftIssueResolved = computed(() => isDraftPersistenceStateResolved(draftPersistenceState.value))
 
+// “确认中 (x/y)”与提交门禁只统计待确认项：规划继承的已确认记录不需要草稿作答。
 const remainingDraftQuestionCount = computed(() => (
-  countUnansweredConfirmationQuestions(questions.value, props.responseDrafts || {})
+  countUnansweredConfirmationQuestions(pendingQuestions.value, props.responseDrafts || {})
 ))
 
 const hasCompleteDraftResponses = computed(() => (
@@ -278,7 +294,7 @@ const canSubmitConfirmation = computed(() => (
 ))
 
 const stagedConfirmedCount = computed(() => (
-  Math.max(0, questions.value.length - remainingDraftQuestionCount.value)
+  Math.max(0, pendingQuestions.value.length - remainingDraftQuestionCount.value)
 ))
 
 const resultSectionTitle = computed(() => (
@@ -463,6 +479,17 @@ const actionState = computed<BlueprintActionState>(() => {
     }
   }
 
+  if (props.historical && !isAppliedState.value) {
+    return {
+      reason: i18next.t('nocodeEditorAiBlueprintDecisionPanel.supersededReviewReason'),
+      supportNotes: [
+        i18next.t('nocodeEditorAiBlueprintDecisionPanel.supersededReturnToLatestNote'),
+      ],
+      buttons: [],
+      note: '',
+    }
+  }
+
   if (!props.canApply && !props.canContinue) {
     return {
       reason: i18next.t('nocodeEditorAiBlueprintDecisionPanel.generatedReviewReason'),
@@ -484,7 +511,7 @@ const actionState = computed<BlueprintActionState>(() => {
           key: 'continue',
           label: i18next.t('nocodeEditorAiBlueprintDecisionPanel.confirmingProgressAdjustBlueprint', {
             confirmedCount: stagedConfirmedCount.value,
-            totalCount: questions.value.length,
+            totalCount: pendingQuestions.value.length,
           }),
           primary: true,
           disabled: true,
@@ -603,7 +630,7 @@ const questionBadgeText = computed(() => (
       )
       : (
         hasOpenQuestions.value
-          ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.pendingQuestionCount', { count: questions.value.length })
+          ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.pendingQuestionCount', { count: pendingQuestionCount.value })
           : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noNewConfirmation')
       )
 ))

@@ -84,6 +84,38 @@ const normalizeStringList = (value: unknown) => (
     : []
 )
 
+// Migration compatibility for historical flow cards that predate the
+// dependency declaration contract. New tool payloads are rejected before
+// normalization when this metadata is absent; this fallback only repairs
+// persisted cards by stable decisionKey, never by user-facing wording.
+const FLOW_CONFIRMATION_LEGACY_DEPENDENCIES: Record<string, string[]> = {
+  'flow.approval.owner': ['flow.approval.rule'],
+}
+
+export const applyNocodeEditorFlowConfirmationDependencyCompatibility = (
+  questions: NocodeEditorAiConfirmQuestion[],
+  stage: NocodeEditorAiConfirmStage,
+) => {
+  if (stage !== 'flow-scheme') return questions
+  const questionKeys = new Set(questions.map(question => (
+    normalizeText(question.decisionKey) || normalizeText(question.id)
+  )))
+  return questions.map((question) => {
+    const key = normalizeText(question.decisionKey) || normalizeText(question.id)
+    const requiredDependencies = (FLOW_CONFIRMATION_LEGACY_DEPENDENCIES[key] || [])
+      .filter(dependencyKey => questionKeys.has(dependencyKey))
+    if (!requiredDependencies.length) return question
+    const currentDependencies = new Set([
+      ...(question.dependsOn || []),
+      ...(question.prerequisites || []).map(condition => condition.decisionKey),
+    ])
+    const missingDependencies = requiredDependencies.filter(dependencyKey => !currentDependencies.has(dependencyKey))
+    return missingDependencies.length
+      ? { ...question, dependsOn: [...(question.dependsOn || []), ...missingDependencies] }
+      : question
+  })
+}
+
 const normalizeConfirmationScalarValue = (value: unknown) => {
   if (typeof value === 'string') {
     return normalizeText(value)
@@ -207,11 +239,24 @@ export const normalizeNocodeEditorConfirmationQuestionOption = (
   }
 
   const description = normalizeText(value.description)
+  const rawCandidate = isRecord(value.personnelCandidate) ? value.personnelCandidate : null
+  const sourceType = normalizeText(rawCandidate?.sourceType)
+  const status = normalizeText(rawCandidate?.status)
+  const validSources = ['submitter', 'submitter_manager', 'fixed_users', 'fixed_roles', 'department_manager', 'form_member', 'form_department']
+  const personnelCandidate = rawCandidate && validSources.includes(sourceType) && ['existing', 'supported', 'planned'].includes(status)
+    ? {
+      sourceType: sourceType as NonNullable<NocodeEditorAiConfirmQuestionOption['personnelCandidate']>['sourceType'],
+      status: status as NonNullable<NocodeEditorAiConfirmQuestionOption['personnelCandidate']>['status'],
+      refId: normalizeText(rawCandidate.refId) || undefined,
+      refName: normalizeText(rawCandidate.refName) || undefined,
+    }
+    : undefined
   return {
     value: optionValue,
     label,
     description: description || undefined,
     selected: typeof value.selected === 'boolean' ? value.selected : undefined,
+    ...(personnelCandidate ? { personnelCandidate } : {}),
   }
 }
 
@@ -419,12 +464,7 @@ export const normalizeNocodeEditorConfirmationQuestion = (
       return null
     }
 
-    const questionKind = inferNocodeEditorConfirmationQuestionKind({ title })
-    const options = inferNocodeEditorConfirmationQuestionOptions({
-      title,
-      questionKind,
-    }) || []
-
+    // 纯标题题没有答案空间，只能补充说明作答；不再按标题猜测“是/否”题型。
     return {
       id: resolveQuestionId({
         value,
@@ -434,8 +474,7 @@ export const normalizeNocodeEditorConfirmationQuestion = (
         planningQuestionContract: normalizationOptions.planningQuestionContract,
       }),
       title,
-      questionKind,
-      options: options.length ? options : undefined,
+      questionKind: 'note_only',
     }
   }
 
@@ -476,7 +515,33 @@ export const normalizeNocodeEditorConfirmationQuestion = (
     questionKind,
     options: normalizedOptions,
   }) || []
+  const hasDependsOnDeclaration = (
+    Object.prototype.hasOwnProperty.call(value, 'dependsOn')
+    || Object.prototype.hasOwnProperty.call(value, 'depends_on')
+  )
   const dependsOn = normalizeStringList(value.dependsOn ?? value.depends_on)
+  const prerequisites = Array.isArray(value.prerequisites)
+    ? value.prerequisites.flatMap((item) => {
+      if (!isRecord(item)) return []
+      const decisionKey = normalizeText(item.decisionKey)
+      const operator = normalizeText(item.operator)
+      const values = normalizeStringList(item.values)
+      return decisionKey && values.length && (operator === 'equals' || operator === 'in')
+        ? [{ decisionKey, operator: operator as 'equals' | 'in', values }]
+        : []
+    })
+    : []
+  const rawUncertainty = isRecord(value.uncertainty) ? value.uncertainty : null
+  const uncertaintyCategory = normalizeText(rawUncertainty?.category)
+  const uncertainty = rawUncertainty && ['business_decision', 'safe_default', 'deferred_required', 'deferred_optional', 'hard_blocker'].includes(uncertaintyCategory)
+    ? {
+      category: uncertaintyCategory as NonNullable<NocodeEditorAiConfirmQuestion['uncertainty']>['category'],
+      reasonCode: normalizeText(rawUncertainty.reasonCode) || 'unspecified',
+      nodeType: normalizeText(rawUncertainty.nodeType) || undefined,
+      settingPath: normalizeText(rawUncertainty.settingPath) || undefined,
+      evidenceSource: normalizeText(rawUncertainty.evidenceSource) || undefined,
+    }
+    : undefined
   const description = normalizedLegacyCopy.description
   const scopeKind = normalizeNocodeEditorConfirmationQuestionScopeKind(
     value.scopeKind ?? value.scope_kind,
@@ -504,6 +569,40 @@ export const normalizeNocodeEditorConfirmationQuestion = (
   )
 
   const decisionKey = normalizeText(value.decisionKey ?? value.decision_key)
+  const rawDecisionTarget = isRecord(value.decisionTarget) ? value.decisionTarget : null
+  const decisionTarget = rawDecisionTarget?.kind === 'field-source'
+    && normalizeText(rawDecisionTarget.fieldKey)
+    ? {
+      kind: 'field-source' as const,
+      formKey: normalizeText(rawDecisionTarget.formKey) || undefined,
+      fieldKey: normalizeText(rawDecisionTarget.fieldKey),
+    }
+    : undefined
+  const rawDecisionScope = isRecord(value.decisionScope) ? value.decisionScope : null
+  const scopeKindValue = normalizeText(rawDecisionScope?.kind)
+  const decisionScope = rawDecisionScope
+    && ['flow', 'path', 'branch', 'step', 'object'].includes(scopeKindValue)
+    && normalizeText(rawDecisionScope.id)
+    ? {
+      kind: scopeKindValue as NonNullable<NocodeEditorAiConfirmQuestion['decisionScope']>['kind'],
+      id: normalizeText(rawDecisionScope.id),
+      structureVersion: normalizeText(rawDecisionScope.structureVersion) || undefined,
+    }
+    : undefined
+  const changes = normalizeStringList(value.changes).filter((item): item is NonNullable<NocodeEditorAiConfirmQuestion['changes']>[number] => (
+    ['topology', 'scope', 'cardinality', 'options', 'applicability', 'meaning', 'strategy', 'binding'].includes(item)
+  ))
+  const rawPersonnelDecision = isRecord(value.personnelDecision) ? value.personnelDecision : null
+  const personnelSlot = normalizeText(rawPersonnelDecision?.slot)
+  const personnelStepKey = normalizeText(rawPersonnelDecision?.stepKey)
+  const personnelDecision = stage === 'flow-scheme'
+    && personnelStepKey
+    && ['source', 'binding', 'approval_level', 'multi_person', 'empty_handler', 'same_as_submitter'].includes(personnelSlot)
+    ? {
+      stepKey: personnelStepKey,
+      slot: personnelSlot as NonNullable<NocodeEditorAiConfirmQuestion['personnelDecision']>['slot'],
+    }
+    : undefined
   const decisionKeySource = resolveDecisionKeySource({
     stage,
     questionId,
@@ -514,6 +613,7 @@ export const normalizeNocodeEditorConfirmationQuestion = (
   const question: NocodeEditorAiConfirmQuestion = {
     id: questionId,
     decisionKey: decisionKey || undefined,
+    decisionTarget,
     ...(decisionKeySource ? { decisionKeySource } : {}),
     title,
     domain: normalizeNocodeEditorPlanningQuestionDomain(value.domain),
@@ -530,7 +630,21 @@ export const normalizeNocodeEditorConfirmationQuestion = (
         ? value.allow_free_text
         : undefined,
     options: resolvedOptions.length ? resolvedOptions : undefined,
-    dependsOn: dependsOn.length ? dependsOn : undefined,
+    ...(personnelDecision ? { personnelDecision } : {}),
+    ...(decisionScope ? { decisionScope } : {}),
+    ...(stage === 'flow-scheme' ? {
+      requiresFacts: normalizeStringList(value.requiresFacts),
+      producesFacts: normalizeStringList(value.producesFacts),
+      changes,
+      dependencySources: isRecord(value.dependencySources)
+        ? Object.fromEntries(Object.entries(value.dependencySources)
+          .filter((entry): entry is [string, 'explicit' | 'fact'] => (
+            entry[1] === 'explicit' || entry[1] === 'fact'
+          ))) : undefined,
+    } : {}),
+    dependsOn: hasDependsOnDeclaration ? dependsOn : undefined,
+    prerequisites: prerequisites.length ? prerequisites : undefined,
+    uncertainty,
     confirmed,
     selectedOptionValue: questionKind === 'note_only' && !preservePlanningAnswerFields
       ? undefined
@@ -558,6 +672,15 @@ export const normalizeNocodeEditorConfirmationQuestion = (
       options: undefined,
       answerSummary: noteOnlyAnswerSummary || undefined,
     }
+  }
+
+  // 可选题型必须自带答案空间：没有选项的 binary/single_select 一律按补充说明呈现，
+  // 运行时不补默认“是/否”，避免把取值题渲染成假的二选一。
+  if (
+    (question.questionKind === 'binary' || question.questionKind === 'single_select')
+    && !question.options?.length
+  ) {
+    return downgradeToNoteOnly(question)
   }
 
   if (isCollectionStyleQuestion(question)) {
@@ -710,7 +833,7 @@ const normalizeStructuredConfirmation = (
   }
 
   const rawQuestions = options.confirmation.questions
-  const questions = rawQuestions
+  const questions = applyNocodeEditorFlowConfirmationDependencyCompatibility(rawQuestions
     .map((item, index) => normalizeNocodeEditorConfirmationQuestion(
       item,
       index,
@@ -721,7 +844,7 @@ const normalizeStructuredConfirmation = (
         preserveTrustedDecisionKeySource: options.preserveTrustedDecisionKeySource,
       },
     ))
-    .filter((item): item is NocodeEditorAiConfirmQuestion => Boolean(item))
+    .filter((item): item is NocodeEditorAiConfirmQuestion => Boolean(item)), options.stage)
 
   if (rawQuestions.length > 0 && !questions.length) {
     return null
@@ -748,6 +871,31 @@ const normalizeStructuredConfirmation = (
       options.confirmation.planningContextKey ?? options.confirmation.planning_context_key,
     )
       || undefined,
+    schemeRevision: Number.isSafeInteger(options.confirmation.schemeRevision)
+      ? Number(options.confirmation.schemeRevision) : undefined,
+    decisionContractVersion: options.stage === 'flow-scheme'
+      && Number(options.confirmation.decisionContractVersion) === 2 ? 2 : undefined,
+    factSnapshot: options.stage === 'flow-scheme' && isRecord(options.confirmation.factSnapshot)
+      ? Object.fromEntries(Object.entries(options.confirmation.factSnapshot).flatMap(([key, value]) => {
+        if (!key.trim() || !isRecord(value) || typeof value.value !== 'string'
+          || !['user', 'history', 'model', 'runtime'].includes(String(value.source))) return []
+        const scope = isRecord(value.scope) && ['flow', 'path', 'branch', 'step', 'object'].includes(String(value.scope.kind))
+          && normalizeText(value.scope.id)
+          ? { kind: value.scope.kind as NonNullable<NocodeEditorAiConfirmQuestion['decisionScope']>['kind'],
+            id: normalizeText(value.scope.id), structureVersion: normalizeText(value.scope.structureVersion) || undefined }
+          : undefined
+        return [[key, {
+          value: value.value,
+          source: value.source as 'user' | 'history' | 'runtime',
+          producerDecisionKey: normalizeText(value.producerDecisionKey) || undefined,
+          scope,
+          version: normalizeText(value.version) || undefined,
+        }]]
+      })) : undefined,
+    decisionSnapshot: isRecord(options.confirmation.decisionSnapshot)
+      ? Object.fromEntries(Object.entries(options.confirmation.decisionSnapshot)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+      : undefined,
     requiredNextAction: normalizeNocodeEditorConfirmationRequiredNextAction(
       options.confirmation.requiredNextAction ?? options.confirmation.required_next_action,
     ),

@@ -21,6 +21,8 @@ export type NocodeEditorProviderContextProjectionResult = {
   }>
 }
 
+export type NocodeEditorContextProjectionMode = 'full' | 'focused' | 'minimal'
+
 type NocodeEditorProviderContextProjectionStageResult = Omit<
   NocodeEditorProviderContextProjectionResult,
   'estimatedBytes'
@@ -970,6 +972,28 @@ const compactPlanningConfirmationForContext = (value: unknown) => {
     : undefined
 }
 
+const compactStagedPlanningFlowIntentForContext = (value: unknown) => {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+
+  const evidence = compactStructuredStringListForContext(value.evidence, {
+    limit: 3,
+    maxChars: 60,
+  })
+  const nextFlowIntent: Record<string, unknown> = {
+    state: normalizeCompactText(value.state) || undefined,
+    targetFormName: truncateCompactText(value.targetFormName, 80) || undefined,
+    evidence: evidence.length ? evidence : undefined,
+  }
+
+  return Object.values(nextFlowIntent).some(valueItem => (
+    Array.isArray(valueItem) ? valueItem.length > 0 : valueItem !== undefined
+  ))
+    ? nextFlowIntent
+    : undefined
+}
+
 const compactPlanningOutlineForContext = (value: unknown) => {
   if (!isPlainObject(value)) {
     return undefined
@@ -983,6 +1007,7 @@ const compactPlanningOutlineForContext = (value: unknown) => {
         formKey: normalizeCompactText(record.formKey) || undefined,
         tableName: normalizeCompactText(record.tableName) || undefined,
         groupName: normalizeCompactText(record.groupName) || undefined,
+        description: truncateCompactText(record.description, 120) || undefined,
       }
     }).filter(item => item.formKey || item.tableName)
     : []
@@ -1027,6 +1052,7 @@ const compactPlanningOutlineForContext = (value: unknown) => {
     id: normalizeCompactText(value.id) || undefined,
     title: truncateCompactText(value.title, 120) || undefined,
     summary: truncateCompactText(value.summary, 220) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(value.flowIntent),
     forms: forms.length ? forms : undefined,
     modules: modules.length ? modules : undefined,
     flows: flows.length ? flows : undefined,
@@ -1060,6 +1086,7 @@ const compactStagedAppPlanForContext = (plan: unknown) => {
     id: normalizeCompactText(plan.id) || undefined,
     mode: normalizeCompactText(plan.mode) || undefined,
     goal: truncateCompactText(plan.goal, 220) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(plan.flowIntent),
     objects: objects.length ? objects : undefined,
     artifacts: artifacts.length ? artifacts : undefined,
     openQuestions: openQuestions.length ? openQuestions : undefined,
@@ -1106,6 +1133,7 @@ const compactStagedAppPlanToolCallInputForContext = (plan: unknown) => {
     id: normalizeCompactText(plan.id) || undefined,
     mode: normalizeCompactText(plan.mode) || undefined,
     goal: truncateCompactText(plan.goal, 140) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(plan.flowIntent),
     objectCount: objectCount || undefined,
     artifactCount: artifactCount || undefined,
     openQuestionCount: openQuestionCount || undefined,
@@ -1861,6 +1889,7 @@ const projectStagedBlueprintToolMessageForContext = (
 
 export const projectStagedBlueprintToolMessagesForContext = (
   messages: AiProviderMessage[],
+  options: StagedBlueprintContextProjectionOptions = {},
 ) => {
   const normalizedMessages = Array.isArray(messages) ? messages : []
   const beforeBytes = measureUtf8JsonBytes(normalizedMessages)
@@ -1869,7 +1898,7 @@ export const projectStagedBlueprintToolMessagesForContext = (
     ? String(normalizedMessages[latestUserIndex]?.content || '')
     : ''
   const projectedMessages = normalizedMessages.map(message => (
-    projectStagedBlueprintToolMessageForContext(message, latestUserContent)
+    projectStagedBlueprintToolMessageForContext(message, latestUserContent, options)
   ))
   const changedMessages = projectedMessages.filter((message, index) => (
     message.content !== normalizedMessages[index]?.content
@@ -2236,6 +2265,192 @@ export const projectSameTurnPrereadCarryoverMessagesForContext = (
   }
 }
 
+const NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN = 2
+const NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_STRATEGY = 'nocode-editor-consecutive-tool-failure-fold'
+
+const collectAllModelToolExchangePairs = (messages: AiProviderMessage[]): ModelToolExchangePair[] => {
+  const pendingCallsById = new Map<string, ModelToolExchangeMessageRef[]>()
+  const pairs: ModelToolExchangePair[] = []
+
+  messages.forEach((message, index) => {
+    const round = getModelToolExchangeRound(message)
+    const resultCallId = getModelToolExchangeResultCallId(message)
+    if (resultCallId) {
+      const pendingCalls = pendingCallsById.get(resultCallId)
+      if (pendingCalls?.length) {
+        const call = pendingCalls.shift()
+        if (!pendingCalls.length) {
+          pendingCallsById.delete(resultCallId)
+        }
+        if (call) {
+          pairs.push({
+            call,
+            result: { message, index, round },
+            round: round ?? call.round,
+          })
+        }
+      }
+    }
+
+    const callId = getModelToolExchangeCallId(message)
+    if (callId) {
+      const pendingCalls = pendingCallsById.get(callId) || []
+      pendingCalls.push({ message, index, round })
+      pendingCallsById.set(callId, pendingCalls)
+    }
+  })
+
+  return pairs
+}
+
+const resolveConsecutiveToolFailureSignature = (message: AiProviderMessage) => {
+  const result = message.metadata?.modelToolExchangeResult
+  if (!result || result.ok !== false) {
+    return ''
+  }
+  const parsed = tryParseJsonObject(message.content)
+  const code = String(parsed?.repair?.code || parsed?.error || result.error || '').trim()
+  if (!code) {
+    return ''
+  }
+  return `${String(result.name || '').trim()}\u0000${code}`
+}
+
+// 同因连败之间只允许存在模型自述；指令消息或其它工具结果都视为轮次/因果边界。
+const hasConsecutiveFailureFoldBoundary = (
+  messages: AiProviderMessage[],
+  fromIndex: number,
+  toIndex: number,
+) => {
+  for (let index = fromIndex + 1; index < toIndex; index += 1) {
+    const message = messages[index]
+    if (!message) {
+      continue
+    }
+    if (
+      isInstructionRole(message.role)
+      || message.role === AiMessageRole.USER
+      || message.role === AiMessageRole.TOOL
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+const annotateFoldedToolFailureResultMessage = (
+  message: AiProviderMessage,
+  fold: { count: number; firstRound: number | null; lastRound: number | null },
+) => {
+  const parsed = tryParseJsonObject(message.content)
+  if (!parsed) {
+    return message
+  }
+  const repeatSummary = fold.firstRound !== null
+    ? `同一失败已重复 ${fold.count} 次，最早出现于第 ${fold.firstRound} 轮`
+    : `同一失败已重复 ${fold.count} 次`
+  return {
+    ...message,
+    content: JSON.stringify({
+      ...parsed,
+      repeatedFailure: {
+        count: fold.count,
+        firstRound: fold.firstRound ?? undefined,
+        lastRound: fold.lastRound ?? undefined,
+        note: `${repeatSummary}；请先修正根因再重试，不要原样重发。`,
+      },
+    }),
+  }
+}
+
+const projectConsecutiveToolFailureMessagesForContext = (
+  messages: AiProviderMessage[],
+): NocodeEditorProviderContextProjectionStageResult => {
+  const normalizedMessages = Array.isArray(messages) ? messages : []
+  const pairs = collectAllModelToolExchangePairs(normalizedMessages)
+  if (pairs.length < NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN) {
+    return {
+      messages: normalizedMessages,
+      compacted: false,
+      projections: [],
+    }
+  }
+
+  const beforeBytes = measureUtf8JsonBytes(normalizedMessages)
+  const droppedIndexes = new Set<number>()
+  const foldAnnotations = new Map<number, {
+    count: number
+    firstRound: number | null
+    lastRound: number | null
+  }>()
+  let runStart = 0
+  while (runStart < pairs.length) {
+    const signature = resolveConsecutiveToolFailureSignature(pairs[runStart].result.message)
+    if (!signature) {
+      runStart += 1
+      continue
+    }
+    let runEnd = runStart + 1
+    while (runEnd < pairs.length) {
+      if (hasConsecutiveFailureFoldBoundary(
+        normalizedMessages,
+        pairs[runEnd - 1].result.index,
+        pairs[runEnd].call.index,
+      )) {
+        break
+      }
+      if (resolveConsecutiveToolFailureSignature(pairs[runEnd].result.message) !== signature) {
+        break
+      }
+      runEnd += 1
+    }
+    const runLength = runEnd - runStart
+    if (runLength >= NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN) {
+      for (let index = runStart; index < runEnd - 1; index += 1) {
+        droppedIndexes.add(pairs[index].call.index)
+        droppedIndexes.add(pairs[index].result.index)
+      }
+      const lastPair = pairs[runEnd - 1]
+      foldAnnotations.set(lastPair.result.index, {
+        count: runLength,
+        firstRound: pairs[runStart].round,
+        lastRound: lastPair.round,
+      })
+    }
+    runStart = runEnd
+  }
+
+  if (!droppedIndexes.size) {
+    return {
+      messages: normalizedMessages,
+      compacted: false,
+      projections: [],
+    }
+  }
+
+  const projectedMessages = normalizedMessages.flatMap((message, index) => {
+    if (droppedIndexes.has(index)) {
+      return []
+    }
+    const fold = foldAnnotations.get(index)
+    return [fold ? annotateFoldedToolFailureResultMessage(message, fold) : message]
+  })
+  const changedMessages = (normalizedMessages.length - projectedMessages.length)
+    + foldAnnotations.size
+  const afterBytes = measureUtf8JsonBytes(projectedMessages)
+
+  return {
+    messages: projectedMessages,
+    compacted: true,
+    projections: [{
+      strategy: NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_STRATEGY,
+      changedMessages,
+      beforeBytes,
+      afterBytes,
+    }],
+  }
+}
+
 const aggregateNocodeEditorProviderContextProjection = (
   messages: AiProviderMessage[],
   projectors: Array<(messages: AiProviderMessage[]) => NocodeEditorProviderContextProjectionStageResult>,
@@ -2262,19 +2477,36 @@ export const projectNocodeEditorProviderMessagesForContext = (
   options: {
     compactKeptAvailableWidgetTypes?: boolean
     keptAvailableWidgetTypesMode?: AvailableWidgetTypesProjectionMode
+    projectionMode?: NocodeEditorContextProjectionMode
   } = {},
 ): NocodeEditorProviderContextProjectionResult => {
+  const projectionMode = options.projectionMode || 'full'
+  const focusedProjectionOptions: StagedBlueprintContextProjectionOptions = projectionMode === 'full'
+    ? {}
+    : {
+      omitNonFocusedFields: true,
+      focusedFieldProjection: projectionMode === 'minimal' ? 'names' : 'entries',
+      filterFocusedFieldsByLatestUser: true,
+    }
   const projected = aggregateNocodeEditorProviderContextProjection(messages, [
     projectLongAssistantHistoryMessagesForContext,
     projectStagedPlanningToolMessagesForContext,
     projectStagedPlanningToolCallMessagesForContext,
-    projectStagedBlueprintToolMessagesForContext,
+    currentMessages => projectStagedBlueprintToolMessagesForContext(currentMessages, focusedProjectionOptions),
     projectStagedBlueprintToolCallMessagesForContext,
     projectSameTurnPrereadCarryoverMessagesForContext,
     currentMessages => projectSameTurnPrereadCarryoverMessagesForContext(currentMessages, {
       filterFocusedFieldsByLatestUser: true,
     }),
-    currentMessages => projectFormSummaryToolMessagesForContext(currentMessages, options),
+    currentMessages => projectFormSummaryToolMessagesForContext(currentMessages, {
+      ...options,
+      keptAvailableWidgetTypesMode: projectionMode === 'minimal'
+        ? 'type-name'
+        : projectionMode === 'focused'
+          ? 'single-alias'
+          : options.keptAvailableWidgetTypesMode,
+    }),
+    projectConsecutiveToolFailureMessagesForContext,
   ])
 
   return {
@@ -2283,15 +2515,22 @@ export const projectNocodeEditorProviderMessagesForContext = (
   }
 }
 
-export const estimateNocodeEditorProviderBodyBytes = (input: {
+export const estimateProviderRequestBodyBytes = (input: {
+  model?: string
   systemPrompt: string
   actions: AiActionDefinition[]
   messages: AiProviderMessage[]
+  modelKwargs?: Record<string, unknown>
+  reasoning?: unknown
+  temperature?: number
+  stream?: boolean
 }) => (
   measureUtf8JsonBytes({
-    model: 'context-projection-estimate',
-    temperature: 0.7,
-    stream: true,
+    ...(input.modelKwargs || {}),
+    model: input.model || 'context-projection-estimate',
+    temperature: input.temperature ?? 0.7,
+    stream: input.stream ?? true,
+    reasoning: input.reasoning,
     tools: buildEstimatedOpenAiTools(input.actions),
     messages: [
       { role: 'system', content: String(input.systemPrompt || '') },
@@ -2314,3 +2553,14 @@ export const estimateNocodeEditorProviderBodyBytes = (input: {
   })
   + estimateLangChainToolSchemaOverheadBytes(input.actions)
 )
+
+export const estimateNocodeEditorProviderBodyBytes = (input: {
+  systemPrompt: string
+  actions: AiActionDefinition[]
+  messages: AiProviderMessage[]
+}) => estimateProviderRequestBodyBytes({
+  ...input,
+  model: 'context-projection-estimate',
+  temperature: 0.7,
+  stream: true,
+})

@@ -1,4 +1,6 @@
 import dns from "dns";
+import http from "http";
+import https from "https";
 import { Logger } from "@nestjs/common";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
@@ -91,12 +93,17 @@ export async function initServer(options: ServerLaunchConfig): Promise<{ app: Ne
   for (const { prefix, staticPath } of staticPaths) app.useStaticAssets(staticPath, prefix ? { prefix } : undefined);
   
   if (!getRuntime().isProduction && process.env.DEV_SERVER_URL) {
+    const devServerUrl = new URL(process.env.DEV_SERVER_URL);
+    const devServerAgent = devServerUrl.protocol === "https:"
+      ? new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8 })
+      : new http.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8 });
     expressApp.use(proxy(process.env.DEV_SERVER_URL, {
       filter: (req) => (req.method === "GET" || req.method === "HEAD")
         && !/^\/widget\/template-image(?:\?|\/|$)/.test(req.originalUrl)
         && !/^\/ai\/threads\/[^/]+\/attachments\/[^/]+\/content(?:\?|$)/.test(req.originalUrl)
         && !/^\/api\//.test(req.originalUrl),
       proxyReqPathResolver: (req) => req.originalUrl,
+      proxyReqOptDecorator: (proxyReqOpts) => ({ ...proxyReqOpts, agent: devServerAgent }),
       parseReqBody: false,
       skipToNextHandlerFilter: (proxyRes) => {
         if (proxyRes.statusCode === 404) throw new Error("skip to next");

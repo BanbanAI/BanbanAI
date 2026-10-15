@@ -9,7 +9,10 @@ import {
   shouldRenderAiArtifactInlineConfirmation,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
 import { doesAppPlanArtifactMatchStagedState } from './appPlanArtifactState'
-import { shouldAutoContinueFlowBlueprintFromScheme } from './flowSchemeAutoContinue'
+import {
+  shouldAutoContinueFlowBlueprintFromScheme,
+  shouldHideNonUserActionableFlowSchemeSystemError,
+} from './flowSchemeAutoContinue'
 import { resolveNocodeEditorFormulaPlanDisplayMode } from '@common/utils/nocodeEditorFormulaDomain'
 
 type ResolvePlanningArtifactDisplayStateInput = {
@@ -151,6 +154,15 @@ export const resolvePlanningArtifactDisplayState = (
       renderAsConfirmation: isReady,
       renderAsGenericArtifact: !isReady,
       readonly: isReady && !isCurrent,
+    }
+  }
+
+  // 内部自纠类 system_error 一律不作为用户可见卡片，优先于「historical completed」放行。
+  if (block.kind === 'flow-scheme' && shouldHideNonUserActionableFlowSchemeSystemError(block)) {
+    return {
+      renderAsConfirmation: false,
+      renderAsGenericArtifact: false,
+      readonly: false,
     }
   }
 

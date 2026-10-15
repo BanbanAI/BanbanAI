@@ -101,7 +101,8 @@ export function VitePluginPkgBuilder(options) {
       httpServer.on("listening", async () => {
         const address: any = httpServer.address();
         options.env = options.env || {};
-        options.env.DEV_SERVER_URL = `${viteConfig.server.https ? "https" : "http"}://${address.address}:${address.port}`;
+        const host = address.address === "0.0.0.0" || address.address === "::" ? "127.0.0.1" : address.address;
+        options.env.DEV_SERVER_URL = `${viteConfig.server.https ? "https" : "http"}://${host.includes(":") ? `[${host}]` : host}:${address.port}`;
         options.env.DEV_SERVER_PORT = address.port;
         handleDev(options)
         const { appDir, main, inspectPort = 5757 } = options;

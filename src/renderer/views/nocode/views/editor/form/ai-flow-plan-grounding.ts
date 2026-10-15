@@ -36,6 +36,7 @@ type FlowSummarySnapshot = {
 type FlowPlanGroundingDiagnosticCode =
   | 'grounding_write_field_missing'
   | 'grounding_write_field_forbidden'
+  | 'grounding_sequential_write_conflict'
   | 'grounding_condition_field_missing'
   | 'grounding_condition_field_forbidden'
   | 'grounding_source_field_missing'
@@ -47,8 +48,9 @@ type FlowPlanGroundingDiagnosticCode =
 export type FlowPlanGroundingCompatibleField = {
   fieldId: string
   fieldName: string
-  ownerPolicy: string
-  matchReason?: 'owner_policy_match'
+  ownerPolicy?: string
+  conditionPolicy?: string
+  matchReason?: 'owner_policy_match' | 'condition_policy_match'
 }
 
 export type FlowPlanGroundingDiagnostic = Omit<
@@ -64,6 +66,7 @@ export type FlowPlanGroundingDiagnostic = Omit<
 type ValidateFlowPlanGroundingInput = {
   plan: NocodeEditorFlowPlan | null | undefined
   summary: unknown
+  allowConfirmedSequentialWrites?: boolean
 }
 
 type FlowVisitContext = {
@@ -534,6 +537,37 @@ const collectCompatibleOwnerFields = (
   return matches
 }
 
+const collectCompatibleConditionFields = (
+  table: FlowSummaryTable | null,
+): FlowPlanGroundingCompatibleField[] => {
+  if (!table) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const matches: FlowPlanGroundingCompatibleField[] = []
+
+  collectSummaryFields(table.fields).forEach((field) => {
+    const conditionPolicy = normalizeText(field.conditionPolicy)
+    if (conditionPolicy !== 'usable') {
+      return
+    }
+    const key = `${normalizeText(field.fieldId)}|${normalizeText(field.fieldName)}`
+    if (!key || seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    matches.push({
+      fieldId: field.fieldId,
+      fieldName: field.fieldName,
+      conditionPolicy,
+      matchReason: 'condition_policy_match',
+    })
+  })
+
+  return matches
+}
+
 const validateWriteFieldReference = (
   diagnostics: FlowPlanGroundingDiagnostic[],
   context: FlowVisitContext,
@@ -600,6 +634,7 @@ const validateConditionFieldReference = (
     return
   }
   const field = findSummaryFieldByAny(table, candidateText)
+  const compatibleFields = collectCompatibleConditionFields(table)
   const targetForm = {
     targetFormId: normalizeText(table?.tableId) || undefined,
     targetFormName: normalizeText(table?.tableName) || undefined,
@@ -616,6 +651,8 @@ const validateConditionFieldReference = (
       fieldRef: {
         fieldName: candidateText,
       },
+      compatibleFields: compatibleFields.slice(0, 3),
+      candidateCount: compatibleFields.length,
     })
     return
   }
@@ -632,6 +669,8 @@ const validateConditionFieldReference = (
         fieldId: field.fieldId,
         fieldName: field.fieldName,
       },
+      compatibleFields: compatibleFields.slice(0, 3),
+      candidateCount: compatibleFields.length,
     })
   }
 }
@@ -1127,6 +1166,118 @@ const visitPlanNodes = (
   })
 }
 
+const isLiteralWriteValue = (value: unknown) => (
+  value === null
+  || ['string', 'number', 'boolean'].includes(typeof value)
+)
+
+const collectSequentialWriteConflicts = (
+  diagnostics: FlowPlanGroundingDiagnostic[],
+  nodes: NocodeEditorFlowPlanNode[],
+  currentForm: FlowSummaryTable | null,
+  allTables: FlowSummaryTable[],
+  fallbackTarget: { formId?: string; formName?: string } | null,
+  prefix: Pick<FlowVisitContext, 'branchKey' | 'branchLabel'>,
+  allowConfirmedSequentialWrites: boolean,
+) => {
+  if (allowConfirmedSequentialWrites) {
+    return
+  }
+
+  const previousWrites = new Map<string, {
+    value: unknown
+  }>()
+
+  nodes.forEach((node, nodeIndex) => {
+    const context: FlowVisitContext = {
+      location: prefix.branchLabel
+        ? `${prefix.branchLabel} / 节点 ${nodeIndex + 1}`
+        : `节点 ${nodeIndex + 1}`,
+      nodeKey: normalizeText(node.nodeKey) || undefined,
+      nodeName: normalizeText(node.name) || undefined,
+      branchKey: prefix.branchKey,
+      branchLabel: prefix.branchLabel,
+    }
+
+    if (node.type !== 'edit-data') {
+      previousWrites.clear()
+    } else {
+      const options = asRecord(node.options)
+      const targetTable = resolveSummaryTableByAny(
+        allTables,
+        options.targetForm || options.target || {
+          tableUID: options.targetTableUID,
+          tableId: options.targetTableUID,
+        },
+      ) || currentForm
+      const targetOptions = asRecord(options.targetForm || options.target)
+      const targetFormId = targetTable?.tableId
+        || normalizeText(targetOptions.tableUID || targetOptions.tableId || targetOptions.formId || options.targetTableUID)
+        || normalizeText(fallbackTarget?.formId)
+      const targetFormName = targetTable?.tableName
+        || normalizeText(targetOptions.tableName || targetOptions.formName || targetOptions.name)
+        || normalizeText(fallbackTarget?.formName)
+      const writesInNode = new Set<string>()
+
+      getFlowDataWriteMappingItems(options).forEach((item) => {
+        const mapping = asRecord(item)
+        if (!Object.prototype.hasOwnProperty.call(mapping, 'value') || !isLiteralWriteValue(mapping.value)) {
+          return
+        }
+        const fieldCandidate = getFlowMappingTargetFieldCandidate(mapping)
+        const field = findSummaryFieldByAny(targetTable, fieldCandidate)
+        if (!fieldCandidate) {
+          return
+        }
+        const fieldName = field?.fieldName || fieldCandidate
+        const writeKey = `${targetFormId || normalizeToken(targetFormName) || 'current-form'}:${field?.fieldId || normalizeToken(fieldCandidate)}`
+        const previous = previousWrites.get(writeKey)
+        if (
+          previous
+          && !writesInNode.has(writeKey)
+          && JSON.stringify(previous.value) !== JSON.stringify(mapping.value)
+        ) {
+          diagnostics.push({
+            code: 'grounding_sequential_write_conflict',
+            message: `${buildGroundingLocation(context)}：当前顺序路径上的多个步骤会把不同固定值写入字段“${fieldName}”。请确认这是有意的阶段更新，还是应按不同条件拆分为独立路径。`,
+            nodeKey: context.nodeKey,
+            nodeName: context.nodeName,
+            branchKey: context.branchKey,
+            branchLabel: context.branchLabel,
+            targetFormId: targetFormId || undefined,
+            targetFormName: targetFormName || undefined,
+            fieldRef: {
+              fieldId: field?.fieldId || undefined,
+              fieldName,
+            },
+          })
+        }
+        if (!writesInNode.has(writeKey)) {
+          previousWrites.set(writeKey, {
+            value: mapping.value,
+          })
+        }
+        writesInNode.add(writeKey)
+      })
+    }
+
+    asArray(node.branches).forEach((branch, branchIndex) => {
+      collectSequentialWriteConflicts(
+        diagnostics,
+        asArray(asRecord(branch).nodes) as NocodeEditorFlowPlanNode[],
+        currentForm,
+        allTables,
+        fallbackTarget,
+        {
+          branchKey: normalizeText(asRecord(branch).branchKey) || prefix.branchKey,
+          branchLabel: `${context.location} / ${normalizeText(asRecord(branch).label) || `分支 ${branchIndex + 1}`}`,
+        },
+        allowConfirmedSequentialWrites,
+      )
+    })
+  })
+}
+
 export const validateFlowPlanGrounding = (
   input: ValidateFlowPlanGroundingInput,
 ) => {
@@ -1167,6 +1318,18 @@ export const validateFlowPlanGrounding = (
         branchKey: triggerContext.branchKey,
         branchLabel: `触发分支 ${branchIndex + 1}`,
       },
+    )
+    collectSequentialWriteConflicts(
+      diagnostics,
+      asArray(branch.nodes) as NocodeEditorFlowPlanNode[],
+      currentForm,
+      allTables,
+      plan.target || null,
+      {
+        branchKey: triggerContext.branchKey,
+        branchLabel: `触发分支 ${branchIndex + 1}`,
+      },
+      input.allowConfirmedSequentialWrites === true,
     )
   })
 

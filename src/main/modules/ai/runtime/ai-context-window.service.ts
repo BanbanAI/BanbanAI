@@ -12,6 +12,18 @@ export type AiContextWindowSettings = {
   contextWindow?: number | null
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  configuredOutputTokens?: number | null
+  productInputLimit?: number | null
+  tokenSafetyMarginRatio?: number | null
+}
+
+export type AiResolvedContextBudget = {
+  contextWindow: number
+  inputBudget: number
+  effectiveOutputTokens: number
+  outputReservedTokens: number
+  compactionTriggerTokens: number
+  productInputLimit: number
 }
 
 export type AiContextProjection = {
@@ -28,21 +40,47 @@ export class AiContextWindowService {
   static readonly COMPACTION_TRIGGER_RATIO = 0.8
   static readonly COMPACTION_TARGET_RATIO = 0.1
   static readonly RECENT_MESSAGE_COUNT = 4
+  static readonly DEFAULT_OUTPUT_TOKENS = 8_192
   // Image payloads are sent as data URLs, but providers charge image tokens by
   // the rendered image rather than by the Base64 string length.
   static readonly IMAGE_INPUT_TOKEN_ESTIMATE = 1_024
   private readonly encodingCache = new Map<string, ReturnType<typeof getEncoding>>()
 
   resolveInputBudget(settings: AiContextWindowSettings) {
+    return this.resolveBudget(settings).inputBudget
+  }
+
+  resolveBudget(settings: AiContextWindowSettings): AiResolvedContextBudget {
     const contextWindow = this.toPositiveNumber(settings.contextWindow) || AiContextWindowService.DEFAULT_CONTEXT_WINDOW
     const maxInputTokens = this.toPositiveNumber(settings.maxInputTokens)
-    const maxOutputTokens = this.toPositiveNumber(settings.maxOutputTokens) || 0
-    const outputReservedBudget = Math.max(1, contextWindow - maxOutputTokens)
-    return Math.max(1, Math.min(
-      AiContextWindowService.PRODUCT_MAX_INPUT_TOKENS,
-      maxInputTokens || Number.POSITIVE_INFINITY,
-      outputReservedBudget,
+    const productInputLimit = this.toPositiveNumber(settings.productInputLimit)
+      || AiContextWindowService.PRODUCT_MAX_INPUT_TOKENS
+    const modelMaxOutputTokens = this.toPositiveNumber(settings.maxOutputTokens) || Number.POSITIVE_INFINITY
+    const configuredOutputTokens = this.toPositiveNumber(settings.configuredOutputTokens)
+    const requestedOutputTokens = configuredOutputTokens || AiContextWindowService.DEFAULT_OUTPUT_TOKENS
+    const effectiveOutputTokens = Math.max(1, Math.min(
+      requestedOutputTokens,
+      modelMaxOutputTokens,
+      Math.max(1, contextWindow - 1),
     ))
+    const parsedSafetyMargin = Number(settings.tokenSafetyMarginRatio)
+    const tokenSafetyMarginRatio = Number.isFinite(parsedSafetyMargin)
+      ? Math.min(0.5, Math.max(0, parsedSafetyMargin))
+      : 0
+    const rawInputBudget = Math.max(1, Math.min(
+      productInputLimit,
+      maxInputTokens || Number.POSITIVE_INFINITY,
+      contextWindow - effectiveOutputTokens,
+    ))
+    const inputBudget = Math.max(1, Math.floor(rawInputBudget * (1 - tokenSafetyMarginRatio)))
+    return {
+      contextWindow,
+      inputBudget,
+      effectiveOutputTokens,
+      outputReservedTokens: effectiveOutputTokens,
+      compactionTriggerTokens: Math.floor(inputBudget * AiContextWindowService.COMPACTION_TRIGGER_RATIO),
+      productInputLimit,
+    }
   }
 
   estimateTextTokens(value: unknown, context?: AiTokenEstimateContext) {
@@ -98,10 +136,14 @@ export class AiContextWindowService {
     inputBudget: number
     currentEvidenceTokens?: number
     tokenContext?: AiTokenEstimateContext
+    recentMessageCount?: number
   }): AiContextProjection {
     const history = options.history || []
     const sourceFingerprint = this.buildSourceFingerprint(history)
-    const { old, recent } = this.splitHistory(history)
+    const { old, recent } = this.splitHistoryWithRecentCount(
+      history,
+      options.recentMessageCount || AiContextWindowService.RECENT_MESSAGE_COUNT,
+    )
     const summaryMessage = options.summary?.trim()
       ? [{
           role: 'system' as AiProviderMessage['role'],
@@ -121,7 +163,11 @@ export class AiContextWindowService {
   }
 
   splitHistory(history: AiProviderMessage[]) {
-    let start = Math.max(0, history.length - AiContextWindowService.RECENT_MESSAGE_COUNT)
+    return this.splitHistoryWithRecentCount(history, AiContextWindowService.RECENT_MESSAGE_COUNT)
+  }
+
+  splitHistoryWithRecentCount(history: AiProviderMessage[], recentMessageCount: number) {
+    let start = Math.max(0, history.length - Math.max(1, Math.floor(recentMessageCount)))
     while (start > 0 && history[start]?.role === 'tool') {
       start -= 1
     }

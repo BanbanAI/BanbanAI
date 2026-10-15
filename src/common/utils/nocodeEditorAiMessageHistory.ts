@@ -15,6 +15,10 @@ import {
   buildLogicalPlanningConfirmationContextKey,
   isSamePlanningConfirmationContext,
 } from './nocodeEditorPlanningConfirmationIdentity'
+import {
+  isNocodeEditorFailedStageSummaryMetadata,
+  normalizeNocodeEditorStageSummaryStage,
+} from './nocodeEditorToolResultSummaryState'
 
 type NocodeEditorHistoryMessageLike = {
   id?: unknown
@@ -30,7 +34,6 @@ const normalizeTraceId = (value: unknown) => String(value || '').trim()
 const normalizeContent = (value: unknown) => String(value || '').trim()
 const normalizeSummaryStage = (value: unknown) => String(value || '').trim().toLowerCase()
 const OPTIMISTIC_USER_RECONCILE_MAX_TIME_GAP_MS = 5000
-const TRANSIENT_FAILED_APP_PLAN_NO_FORM_SUMMARY = '应用规划暂存失败：规划至少需要包含一个表单'
 const APP_PLAN_SUCCESS_SUMMARY_MARKERS = [
   '已暂存成功',
   '应用结构预览已暂存',
@@ -38,20 +41,9 @@ const APP_PLAN_SUCCESS_SUMMARY_MARKERS = [
 const APP_PLAN_PENDING_CONFIRMATION_MARKERS = [
   '我会先停在应用规划确认阶段',
 ]
-const normalizeArtifactSummaryStage = (value: unknown) => {
-  const kind = String(value || '').trim()
-  if (
-    kind === 'app-plan'
-    || kind === 'form-plan'
-    || kind === 'content-plan'
-    || kind === 'flow-scheme'
-    || kind === 'flow-plan'
-    || kind === 'blueprint'
-  ) {
-    return kind
-  }
-  return ''
-}
+const normalizeArtifactSummaryStage = (value: unknown) => (
+  normalizeNocodeEditorStageSummaryStage(value)
+)
 
 const getTraceId = (message: NocodeEditorHistoryMessageLike) => (
   normalizeTraceId(message?.traceId || message?.metadata?.traceId)
@@ -74,6 +66,11 @@ const inferSummaryStageFromBlocks = (message: NocodeEditorHistoryMessageLike) =>
 
 const getSummaryStage = (message: NocodeEditorHistoryMessageLike) => (
   normalizeSummaryStage(message?.metadata?.summaryStage)
+  || inferSummaryStageFromBlocks(message)
+)
+
+const getStageSummaryStage = (message: NocodeEditorHistoryMessageLike) => (
+  normalizeNocodeEditorStageSummaryStage(message?.metadata?.summaryStage)
   || inferSummaryStageFromBlocks(message)
 )
 
@@ -273,16 +270,18 @@ const hasAppPlanPendingConfirmationMarker = (content: string) => (
   APP_PLAN_PENDING_CONFIRMATION_MARKERS.some(marker => content.includes(marker))
 )
 
-const hasArtifactBlockKind = (
+const hasReadyArtifactBlockKind = (
   message: NocodeEditorHistoryMessageLike,
   kind: string,
 ) => (
-  Array.isArray(message?.metadata?.blocks)
+  Boolean(kind)
+  && Array.isArray(message?.metadata?.blocks)
   && message.metadata.blocks.some((block) => (
     block
     && typeof block === 'object'
     && !Array.isArray(block)
     && String((block as Record<string, unknown>).kind || '').trim() === kind
+    && String((block as Record<string, unknown>).status || '').trim() !== 'error'
   ))
 )
 
@@ -337,95 +336,66 @@ const hasPendingAppPlanQuestionsInBlocks = (
   return false
 }
 
-const isTransientFailedAppPlanNoFormSummaryMessage = (
+const isTransientFailedStageSummaryMessage = (
+  message: NocodeEditorHistoryMessageLike,
+) => (
+  isAssistantMessage(message)
+  && !isHiddenFromTimelineMessage(message)
+  && isNocodeEditorFailedStageSummaryMetadata(message?.metadata)
+  && !hasReadyArtifactBlockKind(
+    message,
+    normalizeNocodeEditorStageSummaryStage(message?.metadata?.summaryStage),
+  )
+)
+
+const isVisibleSuccessfulStageSummaryMessage = (
   message: NocodeEditorHistoryMessageLike,
 ) => {
   if (!isAssistantMessage(message) || isHiddenFromTimelineMessage(message)) {
     return false
   }
 
-  const content = normalizeContent(message.content)
-  const summaryStage = getSummaryStage(message)
-  if (summaryStage && summaryStage !== 'app-plan') {
+  const stage = getStageSummaryStage(message)
+  if (!stage || message?.metadata?.ok === false) {
     return false
   }
 
   return Boolean(
-    content.includes(TRANSIENT_FAILED_APP_PLAN_NO_FORM_SUMMARY)
-    && !hasSuccessfulAppPlanSummaryMarker(content)
-    && !hasArtifactBlockKind(message, 'app-plan')
+    message?.metadata?.ok === true
+    || isToolResultSummaryMessage(message)
+    || hasReadyArtifactBlockKind(message, stage)
+    || hasSuccessfulAppPlanSummaryMarker(normalizeContent(message.content))
   )
 }
 
-const isVisibleSuccessfulAppPlanSummaryMessage = (
-  message: NocodeEditorHistoryMessageLike,
-) => {
-  if (!isAssistantMessage(message) || isHiddenFromTimelineMessage(message)) {
-    return false
-  }
-
-  if (getSummaryStage(message) !== 'app-plan') {
-    return false
-  }
-
-  const content = normalizeContent(message.content)
-  return Boolean(
-    hasSuccessfulAppPlanSummaryMarker(content)
-    || hasArtifactBlockKind(message, 'app-plan')
-    || message?.metadata?.ok === true
-  )
-}
-
-const filterTransientFailedAppPlanSummariesBeforeLaterSuccess = <T extends NocodeEditorHistoryMessageLike>(
+const filterTransientFailedStageSummariesBeforeLaterSuccess = <T extends NocodeEditorHistoryMessageLike>(
   messages: T[],
 ) => {
-  const latestVisibleSuccessfulAppPlanIndexByTrace = new Map<string, number>()
+  const latestVisibleSuccessfulStageIndexByKey = new Map<string, number>()
 
   messages.forEach((message, index) => {
     const traceId = getTraceId(message)
-    if (!traceId || !isVisibleSuccessfulAppPlanSummaryMessage(message)) {
+    const stage = getStageSummaryStage(message)
+    if (!traceId || !stage || !isVisibleSuccessfulStageSummaryMessage(message)) {
       return
     }
-    latestVisibleSuccessfulAppPlanIndexByTrace.set(traceId, index)
+    latestVisibleSuccessfulStageIndexByKey.set(`${traceId}::${stage}`, index)
   })
 
   return messages.filter((message, index) => {
     const traceId = getTraceId(message)
-    if (!traceId) {
+    const stage = getStageSummaryStage(message)
+    if (!traceId || !stage) {
       return true
     }
 
-    const latestSuccessIndex = latestVisibleSuccessfulAppPlanIndexByTrace.get(traceId)
+    const latestSuccessIndex = latestVisibleSuccessfulStageIndexByKey.get(`${traceId}::${stage}`)
     if (latestSuccessIndex === undefined || index >= latestSuccessIndex) {
       return true
     }
 
-    return !isTransientFailedAppPlanNoFormSummaryMessage(message)
+    return !isTransientFailedStageSummaryMessage(message)
   })
-}
-
-const sanitizeTransientFailedAppPlanSummaryContent = (
-  message: NocodeEditorHistoryMessageLike,
-  content: string,
-) => {
-  const normalizedContent = normalizeContent(content)
-  const summaryStage = getSummaryStage(message)
-  if (
-    !normalizedContent.includes(TRANSIENT_FAILED_APP_PLAN_NO_FORM_SUMMARY)
-    || !hasSuccessfulAppPlanSummaryMarker(normalizedContent)
-    || (summaryStage && summaryStage !== 'app-plan')
-  ) {
-    return normalizedContent
-  }
-
-  const cleanedContent = normalizedContent
-    .split(/\n{2,}/)
-    .map(item => item.trim())
-    .filter(Boolean)
-    .filter(item => item !== TRANSIENT_FAILED_APP_PLAN_NO_FORM_SUMMARY)
-    .join('\n\n')
-
-  return cleanedContent || normalizedContent
 }
 
 const isVisibleFlowPlanSummaryMessage = (
@@ -481,6 +451,26 @@ const getFlowPlanBlockScopeKey = (
   })
 }
 
+const getFlowPlanBlockDraftIdentityKey = (block?: unknown) => {
+  if (!isNocodeEditorArtifactBlock(block)) {
+    return ''
+  }
+
+  const record = block as Record<string, unknown>
+  const revision = Number(record.revision || 0)
+  const stagedAt = Number(record.stagedAt || 0)
+  if (revision <= 0 || stagedAt <= 0) {
+    return ''
+  }
+
+  return `${revision}:${stagedAt}`
+}
+
+const isAppliedFlowPlanBlock = (block?: unknown) => (
+  isNocodeEditorArtifactBlock(block)
+  && Boolean((block as Record<string, unknown>).flowApplyResult)
+)
+
 const getFlowPlanSummaryScopeKey = (
   message: NocodeEditorHistoryMessageLike,
 ) => {
@@ -491,12 +481,12 @@ const getFlowPlanSummaryScopeKey = (
   return getFlowPlanBlockScopeKey(flowBlock)
 }
 
-const findFlowPlanSummaryScopeEntry = (
-  entries: Array<{ scopeKey: string; index: number }>,
+const findFlowPlanSummaryScopeEntry = <TEntry extends { scopeKey: string; index: number }>(
+  entries: TEntry[],
   scopeKey: string,
-) => (
-  entries.find(entry => isSamePlanningConfirmationContext(entry.scopeKey, scopeKey))
-)
+) => {
+  return entries.find(entry => isSamePlanningConfirmationContext(entry.scopeKey, scopeKey))
+}
 
 const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessageLike>(messages: T[]) => {
   const latestVisibleFlowPlanSummaryIndexByTrace = new Map<string, number>()
@@ -556,7 +546,7 @@ const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessag
 }
 
 const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLike>(messages: T[]) => {
-  const latestVisibleFlowPlanBlockEntries: Array<{ scopeKey: string; index: number }> = []
+  const latestVisibleFlowPlanBlockEntries: Array<{ scopeKey: string; index: number; block?: unknown }> = []
 
   messages.forEach((message, index) => {
     if (!isAssistantMessage(message) || isHiddenFromTimelineMessage(message)) {
@@ -577,10 +567,12 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
       if (existingEntry) {
         existingEntry.scopeKey = scopeKey
         existingEntry.index = index
+        existingEntry.block = block
       } else {
         latestVisibleFlowPlanBlockEntries.push({
           scopeKey,
           index,
+          block,
         })
       }
     })
@@ -613,6 +605,18 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
         return true
       }
 
+      // 与最新“已生成”块同草稿身份的暂存块是卡片锚点：加载期同步会把它原位改写为已生成卡片，
+      // 删除它会让卡片跳回 apply 消息（现场与重开后的位置不一致）。
+      const draftIdentityKey = getFlowPlanBlockDraftIdentityKey(block)
+      if (
+        draftIdentityKey
+        && !isAppliedFlowPlanBlock(block)
+        && isAppliedFlowPlanBlock(latestEntry.block)
+        && getFlowPlanBlockDraftIdentityKey(latestEntry.block) === draftIdentityKey
+      ) {
+        return true
+      }
+
       changed = true
       return false
     })
@@ -633,25 +637,16 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
   return nextMessages
 }
 
-const sanitizeHistoryAssistantMessage = <T extends NocodeEditorHistoryMessageLike>(message: T): T => {
-  if (!isAssistantMessage(message)) {
-    return message
-  }
-
-  const nextContent = sanitizeTransientFailedAppPlanSummaryContent(
-    message,
-    normalizeContent(message.content),
-  )
-
-  if (nextContent === normalizeContent(message.content)) {
-    return message
-  }
-
-  return {
-    ...message,
-    content: nextContent,
-  }
-}
+const isSupersededTransientFailedStageSummary = (
+  failed: NocodeEditorHistoryMessageLike,
+  superseding: NocodeEditorHistoryMessageLike,
+) => (
+  isTransientFailedStageSummaryMessage(failed)
+  && isVisibleSuccessfulStageSummaryMessage(superseding)
+  && getStageSummaryStage(failed) === getStageSummaryStage(superseding)
+  && Boolean(getTraceId(failed))
+  && getTraceId(failed) === getTraceId(superseding)
+)
 
 // const hasActionResults = (message: NocodeEditorHistoryMessageLike) => (
 //   Array.isArray(message?.metadata?.actionResults) && message.metadata.actionResults.length > 0
@@ -697,6 +692,12 @@ const mergeAssistantContent = (
     return rightContent
   }
   if (!rightContent) {
+    return leftContent
+  }
+  if (isSupersededTransientFailedStageSummary(left, right)) {
+    return rightContent
+  }
+  if (isSupersededTransientFailedStageSummary(right, left)) {
     return leftContent
   }
   if (leftContent === rightContent) {
@@ -1218,12 +1219,12 @@ const mergeAssistantMessages = <T extends NocodeEditorHistoryMessageLike>(left: 
     preferRightAuthoritativeSnapshot,
   })
 
-  return sanitizeHistoryAssistantMessage({
+  return {
     ...right,
     content: mergeAssistantContent(left, right),
     metadata: mergedMetadata,
     traceId: normalizeTraceId(right.traceId || mergedMetadata?.traceId || left.traceId) || undefined,
-  } as T)
+  } as T
 }
 
 const normalizeMessageId = (value: unknown) => String(value || '').trim()
@@ -1248,6 +1249,14 @@ const normalizeCreateTime = (value: unknown) => {
 
   const normalized = Number(value)
   return Number.isFinite(normalized) && normalized > 0 ? normalized : null
+}
+
+const getBlueprintArtifactVersionKeys = (message: NocodeEditorHistoryMessageLike) => {
+  const blocks = Array.isArray(message?.metadata?.blocks) ? message.metadata.blocks : []
+  return new Set(blocks
+    .filter(block => isNocodeEditorArtifactBlock(block) && String(block.kind || '').trim() === 'blueprint')
+    .map(block => getNocodeEditorArtifactBlockMergeKey(block))
+    .filter(key => key.startsWith('artifact:blueprint:')))
 }
 
 const isOptimisticLocalUserMessage = (message: NocodeEditorHistoryMessageLike) => (
@@ -1317,10 +1326,24 @@ const shouldKeepAssistantMessagesSeparated = (
   const leftSummaryStage = getSummaryStage(left)
   const rightSummaryStage = getSummaryStage(right)
 
+  if (leftSummaryStage === 'blueprint' && rightSummaryStage === 'blueprint') {
+    const leftBlueprintKeys = getBlueprintArtifactVersionKeys(left)
+    const rightBlueprintKeys = getBlueprintArtifactVersionKeys(right)
+    if (
+      leftBlueprintKeys.size
+      && rightBlueprintKeys.size
+      && (
+        leftBlueprintKeys.size !== rightBlueprintKeys.size
+        || [...leftBlueprintKeys].some(key => !rightBlueprintKeys.has(key))
+      )
+    ) {
+      return true
+    }
+  }
+
   return Boolean(
-    leftSummaryStage
-    && rightSummaryStage
-    && leftSummaryStage !== rightSummaryStage
+    leftSummaryStage !== rightSummaryStage
+    && (leftSummaryStage || rightSummaryStage)
   )
 }
 
@@ -1386,6 +1409,7 @@ const findReconcileMessageIndex = <T extends NocodeEditorHistoryMessageLike & {
       const sameStageIndex = messages.findIndex(item => (
         hasSameAssistantTrace(item, message)
         && getSummaryStage(item) === messageStage
+        && !shouldKeepAssistantMessagesSeparated(item, message)
       ))
       if (sameStageIndex >= 0) {
         return sameStageIndex
@@ -1465,7 +1489,7 @@ export const normalizeNocodeEditorAiMessageHistory = <T extends NocodeEditorHist
   //
   //   return !hasActionResults(message)
   // })
-  const filtered = filterTransientFailedAppPlanSummariesBeforeLaterSuccess(messages || [])
+  const filtered = filterTransientFailedStageSummariesBeforeLaterSuccess(messages || [])
     .filter(shouldKeepNocodeEditorAiHistoryMessage)
 
   const deduped: T[] = []
@@ -1495,7 +1519,6 @@ export const normalizeNocodeEditorAiMessageHistory = <T extends NocodeEditorHist
       ),
     ),
   )
-    .map(message => sanitizeHistoryAssistantMessage(message))
 }
 
 export const sortNocodeEditorAiMessageHistory = <T extends NocodeEditorHistoryMessageLike>(messages: T[]) => (
@@ -1566,6 +1589,10 @@ export const reconcileNocodeEditorAiMessageHistory = <T extends NocodeEditorHist
   }
 
   return sortNocodeEditorAiMessageHistory(
-    normalizeNocodeEditorAiMessageHistory(merged),
+    normalizeNocodeEditorAiMessageHistory(
+      // 取代剪枝按数组顺序判定“最新”，合并前必须先按时间序排列；
+      // 否则 current 尾部追加的旧卡会被当作最新，反过来遮蔽服务端的新卡。
+      sortNocodeEditorAiMessageHistory(merged),
+    ),
   )
 }

@@ -308,6 +308,7 @@ export const buildNocodeEditorToolResultStreamMetadata = (options: {
     flowSchemePlanningStatus: result.metadata?.flowSchemePlanningStatus === 'needs_confirmation'
       ? 'needs_confirmation'
       : undefined,
+    flowSchemeReviewPending: result.metadata?.flowSchemeReviewPending === true || undefined,
     toolResultSummary: Boolean(summary?.metadata?.toolResultSummary),
     summaryStage,
     hiddenFromTimeline: Boolean(summary?.metadata?.hiddenFromTimeline),

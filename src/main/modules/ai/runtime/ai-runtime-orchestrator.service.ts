@@ -451,7 +451,10 @@ export class AiRuntimeOrchestratorService {
               content: item.role === AiMessageRole.ASSISTANT
                 ? resolveAiAssistantMessageText(item.content, item.metadata?.blocks)
                 : item.content,
-              metadata: item.metadata || null,
+              metadata: {
+                ...(item.metadata || {}),
+                traceId: item.traceId || item.metadata?.traceId,
+              },
             })),
           isShareMode: options.isShareMode,
           runtimeState: runtimeStateForTurn,

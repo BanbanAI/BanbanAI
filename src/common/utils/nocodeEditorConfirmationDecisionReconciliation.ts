@@ -8,6 +8,14 @@ import type {
 import {
   isSamePlanningConfirmationContext,
 } from './nocodeEditorPlanningConfirmationIdentity'
+import {
+  invalidateFlowDecisionAnswers,
+  projectFlowDecisionContract,
+} from './nocodeEditorFlowDecisionGraph'
+import {
+  canonicalizeFlowDecisionQuestionValues,
+  canonicalizeFlowDecisionValue,
+} from './nocodeEditorFlowDecisionValueAliases'
 
 export type NocodeEditorConfirmationDecisionConflict = {
   code: 'confirmed_decision_value_conflict' | 'confirmed_decision_option_unavailable'
@@ -68,6 +76,24 @@ const cloneQuestion = (
   }
   if (question.dependsOn) {
     clonedQuestion.dependsOn = [...question.dependsOn]
+  }
+  if (question.prerequisites) {
+    clonedQuestion.prerequisites = question.prerequisites.map(item => ({
+      ...item,
+      values: [...item.values],
+    }))
+  }
+  if (question.requiresFacts) {
+    clonedQuestion.requiresFacts = [...question.requiresFacts]
+  }
+  if (question.producesFacts) {
+    clonedQuestion.producesFacts = [...question.producesFacts]
+  }
+  if (question.changes) {
+    clonedQuestion.changes = [...question.changes]
+  }
+  if (question.dependencySources) {
+    clonedQuestion.dependencySources = { ...question.dependencySources }
   }
   return clonedQuestion
 }
@@ -150,7 +176,10 @@ const buildCanonicalCurrentAnswer = (
 const buildCanonicalPreviousAnswer = (
   decision: NocodeEditorConfirmationDecision,
 ): CanonicalAnswer => ({
-  selectedValue: normalizeText(decision.selectedOptionValue),
+  selectedValue: canonicalizeFlowDecisionValue(
+    resolvePreviousDecisionKey(decision),
+    decision.selectedOptionValue,
+  ),
   answerSummary: normalizeText(decision.answerSummary),
   answerDetail: normalizeText(decision.answerDetail),
 })
@@ -172,13 +201,25 @@ const isSameCanonicalAnswer = (
 }
 
 const buildQuestionConstraintKey = (question: NocodeEditorAiConfirmQuestion) => JSON.stringify({
-  allowFreeText: question.allowFreeText ?? null,
+  allowFreeText: question.allowFreeText !== false,
   branchKey: normalizeText(question.branchKey),
+  decisionScope: question.decisionScope || null,
   dependsOn: (question.dependsOn || []).map(normalizeText).sort(),
   domain: normalizeText(question.domain),
-  options: (question.options || []).map(option => normalizeText(option.value)).sort(),
+  options: (question.options || []).map(option => [
+    normalizeText(option.value),
+    normalizeText(option.label),
+    normalizeText(option.description),
+  ]).sort((a, b) => a[0].localeCompare(b[0])),
+  personnelDecision: question.personnelDecision || null,
+  prerequisites: (question.prerequisites || []).map(condition => ({
+    decisionKey: normalizeText(condition.decisionKey),
+    operator: condition.operator,
+    values: condition.values.map(normalizeText).sort(),
+  })).sort((a, b) => a.decisionKey.localeCompare(b.decisionKey)),
   questionKind: normalizeText(question.questionKind),
-  required: question.required ?? null,
+  required: question.required !== false,
+  requiresFacts: (question.requiresFacts || []).map(normalizeText).sort(),
   scopeKind: normalizeText(question.scopeKind),
 })
 
@@ -191,7 +232,8 @@ const buildCurrentDecisionGroups = (
   const groups: CurrentDecisionGroup[] = []
   const groupsByKey = new Map<string, CurrentDecisionGroup>()
 
-  questions.forEach((question) => {
+  questions.forEach((rawQuestion) => {
+    const question = canonicalizeFlowDecisionQuestionValues(rawQuestion)
     const decisionKey = resolveDecisionKey(question)
     const answer = buildCanonicalCurrentAnswer(question, options)
     const constraintKey = buildQuestionConstraintKey(question)
@@ -333,6 +375,32 @@ const buildPendingQuestionShell = (
   return pendingQuestion
 }
 
+/**
+ * 把已确认但不在当前选项里的取值并回选项，保留结论而不是判成「选项不可用」。
+ * 选项措辞会随重新规划漂移（如 submit_auto 与 submit），这类漂移不该让用户重答。
+ */
+const mergeConfirmedDecisionOption = (
+  question: NocodeEditorAiConfirmQuestion,
+  value: string,
+): NocodeEditorAiConfirmQuestion => {
+  const targetValue = normalizeText(value)
+  if (!targetValue) {
+    return question
+  }
+  const mergedQuestion = cloneQuestion(question)
+  mergedQuestion.confirmed = true
+  mergedQuestion.selectedOptionValue = targetValue
+  const options = mergedQuestion.options || []
+  if (!options.some(option => normalizeText(option.value) === targetValue)) {
+    options.push({ value: targetValue, label: targetValue })
+  }
+  mergedQuestion.options = options.map(option => ({
+    ...option,
+    selected: normalizeText(option.value) === targetValue,
+  }))
+  return mergedQuestion
+}
+
 const inheritPreviousDecision = (input: {
   question: NocodeEditorAiConfirmQuestion
   previousEntry: PreviousDecisionEntry
@@ -426,9 +494,11 @@ const buildOptionUnavailableConflict = (input: {
 
 export const reconcileNocodeEditorConfirmationDecisions = (input: {
   confirmation?: NocodeEditorAiConfirmPayload | null
+  previousConfirmation?: NocodeEditorAiConfirmPayload | null
   previousDecisions?: NocodeEditorConfirmationDecision[]
   expectedPlanningContextKey?: string
   preserveTrustedDecisionKeySource?: boolean
+  trustedCurrentDecisionKeys?: string[]
 }): NocodeEditorConfirmationDecisionReconciliation => {
   if (!input.confirmation) {
     return {
@@ -447,6 +517,7 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
   const resolvedDecisionKeySet = new Set<string>()
   const unresolvedDecisionKeySet = new Set<string>()
   const conflicts: NocodeEditorConfirmationDecisionConflict[] = []
+  const changedDecisionKeys: string[] = []
   const currentDecisionGroups = buildCurrentDecisionGroups(
     input.confirmation.questions,
     {
@@ -457,6 +528,15 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
     previousDecisions: input.previousDecisions || [],
     expectedPlanningContextKey: normalizeText(input.expectedPlanningContextKey),
   })
+  const previousQuestionsByKey = new Map(
+    (input.previousConfirmation?.questions || []).map((question) => {
+      const canonicalQuestion = canonicalizeFlowDecisionQuestionValues(question)
+      return [resolveDecisionKey(canonicalQuestion), canonicalQuestion]
+    }),
+  )
+  const trustedCurrentDecisionKeys = new Set(
+    (input.trustedCurrentDecisionKeys || []).map(normalizeText).filter(Boolean),
+  )
 
   const questions = currentDecisionGroups.map((group) => {
     const decisionKey = group.decisionKey
@@ -464,12 +544,25 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
       preserveTrustedDecisionKeySource: input.preserveTrustedDecisionKeySource === true,
     })
     const previousEntry = previousDecisionState.decisionsByKey.get(decisionKey)
+    const previousQuestion = previousQuestionsByKey.get(decisionKey)
     const historicalConflictDetail = previousDecisionState.conflictsByKey.get(decisionKey)
+    const hasTrustedCurrentAnswer = trustedCurrentDecisionKeys.has(decisionKey)
+      && group.answer.hasAnswer
     if (previousEntry?.decision.decisionKeySource === 'legacy_question_id') {
       question.decisionKeySource = 'legacy_question_id'
     }
 
+    if (previousEntry && previousQuestion
+      && buildQuestionConstraintKey(previousQuestion) !== buildQuestionConstraintKey(question)) {
+      changedDecisionKeys.push(decisionKey)
+      if (!hasTrustedCurrentAnswer) {
+        pushUnique(unresolvedDecisionKeys, unresolvedDecisionKeySet, decisionKey)
+        return buildPendingQuestionShell(question)
+      }
+    }
+
     if (group.conflictDetail || historicalConflictDetail) {
+      if (previousEntry) changedDecisionKeys.push(decisionKey)
       conflicts.push(buildValueConflict({
         decisionKey,
         question,
@@ -479,6 +572,15 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
     }
 
     if (group.answer.unavailableSelectedValue) {
+      // 可信回填的结论取值不在当前选项里：并回选项保留结论。
+      // 选项措辞会随重新规划漂移（如 submit_auto 与 submit），这类漂移不该让用户重答；
+      // 非可信来源的取值（模型自造）仍按选项不可用处理，落回重问。
+      const unavailableValue = group.answer.unavailableSelectedValue
+      if (hasTrustedCurrentAnswer) {
+        pushUnique(resolvedDecisionKeys, resolvedDecisionKeySet, decisionKey)
+        return mergeConfirmedDecisionOption(question, unavailableValue)
+      }
+      if (previousEntry) changedDecisionKeys.push(decisionKey)
       conflicts.push(buildOptionUnavailableConflict({
         decisionKey,
         question,
@@ -488,7 +590,12 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
     }
 
     if (group.answer.hasAnswer) {
+      if (hasTrustedCurrentAnswer) {
+        pushUnique(resolvedDecisionKeys, resolvedDecisionKeySet, decisionKey)
+        return question
+      }
       if (previousEntry && !isSameCanonicalAnswer(previousEntry.answer, group.answer)) {
+        changedDecisionKeys.push(decisionKey)
         conflicts.push(buildValueConflict({
           decisionKey,
           question,
@@ -538,20 +645,34 @@ export const reconcileNocodeEditorConfirmationDecisions = (input: {
     return inheritPreviousDecision({ question, previousEntry })
   })
 
+  const decisionQuestions = input.confirmation.decisionContractVersion === 2
+    ? projectFlowDecisionContract(questions, input.confirmation.factSnapshot || {}).questions
+    : questions
+  const invalidatedQuestions = changedDecisionKeys.length
+    ? invalidateFlowDecisionAnswers(decisionQuestions, changedDecisionKeys)
+    : decisionQuestions
+  const invalidatedKeys = new Set(invalidatedQuestions.flatMap((question, index) => (
+    question.confirmed === false && decisionQuestions[index].confirmed === true
+      ? [resolveDecisionKey(question)] : []
+  )))
+  const finalResolvedDecisionKeys = resolvedDecisionKeys.filter(key => !invalidatedKeys.has(key))
+  const finalUnresolvedDecisionKeys = [...unresolvedDecisionKeys]
+  invalidatedKeys.forEach(key => pushUnique(finalUnresolvedDecisionKeys, unresolvedDecisionKeySet, key))
+
   return {
     confirmation: {
       ...input.confirmation,
       resultSummary: input.confirmation.resultSummary
         ? [...input.confirmation.resultSummary]
         : undefined,
-      status: unresolvedDecisionKeys.length || conflicts.length
+      status: finalUnresolvedDecisionKeys.length || conflicts.length
         ? 'pending'
         : 'completed',
-      questions,
+      questions: invalidatedQuestions,
     },
-    inheritedDecisionKeys,
-    resolvedDecisionKeys,
-    unresolvedDecisionKeys,
+    inheritedDecisionKeys: inheritedDecisionKeys.filter(key => !invalidatedKeys.has(key)),
+    resolvedDecisionKeys: finalResolvedDecisionKeys,
+    unresolvedDecisionKeys: finalUnresolvedDecisionKeys,
     conflicts,
   }
 }

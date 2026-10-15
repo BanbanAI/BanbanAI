@@ -623,6 +623,7 @@ export const markFlowDependenciesMaterialized = (
           ? 'use_existing' as const
           : dependency.resolutionMode,
         materializationStatus: 'existing' as const,
+        lifecycleStatus: 'materialized' as const,
       }
       : dependency
   ))

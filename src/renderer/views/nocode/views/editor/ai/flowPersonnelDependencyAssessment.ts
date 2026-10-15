@@ -8,6 +8,13 @@ import type {
   NocodeEditorFlowPersonnelRef,
   NocodeEditorFlowPersonnelRequirement,
 } from '@common/utils/nocodeEditorFlowPersonnel'
+import type {
+  NocodeEditorAiConfirmPayload,
+  NocodeEditorAiConfirmQuestion,
+} from '@common/types/nocodeEditorConfirmation'
+import type {
+  NocodeEditorFlowPersonnelSourceEvidence,
+} from '@common/utils/nocodeEditorFlowPersonnelSourceAnchor'
 import {
   decorateFlowSchemeWithConvergence,
   mergeDeferredConfigItems,
@@ -180,6 +187,154 @@ const getSummaryEvidence = (flowSummary: unknown) => {
   }
 }
 
+// 人员来源锚定所需的最小证据投影：组织角色/成员名（→ 指定成员/角色）
+// 与当前表单的成员/部门字段名（→ 表单内成员/部门字段），供派生题与模型题统一标注推荐来源。
+export const resolveNocodeEditorFlowPersonnelSourceEvidence = (
+  flowSummary: unknown,
+): NocodeEditorFlowPersonnelSourceEvidence | null => {
+  if (!flowSummary) {
+    return null
+  }
+  const evidence = getSummaryEvidence(flowSummary)
+  const formFields = evidence.currentForm?.fields || []
+  const memberFieldNames = formFields
+    .filter(field => field.isMemberField === true || field.ownerPolicy === 'member')
+    .map(field => field.fieldName)
+    .filter(Boolean)
+  const departmentFieldNames = formFields
+    .filter(field => field.isDepartmentField === true || field.ownerPolicy === 'department')
+    .map(field => field.fieldName)
+    .filter(Boolean)
+  const roles = evidence.roles.filter(item => item.name)
+  const users = evidence.users.filter(item => item.name)
+  if (!roles.length && !users.length && !memberFieldNames.length && !departmentFieldNames.length) {
+    return null
+  }
+  return { roles, users, memberFieldNames, departmentFieldNames }
+}
+
+export type FlowPersonnelCandidateDiagnostic = {
+  questionId: string
+  decisionKey?: string
+  stepKey: string
+  optionValue: string
+  message: string
+}
+
+export const validateFlowPersonnelConfirmationCandidates = (input: {
+  scheme: NocodeEditorFlowScheme
+  confirmation?: NocodeEditorAiConfirmPayload | null
+  flowSummary?: unknown
+}): FlowPersonnelCandidateDiagnostic[] => {
+  const confirmation = input.confirmation
+  if (!confirmation || !Array.isArray(confirmation.questions)) {
+    return []
+  }
+  const evidence = getSummaryEvidence(input.flowSummary)
+  const diagnostics: FlowPersonnelCandidateDiagnostic[] = []
+  const hasEvidence = Boolean(input.flowSummary)
+  const steps = new Map(getStepList(input.scheme).map(step => [step.key, step]))
+  const addDiagnostic = (question: typeof confirmation.questions[number], optionValue: string, message: string) => {
+    diagnostics.push({
+      questionId: question.id,
+      decisionKey: question.decisionKey,
+      stepKey: question.personnelDecision?.stepKey || '',
+      optionValue,
+      message,
+    })
+  }
+
+  confirmation.questions.forEach((question) => {
+    const personnelDecision = question.personnelDecision
+    if (!personnelDecision) {
+      return
+    }
+    const step = steps.get(personnelDecision.stepKey)
+    if (!step || !PERSONNEL_STEP_METADATA[step.kind]) {
+      addDiagnostic(question, '', `确认题“${question.title}”引用了不存在或无需设置人员的流程步骤`)
+      return
+    }
+    if (personnelDecision.slot === 'approval_level' || personnelDecision.slot === 'multi_person' || personnelDecision.slot === 'same_as_submitter') {
+      if (step.kind !== 'approval') {
+        addDiagnostic(question, '', `确认题“${question.title}”的审批专属设置不适用于${step.title}`)
+      }
+      return
+    }
+    if (personnelDecision.slot !== 'source' && personnelDecision.slot !== 'binding') {
+      return
+    }
+    if (!Array.isArray(question.options)) {
+      return
+    }
+    question.options.forEach((option) => {
+      const candidate = option.personnelCandidate
+      if (!candidate) {
+        addDiagnostic(question, option.value, `确认题“${question.title}”的选项“${option.label}”缺少人员来源和证据状态`)
+        return
+      }
+      const refId = normalizeText(candidate.refId)
+      const refName = normalizeText(candidate.refName)
+      const selected = question.confirmed === true && (
+        option.selected === true || option.value === question.selectedOptionValue
+      )
+      const isConcreteSource = ['fixed_users', 'fixed_roles', 'form_member', 'form_department'].includes(candidate.sourceType)
+      if (candidate.status === 'planned') {
+        if (!refName || refId) {
+          addDiagnostic(question, option.value, `确认题“${question.title}”的待补配置选项需要明确名称，且不能伪装成已有 ID`)
+        }
+        return
+      }
+      if (candidate.status === 'supported') {
+        // Selecting a source type does not require binding its concrete owners yet.
+        // Fixed owners, form member fields, form department fields and manager rules
+        // are tracked as follow-up decisions after generation; runtime capability gaps
+        // are registered as deferred config items by the personnel dependency assessment.
+        const isDeferredSourceType = personnelDecision.slot === 'source'
+          && [
+            'fixed_users',
+            'fixed_roles',
+            'form_member',
+            'form_department',
+            'submitter_manager',
+            'department_manager',
+          ].includes(candidate.sourceType)
+          && !refId && !refName
+        if (isDeferredSourceType) {
+          return
+        }
+        if (isConcreteSource || refId || refName) {
+          addDiagnostic(question, option.value, `确认题“${question.title}”不能将未验证的具体人员、角色或字段标成 supported；来源类型选项仅限 source 槽且不能携带具体引用`)
+        } else if (selected && candidate.sourceType !== 'submitter' && (!hasEvidence || !supportsManagerSource(evidence.summary, step))) {
+          addDiagnostic(question, option.value, `确认题“${question.title}”的动态人员规则缺少当前节点的能力证据`)
+        }
+        return
+      }
+      if (!isConcreteSource || !refId) {
+        addDiagnostic(question, option.value, `确认题“${question.title}”的已有对象选项需要真实 ID`)
+        return
+      }
+      if (!hasEvidence) {
+        if (selected) {
+          addDiagnostic(question, option.value, `确认题“${question.title}”的已选对象缺少当前项目证据`)
+        }
+        return
+      }
+      const matched = candidate.sourceType === 'fixed_users'
+        ? evidence.users.some(item => item.id === refId)
+        : candidate.sourceType === 'fixed_roles'
+          ? evidence.roles.some(item => item.id === refId)
+          : Boolean(evidence.currentForm?.fields.some(field => (
+            field.fieldId === refId
+            && isCompatibleOwnerField(field, candidate.sourceType === 'form_member' ? 'form_member' : 'form_department')
+          )))
+      if (!matched) {
+        addDiagnostic(question, option.value, `确认题“${question.title}”的选项“${option.label}”未在当前项目证据中找到对应人员、角色或兼容字段`)
+      }
+    })
+  })
+  return diagnostics
+}
+
 const getStepList = (scheme: NocodeEditorFlowScheme) => [
   ...(Array.isArray(scheme.mainPath) ? scheme.mainPath : []),
   ...(Array.isArray(scheme.branches)
@@ -281,6 +436,9 @@ const buildBlockingDependency = (input: {
   fieldRef?: NocodeEditorFlowSchemeDependency['fieldRef']
 }): NocodeEditorFlowSchemeDependency => ({
   id: `flow-personnel:${input.step.key}:${input.suffix}`,
+  ...(input.suffix === 'source' && input.assessment.requiredFor === 'approval_owner'
+    ? { decisionKey: 'flow.approval.owner' }
+    : {}),
   kind: input.kind,
   requiredFor: input.assessment.requiredFor,
   scopeKind: 'step',
@@ -352,13 +510,20 @@ const buildDeferredConfigItem = (
   step: NocodeEditorFlowSchemeStep,
   assessment: FlowPersonnelDependencyAssessment,
   category: NocodeEditorFlowSchemeDeferredConfigItem['category'],
+  supportStatus: NocodeEditorFlowSchemeDeferredConfigItem['supportStatus'] = 'runtime_supported',
 ) => ({
   id: `flow-deferred:personnel:${step.key}:${assessment.issueCode}`,
   nodeKey: step.key,
   nodeTitle: step.title,
+  // 延期项的能力验证按 (category, settingPath) 对照运行时注册表，
+  // 兜底配置归属 options.emptyHandler，不能沿用节点 owner 设置路径。
+  settingPath: category === 'fallback_handler' ? 'options.emptyHandler'
+    : step.kind === 'approval' ? 'options.approver'
+      : step.kind === 'transact' ? 'options.transactor'
+        : step.kind === 'notify' ? 'options.notifier' : 'options.reporter',
   category,
   requirementLevel: 'required' as const,
-  supportStatus: 'runtime_supported' as const,
+  supportStatus,
   summary: assessment.summary,
   fillTiming: 'after_generation' as const,
   severity: category === 'fallback_handler' ? 'medium' as const : 'high' as const,
@@ -670,10 +835,12 @@ const assessPrimaryRequirement = (input: {
     )
     return {
       assessment,
+      // 来源已确定为部门主管，缺失的是层级；派生题必须按层级问题收敛，
+      // 不能复用 :source 后缀被派生成“请选择来源”的五选项来源题。
       dependency: buildBlockingDependency({
         step: input.step,
         assessment,
-        suffix: 'source',
+        suffix: 'level',
         kind: 'org_anchor_missing',
       }),
     }
@@ -686,19 +853,19 @@ const assessPrimaryRequirement = (input: {
   }
   const assessment = getAssessmentBase(
     input.step,
-    'block',
+    'defer_after_generation',
     `${input.step.title}所需的经理人员语义当前不受运行时支持`,
     ['经理人员语义'],
     metadata.issueCode,
   )
   return {
     assessment,
-    dependency: buildBlockingDependency({
-      step: input.step,
+    deferredConfigItem: buildDeferredConfigItem(
+      input.step,
       assessment,
-      suffix: 'capability',
-      kind: 'capability_gap',
-    }),
+      'owner_binding',
+      'needs_runtime_support',
+    ),
   }
 }
 
@@ -761,23 +928,9 @@ const assessFallbackRequirement = (input: {
     }
   }
 
-  const fallbackIssueCode = issueCodes.fixed_users
-  const assessment = getAssessmentBase(
-    input.step,
-    'block',
-    `${input.step.title}的兜底人员来源尚未确定`,
-    ['兜底人员来源'],
-    fallbackIssueCode,
-  )
-  return {
-    assessment,
-    dependency: buildBlockingDependency({
-      step: input.step,
-      assessment,
-      suffix: 'fallback',
-      kind: 'org_anchor_missing',
-    }),
-  }
+  // 兜底人员来源未确定（unresolved）时不追问：直接沿用节点人员默认值
+  // （审批为自动通过、办理为转交管理员、填报为指定人员），与手动新增节点一致。
+  return null
 }
 
 export const assessFlowSchemePersonnelDependencies = (input: {
@@ -798,8 +951,9 @@ export const assessFlowSchemePersonnelDependencies = (input: {
   const existingDependencies = Array.isArray(input.scheme.dependencies)
     ? input.scheme.dependencies.filter(item => !normalizeText(item.id).startsWith('flow-personnel:'))
     : []
+  // kind 只是问题归类，不是依赖身份；同一 (requiredFor, scope, target, fieldRef) 上
+  // 模型自写依赖与系统评估依赖必须视为同一条，否则下游解析器会因“多个 step 依赖”放弃解析。
   const getPersonnelDependencySemanticKey = (dependency: NocodeEditorFlowSchemeDependency) => [
-    normalizeText(dependency.kind),
     normalizeText(dependency.requiredFor),
     normalizeText(dependency.scopeKind),
     normalizeText(dependency.scopeKey),
@@ -822,8 +976,32 @@ export const assessFlowSchemePersonnelDependencies = (input: {
   const personnelDeferredConfigItems = projections.flatMap(item => (
     item.deferredConfigItem ? [item.deferredConfigItem] : []
   ))
+  const runtimeSupportedManagerNodeKeys = new Set(
+    projections.flatMap((projection) => {
+      const step = getStepList(input.scheme).find(item => (
+        normalizeText(item.key) === normalizeText(projection.assessment.nodeKey)
+      ))
+      return step?.personnelRequirement
+        && ['submitter_manager', 'department_manager'].includes(step.personnelRequirement.sourceType)
+        && projection.assessment.disposition === 'resolved'
+        ? [normalizeText(step.key)]
+        : []
+    }),
+  )
   const existingDeferredConfigItems = Array.isArray(input.scheme.deferredConfigItems)
-    ? input.scheme.deferredConfigItems.filter(item => !normalizeText(item.id).startsWith('flow-deferred:personnel:'))
+    ? input.scheme.deferredConfigItems.filter(item => (
+      !normalizeText(item.id).startsWith('flow-deferred:personnel:')
+      && !(
+        item.supportStatus === 'needs_runtime_support'
+        && item.category === 'owner_binding'
+        && runtimeSupportedManagerNodeKeys.has(normalizeText(item.nodeKey))
+      )
+      && !personnelDeferredConfigItems.some(assessmentItem => (
+        normalizeText(assessmentItem.nodeKey) === normalizeText(item.nodeKey)
+        && normalizeText(assessmentItem.settingPath) === normalizeText(item.settingPath)
+        && assessmentItem.category === item.category
+      ))
+    ))
     : []
   const deferredConfigItems = mergeDeferredConfigItems({
     existingItems: existingDeferredConfigItems,
@@ -861,3 +1039,51 @@ export const assessAndDecorateFlowSchemePersonnelDependencies = (input: {
   scheme: NocodeEditorFlowScheme
   flowSummary?: unknown
 }): NocodeEditorFlowScheme => assessFlowSchemePersonnelDependencies(input).scheme
+
+export const removeDeferredCapabilityConfirmationQuestions = (
+  scheme: NocodeEditorFlowScheme,
+): NocodeEditorFlowScheme => {
+  const deferredNodeKeys = new Set(
+    (scheme.deferredConfigItems || [])
+      .filter(item => item.supportStatus === 'needs_runtime_support' && item.nodeKey)
+      .map(item => String(item.nodeKey).trim()),
+  )
+  const capabilityDecisionKeys = new Set(
+    [...deferredNodeKeys].map(nodeKey => `flow-personnel:${nodeKey}:capability`),
+  )
+  const hasConfirmedDepartmentManagerSource = (scheme.confirmation?.questions || []).some(question => (
+    (String(question.decisionKey || question.id || '').trim() === 'approver_source')
+    && question.confirmed === true
+    && String(question.selectedOptionValue || question.options?.find(option => option.selected)?.value || '').trim()
+      === 'department_manager'
+  ))
+  const isRedundantApprovalOwnerNote = (question: NocodeEditorAiConfirmQuestion) => (
+    hasConfirmedDepartmentManagerSource
+    && question.questionKind === 'note_only'
+    && String(question.decisionKey || question.id || '').trim() === 'flow.approval.owner'
+  )
+  if (!deferredNodeKeys.size && !hasConfirmedDepartmentManagerSource) return scheme
+
+  const openQuestions = (scheme.openQuestions || []).filter(question => (
+    !capabilityDecisionKeys.has(String(question.key || '').trim())
+    && !(hasConfirmedDepartmentManagerSource
+      && String(question.key || '').trim() === 'flow.approval.owner')
+  ))
+  const questions = (scheme.confirmation?.questions || []).filter(question => (
+    !capabilityDecisionKeys.has(String(question.decisionKey || question.id || '').trim())
+    && !isRedundantApprovalOwnerNote(question)
+  ))
+  return {
+    ...scheme,
+    openQuestions,
+    ...(scheme.confirmation ? {
+      confirmation: {
+        ...scheme.confirmation,
+        status: questions.some(question => question.required !== false && question.confirmed !== true)
+          ? 'pending' as const
+          : 'completed' as const,
+        questions,
+      },
+    } : {}),
+  }
+}

@@ -1,7 +1,8 @@
 import { isBranchNode } from "@common/utils/flow";
 import { unique } from "@common/utils/unique";
-import { ProcessNodeOwnerType, ApprovalCategory, ApprovalCategoryRule, ApprovalOptions, OwnerEmptyHandle, ApproverSameAsSubmitter, ApproverType, DataChangeOptions, DataChangeType, NotifyOptions, ProcessBranch, ProcessFlow, ProcessNodeType, TransactOptions, AddDataOptions, EditDataOptions, EditDataTargetScope, ConditionBranchOptions, TimeTaskOptions, TimeTaskMethod, TimeTaskDateType, TimeTaskDatePoint, ReportDataOptions, TimeTaskRepeat, TriggerMode, Table, isTimeTaskSingleTriggerMode, OperationTriggerMode, getOperationTriggerMode, ProcessTimeoutActionType, ProcessTimeoutDeadlineType, ProcessTimeoutRelativePoint, ProcessTimeoutUnit, ProcessNodeOwner } from "@common/types/project";
+import { ProcessNodeOwnerType, ApprovalCategory, ApprovalCategoryRule, ApprovalOptions, OwnerEmptyHandle, DataChangeOptions, DataChangeType, NotifyOptions, ProcessBranch, ProcessFlow, ProcessNodeType, TransactOptions, AddDataOptions, EditDataOptions, EditDataTargetScope, ConditionBranchOptions, TimeTaskOptions, TimeTaskMethod, TimeTaskDateType, TimeTaskDatePoint, ReportDataOptions, TimeTaskRepeat, TriggerMode, Table, isTimeTaskSingleTriggerMode, OperationTriggerMode, getOperationTriggerMode, ProcessTimeoutActionType, ProcessTimeoutDeadlineType, ProcessTimeoutRelativePoint, ProcessTimeoutUnit, ProcessNodeOwner } from "@common/types/project";
 import { FormConditionValueType, LogicalOperator, ProcessContext } from "@common/types/nocode";
+import { APPROVAL_NODE_PERSONNEL_DEFAULTS, REPORT_DATA_NODE_PERSONNEL_DEFAULTS, TRANSACT_NODE_PERSONNEL_DEFAULTS } from "@common/utils/processNodePersonnelDefaults";
 import { deepClone, equals, isEmpty } from '@common/utils/object';
 import { effectScope, EffectScope, reactive, ref, watch } from "vue";
 import { finalizationRegistry } from "@renderer/b2/finalization";
@@ -261,14 +262,14 @@ export class TransactNode extends ProcessNode {
       flow.options = { fieldAuth: 'all', name: i18next.t('process.handle') }
       const optionValue = flow.options as TransactOptions
       optionValue.transactor = optionValue.transactor || {[ProcessNodeOwnerType.SUBMITTER]: true}
-      optionValue.transactorEmpty = OwnerEmptyHandle.ADMIN
+      optionValue.transactorEmpty = TRANSACT_NODE_PERSONNEL_DEFAULTS.transactorEmpty
       optionValue.transactorEmptyAdmin = optionValue.transactorEmptyAdmin
         || parent.context?.organizeData?.users?.find(item => item?.user === ADMIN_USERNAME)?.id
       optionValue.allowTransfer = optionValue.allowTransfer == null ? true : optionValue.allowTransfer
       optionValue.allowRevert = optionValue.allowRevert == null ? true : optionValue.allowRevert
       optionValue.allowStash = optionValue.allowStash == null ? false : optionValue.allowStash
       optionValue.allowFinishFlow = optionValue.allowFinishFlow == null ? false : optionValue.allowFinishFlow
-      optionValue.transactorType = ApproverType.OR
+      optionValue.transactorType = TRANSACT_NODE_PERSONNEL_DEFAULTS.transactorType
       optionValue.requireTransactComments = optionValue.requireTransactComments == null ? false : optionValue.requireTransactComments
       optionValue.requireSatisfyCondition = optionValue.requireSatisfyCondition == null ? false : optionValue.requireSatisfyCondition
       optionValue.timeout = optionValue.timeout || createDefaultTimeoutOption()
@@ -330,9 +331,9 @@ export class ApprovalNode extends ProcessNode {
       optionValue.category = optionValue.category || ApprovalCategory.MANUAL
       optionValue.categoryRule = optionValue.categoryRule || ApprovalCategoryRule.NORMAL
       optionValue.approver = optionValue.approver || {[ProcessNodeOwnerType.SUBMITTER]: true}
-      optionValue.approverType = optionValue.approverType || ApproverType.AND
-      optionValue.approverEmpty = optionValue.approverEmpty || OwnerEmptyHandle.AUTO_APPROVE
-      optionValue.approverSameAsSubmitter = optionValue.approverSameAsSubmitter || ApproverSameAsSubmitter.SELF
+      optionValue.approverType = optionValue.approverType || APPROVAL_NODE_PERSONNEL_DEFAULTS.approverType
+      optionValue.approverEmpty = optionValue.approverEmpty || APPROVAL_NODE_PERSONNEL_DEFAULTS.approverEmpty
+      optionValue.approverSameAsSubmitter = optionValue.approverSameAsSubmitter || APPROVAL_NODE_PERSONNEL_DEFAULTS.approverSameAsSubmitter
       optionValue.allowTransfer = optionValue.allowTransfer == null ? true : optionValue.allowTransfer
       optionValue.allowStash = optionValue.allowStash == null ? false : optionValue.allowStash
       optionValue.allowFinishFlow = optionValue.allowFinishFlow == null ? false : optionValue.allowFinishFlow
@@ -1039,7 +1040,7 @@ export class ReportDataNode extends ProcessNode {
       optionValue.reporter = {
         [ProcessNodeOwnerType.SUBMITTER]: true,
       }
-      optionValue.reporterEmpty = OwnerEmptyHandle.ASSIGNEE
+      optionValue.reporterEmpty = REPORT_DATA_NODE_PERSONNEL_DEFAULTS.reporterEmpty
       optionValue.reporterEmptyUser = null
       optionValue.reporterEmptyAdmin = null
       optionValue.allowStash = optionValue.allowStash == null ? false : optionValue.allowStash

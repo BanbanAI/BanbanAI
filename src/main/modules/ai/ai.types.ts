@@ -480,6 +480,7 @@ export type AiChatStreamMetadata = Record<string, any> & {
 
 export type NocodeEditorStreamErrorKind =
   | 'payload_too_large'
+  | 'context_window_exceeded'
   | 'provider_timeout'
   | 'provider_output_overflow'
   | 'stream_error'
@@ -491,7 +492,10 @@ export type NocodeEditorStreamErrorMetadata = {
   errorKind: NocodeEditorStreamErrorKind
   retryable: boolean
   userMessagePersisted: boolean
-  recoveryAction?: 'continue_generation'
+  recoveryAction?: 'continue_generation' | 'compact_context'
+  contextRecoveryAttempt?: number
+  contextBudgetExceededReason?: 'token' | 'body'
+  sourceTraceId?: string
   timeoutPhase?: 'first_event' | 'idle' | 'total'
   timeoutMs?: number
 }

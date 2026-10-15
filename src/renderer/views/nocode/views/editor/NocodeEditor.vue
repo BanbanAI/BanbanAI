@@ -501,7 +501,7 @@
       </el-header>
       <el-main class="nocode-editor-main">
         <div class="nocode-main-layout">
-          <div class="nocode-ai-panel-wrap" :class="{ hidden: !editorAiVisible }">
+          <div class="nocode-ai-panel-wrap" :class="{ hidden: !editorAiVisible, 'is-interaction-locked': stageBlueprintApplying }">
             <nocode-editor-ai-panel
               ref="editorAiPanelRef"
               class="nocode-editor-ai-sidebar"
@@ -525,6 +525,12 @@
             />
           </div>
           <div class="nocode-main-stage">
+            <div v-if="stageBlueprintApplying" class="nocode-editor-lock-hint">
+              <div class="nocode-editor-lock-hint__text">{{ $t('NocodeEditor.editorInteractionLockedTip') }}</div>
+              <button type="button" class="nocode-editor-lock-hint__refresh" @click="reloadPage">
+                {{ $t('NocodeEditor.editorInteractionLockedRefreshHint') }}
+              </button>
+            </div>
             <vn-stack v-if="editorSelectionType === 'app'" key="app-stage-shell" class="nocode-stage-shell nocode-stage-stack" v-model="stageViewTab">
               <div class="nocode-stage-toolbar">
                 <button
@@ -553,7 +559,7 @@
                     :loading-message="stageBlueprintLoadingMessage"
                     :app-name="nocode?.meta?.name || ''"
                     :refreshing-applied="refreshingAppliedBlueprints"
-                    :applying-id="applyingStageBlueprintId"
+                    :applying-id="stageBlueprintApplyingIdOrLock"
                     :show-batch-apply-action="stageShowBatchApplyAction"
                     :get-confirmation-response-drafts="getStageBlueprintConfirmationResponseDrafts"
                     :get-active-confirmation-input-question-ids="getStageBlueprintActiveConfirmationInputQuestionIds"
@@ -683,6 +689,7 @@
         </div>
       </el-main>
     </el-container>
+    <div v-if="stageBlueprintApplying" class="nocode-editor-interaction-lock"></div>
     <el-tree
       v-show="false"
       ref="treeRef"
@@ -950,6 +957,11 @@ const handleBack = async () => {
     router.replace(routePath);
   }
 }
+
+const reloadPage = () => {
+  window.location.reload();
+};
+
 const isEmptyLayer = computed(() => {
   if (!nocode.value) return false;
   const forms = getAllForms(structure.value);
@@ -1894,6 +1906,9 @@ const formCreateRef = ref();
 const defaultFormulaOverlayPanelRef = ref();
 const aiDraftChanged = ref(false);
 const aiDraftDisplayState = ref<NocodeEditorAiDraftPersistenceState | null>(null);
+const clearAiDraftDisplayState = () => {
+  aiDraftDisplayState.value = null;
+};
 const aiDraftBlockingState = ref<NocodeEditorAiDraftPersistenceState | null>(null);
 const aiDraftSourceState = ref<NocodeEditorAiDraftPersistenceState | null>(null);
 const activeAiFlowIssueState = ref<NocodeEditorAiFlowIssueState | null>(null);
@@ -1994,6 +2009,11 @@ const appliedBlueprintRecords = ref<NocodeEditorAiAppliedBlueprintRecord[]>([]);
 const planningDisplayVersionByContextKey = ref<Record<string, number>>({});
 const refreshingAppliedBlueprints = ref(false);
 const applyingStageBlueprintId = ref('');
+const stageBlueprintActionLocked = ref(false);
+// 在途轮次（预提交/模型回复）期间，蓝图产物可能被继续改写，工作台生成类入口沿用 applyingId 的禁用机制一起锁上。
+const stageBlueprintApplyingIdOrLock = computed(() => (
+  applyingStageBlueprintId.value || (stageBlueprintActionLocked.value ? '__action-locked__' : '')
+));
 const stageBlueprintLoading = ref(false);
 const stageBlueprintLoadingMessage = ref('');
 const stageBlueprintConfirmationSubmitting = computed(() => Boolean(
@@ -2967,6 +2987,7 @@ const handleAiStageStateChange = (payload: {
   flowArtifactBlocks?: NocodeEditorAiArtifactBlock[]
   blueprintDraftPersistenceState?: NocodeEditorAiDraftPersistenceState | null
   blueprintApplying?: boolean
+  blueprintActionLocked?: boolean
   blueprintLoading?: boolean
   blueprintLoadingMessage?: string
 }) => {
@@ -2974,7 +2995,18 @@ const handleAiStageStateChange = (payload: {
   pendingStageBlueprintHistory.value = Array.isArray(payload?.pendingBlueprintHistory) ? payload.pendingBlueprintHistory : [];
   planningDisplayVersionByContextKey.value = payload?.planningDisplayVersionByContextKey || {};
   stageFlowArtifactBlocks.value = Array.isArray(payload?.flowArtifactBlocks) ? payload.flowArtifactBlocks : [];
-  stageBlueprintApplying.value = Boolean(payload?.blueprintApplying);
+  stageBlueprintActionLocked.value = Boolean(payload?.blueprintActionLocked);
+  const blueprintApplying = Boolean(payload?.blueprintApplying);
+  if (blueprintApplying && !stageBlueprintApplying.value) {
+    formPropertyPanelVisible.value = false;
+    closeAppSwitcherDropdown();
+    headerCreateDropdownRef.value?.handleClose?.();
+    homePageSettingPopoverVisible.value = false;
+    settingVisible.value = false;
+    persistAndCloseDefaultFormulaOverlay();
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+  stageBlueprintApplying.value = blueprintApplying;
   stageBlueprintLoading.value = Boolean(payload?.blueprintLoading);
   stageBlueprintLoadingMessage.value = String(payload?.blueprintLoadingMessage || '');
   if (Object.prototype.hasOwnProperty.call(payload, 'blueprintDraftPersistenceState')) {
@@ -3596,7 +3628,11 @@ const nocodeEditorAiRuntime = useNocodeEditorAiHostRuntime({
       aiDraftChanged.value = false;
       return;
     }
-    aiDraftDisplayState.value = nextState;
+    if (nextState) {
+      aiDraftDisplayState.value = nextState;
+    } else {
+      clearAiDraftDisplayState();
+    }
     aiDraftBlockingState.value = nextState;
     updateAiDraftSourceState(state);
     aiDraftChanged.value = Boolean(
@@ -3846,7 +3882,7 @@ const saveNocodeSettings = async () => {
     }
     aiWarmupActivityReporter?.report('save');
     aiDraftChanged.value = false;
-    aiDraftDisplayState.value = null;
+    clearAiDraftDisplayState();
     aiDraftBlockingState.value = null;
     aiDraftSourceState.value = null;
   }).catch((error) => {
@@ -3876,7 +3912,7 @@ const saveNocodeConnections = async (options: { preserveAiDraftState?: boolean; 
       aiWarmupActivityReporter?.report('save');
       if (!options.preserveAiDraftState) {
         aiDraftChanged.value = false;
-        aiDraftDisplayState.value = null;
+        clearAiDraftDisplayState();
         aiDraftBlockingState.value = null;
         aiDraftSourceState.value = null;
       }
@@ -4553,6 +4589,14 @@ provide(UPDATE_NOCODE_SIGN, handleUpdateNocodeSign);
     padding: 0px;
   }
 }
+
+.nocode-editor-interaction-lock {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  cursor: not-allowed;
+  background: transparent;
+}
 .nocode-editor {
   height: 100%;
   min-width: 0;
@@ -4856,6 +4900,11 @@ provide(UPDATE_NOCODE_SIGN, handleUpdateNocodeSign);
     min-width: 0;
     flex-basis: 0;
   }
+
+  &.is-interaction-locked {
+    position: relative;
+    z-index: 31;
+  }
 }
 
 .nocode-main-stage {
@@ -4864,6 +4913,37 @@ provide(UPDATE_NOCODE_SIGN, handleUpdateNocodeSign);
   min-height: 0;
   position: relative;
   overflow: hidden;
+}
+
+.nocode-editor-lock-hint {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 32;
+  pointer-events: none;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #606266;
+  text-align: center;
+  white-space: nowrap;
+
+  .nocode-editor-lock-hint__refresh {
+    pointer-events: auto;
+    margin-top: 2px;
+    color: var(--el-color-primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
 }
 
 .nocode-aside-content {

@@ -121,7 +121,8 @@
                 :can-continue="canReviewBlueprintActions"
                 :applying="applying"
                 :apply-disabled="reviewApplyDisabled"
-              :response-drafts="responseDrafts"
+                :historical="historical"
+                :response-drafts="responseDrafts"
                 :active-input-question-ids="activeInputQuestionIds"
                 :inline-note-question-ids="inlineNoteQuestionIds"
                 :submitting-confirmation="submittingConfirmation"
@@ -200,6 +201,10 @@ import {
   isBlueprintStagedPhase,
 } from '@common/utils/nocodeEditorBlueprintLifecycle'
 import {
+  getNocodeEditorBlueprintFormIdentity,
+  isSameNocodeEditorBlueprintForm,
+} from '@common/utils/nocodeEditorBlueprintFormNormalization'
+import {
   type AiArtifactConfirmationQuestion,
   resolveAiArtifactPendingQuestionCount,
   resolveAiArtifactTitle,
@@ -247,6 +252,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  actionLocked: {
+    type: Boolean,
+    default: false,
+  },
   historyEntries: {
     type: Array as PropType<BlueprintWorkbenchHistoryEntry[]>,
     default: () => [],
@@ -258,6 +267,10 @@ const props = defineProps({
   allowReviewActions: {
     type: Boolean,
     default: true,
+  },
+  historical: {
+    type: Boolean,
+    default: false,
   },
   responseDrafts: {
     type: Object as PropType<NocodeEditorAiConfirmationResponseDraftMap>,
@@ -388,9 +401,10 @@ const applying = computed(() => Boolean(
 ))
 
 const reviewApplyDisabled = computed(() => Boolean(
-  props.card
-  && isBlueprintStagedPhase(props.card.item.phase)
-  && props.applyingId,
+  (props.card
+    && isBlueprintStagedPhase(props.card.item.phase)
+    && props.applyingId)
+  || props.actionLocked,
 ))
 
 const forms = computed<NocodeEditorAiAppBlueprintForm[]>(() => (
@@ -437,16 +451,25 @@ const draftPersistenceState = computed(() => props.card?.item.draftPersistenceSt
 const draftActionIssues = computed(() => draftPersistenceState.value?.actionIssues || [])
 const draftIssueCount = computed(() => getDraftPersistenceActionIssueCount(draftPersistenceState.value))
 const draftIssueResolved = computed(() => isDraftPersistenceStateResolved(draftPersistenceState.value))
-const blueprintStatusTag = computed(() => (
-  draftIssueCount.value > 0
+const blueprintStatusTag = computed(() => {
+  if (props.historical) {
+    return resolveBlueprintStatusTag(blueprintBlock.value, {
+      applying: applying.value,
+      historical: true,
+    })
+  }
+  return draftIssueCount.value > 0
     ? i18next.t('nocodeEditorAiBlueprintWorkbenchFormPanel.draftIncomplete')
     : resolveBlueprintStatusTag(blueprintBlock.value, { applying: applying.value })
-))
-const blueprintStatusTagTone = computed(() => (
-  draftIssueCount.value > 0
+})
+const blueprintStatusTagTone = computed(() => {
+  if (props.historical) {
+    return resolveBlueprintStatusTagTone(blueprintStatusTag.value)
+  }
+  return draftIssueCount.value > 0
     ? 'pending'
     : resolveBlueprintStatusTagTone(blueprintStatusTag.value)
-))
+})
 
 const blueprintPendingQuestionCount = computed(() => resolveAiArtifactPendingQuestionCount(blueprintBlock.value))
 const currentFlowPendingQuestionCount = computed(() => resolveAiArtifactPendingQuestionCount(matchedFlowArtifactBlock.value))
@@ -683,12 +706,24 @@ const layoutClass = computed(() => (
   'ai-blueprint-workbench-form-panel__layout ai-blueprint-workbench-form-panel__layout--without-rail'
 ))
 
+// 最近生成记录只应列出当前选中表单自己的生成结果。首页工作台传入的是整应用的历史记录，
+// 不过滤就会把其它表单的生成记录也列在当前表单下；弹窗走的是已按表单裁剪的数据，两者因此不一致。
 const generatedHistoryEntries = computed<BlueprintWorkbenchHistoryEntry[]>(() => {
-  if (props.mode !== 'generated' || !props.card) {
+  const card = props.card
+  if (props.mode !== 'generated' || !card) {
     return []
   }
 
-  return props.historyEntries.slice(0, 3)
+  const activeFormIdentity = getNocodeEditorBlueprintFormIdentity(card.form)
+  const entries = activeFormIdentity
+    ? props.historyEntries.filter((entry) => {
+      const entryForm = Array.isArray(entry.item?.blueprint?.forms) ? entry.item.blueprint.forms[0] : null
+      return Boolean(entryForm && getNocodeEditorBlueprintFormIdentity(entryForm))
+        && isSameNocodeEditorBlueprintForm(card.form, entryForm)
+    })
+    : props.historyEntries
+
+  return entries.slice(0, 3)
 })
 
 const generatedHistoryCount = computed(() => generatedHistoryEntries.value.length)
@@ -993,6 +1028,11 @@ const handleSubmitFlowConfirmationResponses = () => {
 .ai-blueprint-workbench-form-panel__status.is-applied {
   background: #eff8e8;
   color: var(--blueprint-success);
+}
+
+.ai-blueprint-workbench-form-panel__status.is-historical {
+  background: #eef3f9;
+  color: #607791;
 }
 
 .ai-blueprint-workbench-form-panel__version-tag {

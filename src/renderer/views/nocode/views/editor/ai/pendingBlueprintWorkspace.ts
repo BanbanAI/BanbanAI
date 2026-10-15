@@ -14,6 +14,8 @@ import {
 } from '@common/utils/nocodeEditorPostFormFlowScope'
 import {
   getNocodeEditorBlueprintFormApplyTargetIdentity,
+  isSameNocodeEditorBlueprintForm,
+  mergeSingleFormBlueprintFragments,
 } from '@common/utils/nocodeEditorBlueprintFormNormalization'
 import type {
   NocodeEditorAiAppBlueprint,
@@ -417,6 +419,83 @@ export const collectPendingBlueprintIdentityKeysByTargetFormKeys = (
   ))
 }
 
+// 暂存版本在被生成后，消息上的蓝图块会被原地改写成 applied_*：暂存侧只剩更旧的版本，
+// 只按 revision/stagedAt 精确匹配永远等不到它，旧版本就会作为“待生成”卡片和已生成页面长期并列。
+// 这里按同一张表的同一性判断是否已被生成版本取代：待生成版本不晚于已生成版本即视为取代。
+const isPendingItemNewerThanApplied = (
+  item: NocodeEditorAiStageBlueprintDisplayItem,
+  applied: { revision: number; stagedAt: number },
+) => {
+  const itemRevision = Number(item.revision || 0)
+  const itemStagedAt = Number(item.stagedAt || 0)
+  if (applied.revision > 0 && itemRevision > 0 && itemRevision !== applied.revision) {
+    return itemRevision > applied.revision
+  }
+
+  if (applied.stagedAt > 0 && itemStagedAt > 0 && itemStagedAt !== applied.stagedAt) {
+    return itemStagedAt > applied.stagedAt
+  }
+
+  return false
+}
+
+const collectSupersededPendingBlueprintIdentityKeys = (
+  items: NocodeEditorAiStageBlueprintDisplayItem[],
+  input: {
+    blueprint?: NocodeEditorAiAppBlueprint | null
+    revision?: number
+    stagedAt?: number
+    sourcePlanningContextKey?: string | null
+    title?: string | null
+  },
+) => {
+  const appliedForms = Array.isArray(input.blueprint?.forms) ? input.blueprint?.forms : []
+  const workspaceKey = getPendingBlueprintWorkspaceKey({
+    blueprint: input.blueprint,
+    revision: Number(input.revision || 0),
+    stagedAt: Number(input.stagedAt || 0),
+    sourcePlanningContextKey: input.sourcePlanningContextKey || null,
+    title: input.title || undefined,
+  })
+  if (!workspaceKey || !appliedForms.length) {
+    return []
+  }
+
+  const applied = {
+    revision: Number(input.revision || 0),
+    stagedAt: Number(input.stagedAt || 0),
+  }
+
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => {
+      if (item.itemKind !== 'ai_blueprint') {
+        return false
+      }
+
+      const itemWorkspaceKey = getPendingBlueprintWorkspaceKey({
+        item,
+        blueprint: item.blueprint,
+        revision: Number(item.revision || 0),
+        stagedAt: Number(item.stagedAt || 0),
+        sourcePlanningContextKey: item.sourcePlanningContextKey,
+        identityKey: item.identityKey,
+        itemId: item.id,
+      })
+      if (itemWorkspaceKey !== workspaceKey) {
+        return false
+      }
+
+      const itemForm = Array.isArray(item.blueprint?.forms) ? item.blueprint?.forms[0] : null
+      if (!itemForm || !appliedForms.some(form => isSameNocodeEditorBlueprintForm(form, itemForm))) {
+        return false
+      }
+
+      return !isPendingItemNewerThanApplied(item, applied)
+    })
+    .map(item => String(item.identityKey || '').trim())
+    .filter(Boolean)
+}
+
 const getBlueprintBlockSortTime = (
   block: NocodeEditorAiArtifactBlock,
   createTime?: number,
@@ -438,8 +517,16 @@ export const buildPendingBlueprintDisplayItems = (
   const revision = Number(block.revision || 0)
   const stagedAt = Number(block.stagedAt || 0)
   const sourcePlanningContextKey = getBlueprintSourcePlanningContextKey(block)
+  // 投影前先按同一性归并表单：模型补丁漏传 formKey 时，落库数据会出现同一张表的两个同名表单，
+  // 直接逐表单投影会在工作台生成多张并列卡片，也会污染后续按同一版本去重的签名。
+  const normalizedBlueprint: NocodeEditorAiAppBlueprint = {
+    ...block.blueprint,
+    forms: mergeSingleFormBlueprintFragments(
+      Array.isArray(block.blueprint.forms) ? block.blueprint.forms : [],
+    ) as NocodeEditorAiAppBlueprint['forms'],
+  }
   const workspaceKey = getPendingBlueprintWorkspaceKey({
-    blueprint: block.blueprint,
+    blueprint: normalizedBlueprint,
     revision,
     stagedAt,
     sourcePlanningContextKey,
@@ -452,13 +539,13 @@ export const buildPendingBlueprintDisplayItems = (
     phase: block.phase,
     applyResult: block.applyResult || null,
   })
-  const contentSignatureKey = getNocodeEditorAiBlueprintContentSignatureKey(block.blueprint)
+  const contentSignatureKey = getNocodeEditorAiBlueprintContentSignatureKey(normalizedBlueprint)
 
   if (!workspaceKey) {
     return []
   }
 
-  const forms = Array.isArray(block.blueprint.forms) ? block.blueprint.forms : []
+  const forms = Array.isArray(normalizedBlueprint.forms) ? normalizedBlueprint.forms : []
   if (!forms.length) {
     return []
   }
@@ -494,7 +581,7 @@ export const buildPendingBlueprintDisplayItems = (
       applyResult: phase === 'staged' ? null : block.applyResult || null,
       draftPersistenceState: block.draftPersistenceState || null,
       blueprint: {
-        ...cloneBlueprintValue(block.blueprint),
+        ...cloneBlueprintValue(normalizedBlueprint),
         forms: [cloneBlueprintValue(form)],
       },
     }
@@ -692,6 +779,9 @@ const buildPendingBlueprintVersionBatchFromCurrent = (
     kind: 'blueprint',
     status: 'ready',
     phase: 'staged',
+    // 合成块必须带上运行态 scope：投影项缺 scope 会被归一化成 unknown，
+    // 之后 item 驱动的恢复又会把运行态已知的 form scope 覆盖掉。
+    planningScope: normalizeNocodeEditorPlanningScopeValue(currentBlueprint.planningScope),
     revision: Number(currentBlueprint.revision || 0),
     stagedAt: Number(currentBlueprint.stagedAt || 0) || undefined,
     title: currentBlueprint.blueprint.title,
@@ -724,10 +814,16 @@ const pruneAppliedItemsFromPendingBatch = (
     title?: string | null
     targetFormKeys?: string[] | null
   },
+  options: {
+    supersedeOlderVersions?: boolean
+  } = {},
 ): PendingBlueprintVersionBatch | null => {
-  const appliedIdentityKeySet = new Set(
-    collectPendingBlueprintIdentityKeysByTargetFormKeys(batch.items, input),
-  )
+  const appliedIdentityKeySet = new Set([
+    ...collectPendingBlueprintIdentityKeysByTargetFormKeys(batch.items, input),
+    ...(options.supersedeOlderVersions
+      ? collectSupersededPendingBlueprintIdentityKeys(batch.items, input)
+      : []),
+  ])
   if (!appliedIdentityKeySet.size) {
     return batch
   }
@@ -835,7 +931,11 @@ export const collectPendingBlueprintWorkspace = (
 
     const latestBatch = latestBatchByWorkspaceKey.get(batch.workspaceKey)
     if (latestBatch) {
-      const nextLatestBatch = pruneAppliedItemsFromPendingBatch(latestBatch, pruneInput)
+      const nextLatestBatch = pruneAppliedItemsFromPendingBatch(
+        latestBatch,
+        pruneInput,
+        { supersedeOlderVersions: true },
+      )
       if (nextLatestBatch) {
         latestBatchByWorkspaceKey.set(batch.workspaceKey, nextLatestBatch)
       } else {
@@ -886,6 +986,7 @@ export const collectPendingBlueprintWorkspace = (
       kind: 'blueprint',
       status: 'ready',
       phase: currentBlueprint.phase,
+      planningScope: normalizeNocodeEditorPlanningScopeValue(currentBlueprint.planningScope),
       revision: Number(currentBlueprint.revision || 0),
       stagedAt: currentBlueprint.stagedAt,
       title: currentBlueprint.blueprint.title,

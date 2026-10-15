@@ -2,6 +2,9 @@ import type {
   AiActionResult,
 } from '../ai.types'
 import type {
+  NocodeEditorAiConfirmPayload,
+} from '@common/types/nocodeEditorConfirmation'
+import type {
   AiAssistantAppPlanArtifactBlock,
   AiAssistantArtifactBlock,
   AiAssistantConfirmationCardPresentation,
@@ -126,6 +129,10 @@ import {
 import {
   normalizeNocodeEditorPostFormFlowRelease,
 } from '@common/utils/nocodeEditorPostFormFlowRelease'
+import {
+  isNocodeEditorPostFormFlowEnabledForScope,
+  normalizeNocodeEditorPlanningScopeValue,
+} from '@common/utils/nocodeEditorPostFormFlowScope'
 import { normalizeFormulaText } from '@common/utils/formula'
 import {
   normalizeNocodeEditorFormulaPlan,
@@ -972,6 +979,15 @@ const normalizeFlowGroundingDiagnostics = (value: unknown): NocodeEditorFlowSche
         nodeName: String(diagnostic.nodeName || '').trim() || undefined,
         branchKey: String(diagnostic.branchKey || '').trim() || undefined,
         branchLabel: String(diagnostic.branchLabel || '').trim() || undefined,
+        targetFormId: String(diagnostic.targetFormId || '').trim() || undefined,
+        targetFormName: String(diagnostic.targetFormName || '').trim() || undefined,
+        fieldRef: isRecord(diagnostic.fieldRef)
+          ? {
+            fieldId: String(diagnostic.fieldRef.fieldId || '').trim() || undefined,
+            fieldName: String(diagnostic.fieldRef.fieldName || '').trim() || undefined,
+            expectedType: String(diagnostic.fieldRef.expectedType || '').trim() || undefined,
+          }
+          : undefined,
         ownerUsage: isNocodeEditorFlowGroundingOwnerUsage(diagnostic.ownerUsage)
           ? diagnostic.ownerUsage
           : undefined,
@@ -1112,6 +1128,10 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
 ): AiAssistantFlowSchemeArtifactBlock | null => {
   const metadata = toRecord(result?.metadata)
   const output = toRecord(result?.output)
+  // 恢复卡必须绑定被拒时的当前 revision，用户作答才能通过版本信任校验（否则永远 revision_stale 再路由）。
+  const recoverySchemeRevision = toPositiveNumber(
+    metadata.flowSchemeRecoveryRevision || output.flowSchemeRecoveryRevision,
+  )
   const flowIssueProjection = resolveFlowIssueProjectionForResult(result)
   if (flowIssueProjection) {
     if (
@@ -1142,6 +1162,7 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
       type: 'artifact',
       kind: 'flow-scheme',
       status: 'ready',
+      ...(recoverySchemeRevision ? { revision: recoverySchemeRevision } : {}),
       title: flowSchemeTitle,
       summary: message,
       message,
@@ -1220,6 +1241,7 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
     type: 'artifact',
     kind: 'flow-scheme',
     status: 'ready',
+    ...(recoverySchemeRevision ? { revision: recoverySchemeRevision } : {}),
     title: flowSchemeTitle,
     summary: message,
     message,
@@ -1262,6 +1284,31 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
   }
 }
 
+// issue 投影只覆盖当前待答/被拒问题；宿主返回的 scheme.confirmation 已是“历史题 + 投影题”的
+// 完整收敛结果。整体替换会丢掉已答父题与 decisionSnapshot，待答题的 dependsOn/requiresFacts
+// 就指向题集外，渲染侧决策契约校验失败，卡片会退化成不可作答的死卡。
+const mergeFlowIssueConfirmationProjection = (
+  schemeConfirmation: NocodeEditorAiConfirmPayload | null | undefined,
+  projectedConfirmation: NocodeEditorAiConfirmPayload | null | undefined,
+): NocodeEditorAiConfirmPayload | null | undefined => {
+  const schemeQuestions = Array.isArray(schemeConfirmation?.questions)
+    ? schemeConfirmation.questions
+    : []
+  if (!projectedConfirmation || !schemeQuestions.length) {
+    return projectedConfirmation
+  }
+  const existingKeys = new Set(schemeQuestions
+    .map(question => String(question.decisionKey || question.id || '').trim())
+    .filter(Boolean))
+  const extraQuestions = (projectedConfirmation.questions || []).filter((question) => {
+    const key = String(question.decisionKey || question.id || '').trim()
+    return !key || !existingKeys.has(key)
+  })
+  return extraQuestions.length
+    ? { ...schemeConfirmation, questions: [...schemeQuestions, ...extraQuestions] }
+    : schemeConfirmation
+}
+
 const buildFlowSchemeArtifactBlockForResult = (result: AiActionResult): AiAssistantFlowSchemeArtifactBlock | null => {
   if (String(result?.name || '').trim() !== 'editor_plan_flow_scheme') {
     return null
@@ -1280,7 +1327,7 @@ const buildFlowSchemeArtifactBlockForResult = (result: AiActionResult): AiAssist
     ? {
         ...scheme,
         openQuestions: flowIssueProjection.projection.openQuestions,
-        confirmation: flowIssueProjection.projection.confirmation,
+        confirmation: mergeFlowIssueConfirmationProjection(scheme.confirmation, flowIssueProjection.projection.confirmation),
       }
     : scheme
   const planningStatus = String(
@@ -1568,6 +1615,7 @@ export const buildNocodeEditorToolResultAssistantMessage = (
     'suppressStreamBlocks',
     'suppressedIntermediateSummary',
     'summarySuppressionReason',
+    'deferredFailedStageSummary',
   ]) {
     if (result?.metadata?.[key] !== undefined) {
       metadata[key] = result.metadata[key]
@@ -1662,10 +1710,17 @@ export const buildNocodeEditorToolResultAssistantMessage = (
       metadata.postFormFlowRelease = postFormFlowRelease
     }
   }
+  // 渲染端表单后流程卡片与自动续接的闸门要求消息级 planningScope=form，仅对该作用域投影（与渲染端自建消息对齐）
+  const planningScope = normalizeNocodeEditorPlanningScopeValue(
+    result?.metadata?.planningScope || result?.output?.planningScope,
+  )
+  if (isNocodeEditorPostFormFlowEnabledForScope(planningScope)) {
+    metadata.planningScope = planningScope
+  }
   if (blocks.length) {
     metadata.blocks = blocks
   }
-  const formulaPlanBlock = blocks.find(block => block.type === 'artifact' && block.kind === 'formula-plan')
+  const formulaPlanBlock = blocks.find(block => block.type === 'artifact' && block.kind === 'formula-plan') as AiAssistantFormulaPlanArtifactBlock | undefined
   if (formulaPlanBlock?.formulaPresentation) {
     metadata.formulaPlanPresentation = formulaPlanBlock.formulaPresentation
   }
@@ -2304,6 +2359,7 @@ const buildSuccessMessage = (result: AiActionResult) => {
       fallback: global.i18next.t('nocodeEditorToolResultMessages.blueprint'),
     })
     const gateMode = String(result?.metadata?.blueprintApplyGate?.mode || '').trim()
+    const versionChanged = result?.output?.versionChanged !== false
     const planningConvergenceLateQuestions = resolvePlanningConvergenceLateQuestions(result)
     const scope = [
       formCount > 0
@@ -2372,8 +2428,11 @@ const buildSuccessMessage = (result: AiActionResult) => {
           : '',
       }),
       global.i18next.t('nocodeEditorToolResultMessages.blueprintNotAppliedNotice'),
+      !versionChanged
+        ? global.i18next.t('nocodeEditorToolResultMessages.blueprintConfigurationUnchanged')
+        : '',
       nextStepLine,
-    ].join('\n')
+    ].filter(Boolean).join('\n')
   }
 
   if (toolName === 'editor_get_staged_app_blueprint') {

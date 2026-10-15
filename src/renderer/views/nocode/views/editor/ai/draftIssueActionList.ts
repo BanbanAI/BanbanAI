@@ -207,6 +207,60 @@ export const buildResolvedDraftPersistenceState = (
   }
 }
 
+const isDraftPersistenceStateForSameBlueprint = (
+  left?: NocodeEditorAiDraftPersistenceState | null,
+  right?: NocodeEditorAiDraftPersistenceState | null,
+) => {
+  const leftVersionKey = String(left?.sourceBlueprintVersionKey || '').trim()
+  const rightVersionKey = String(right?.sourceBlueprintVersionKey || '').trim()
+  if (leftVersionKey && rightVersionKey) {
+    return leftVersionKey === rightVersionKey
+  }
+  const leftIdentityKey = String(left?.sourceBlueprintIdentityKey || '').trim()
+  const rightIdentityKey = String(right?.sourceBlueprintIdentityKey || '').trim()
+  return Boolean(leftIdentityKey && rightIdentityKey && leftIdentityKey === rightIdentityKey)
+}
+
+// “已完成”一旦被错误固化，后续重新校验必须能把它打回未补齐：
+// 仅当实时草稿与该已完成卡片属于同表单同一蓝图身份、且实时草稿晚于完成时刻仍有待补项时才回退。
+export const shouldRevertResolvedDraftPersistenceStateForLiveDraftIssues = (input: {
+  resolvedState?: NocodeEditorAiDraftPersistenceState | null
+  liveState?: NocodeEditorAiDraftPersistenceState | null
+}) => {
+  const resolvedState = normalizeDraftPersistenceState(input.resolvedState)
+  if (!resolvedState || !isDraftPersistenceStateResolved(resolvedState)) {
+    return false
+  }
+  if (!Array.isArray(resolvedState.resolvedIssues) || resolvedState.resolvedIssues.length === 0) {
+    return false
+  }
+
+  const liveState = normalizeDraftPersistenceState(input.liveState)
+  if (!liveState || isDraftPersistenceStateResolved(liveState)) {
+    return false
+  }
+  if (!Array.isArray(liveState.actionIssues) || liveState.actionIssues.length === 0) {
+    return false
+  }
+
+  const resolvedFormId = String(resolvedState.sourceFormId || '').trim()
+  const liveFormId = String(liveState.sourceFormId || '').trim()
+  if (!resolvedFormId || !liveFormId || resolvedFormId !== liveFormId) {
+    return false
+  }
+  if (!isDraftPersistenceStateForSameBlueprint(resolvedState, liveState)) {
+    return false
+  }
+
+  const resolvedAt = Number(resolvedState.resolvedAt || 0)
+  const liveUpdatedAt = Number(liveState.updatedAt || 0)
+  if (!resolvedAt || !liveUpdatedAt || liveUpdatedAt <= resolvedAt) {
+    return false
+  }
+
+  return true
+}
+
 export const resolveRefreshedDraftPersistenceState = (input: {
   currentState?: NocodeEditorAiDraftPersistenceState | null
   draftResult: NocodeEditorAiDraftSaveResult
@@ -225,6 +279,18 @@ export const resolveRefreshedDraftPersistenceState = (input: {
     sourceBlueprintVersionKey,
     sourceFormId,
   } = input
+
+  const currentDraftFormId = String(currentState?.sourceFormId || '').trim()
+  const refreshedFormId = String(draftResult.formId || '').trim()
+  if (currentDraftFormId && refreshedFormId && currentDraftFormId !== refreshedFormId) {
+    // 刷新发生在另一张表上，不能拿来判定当前草稿的补齐状态（否则会出现异表“已补齐”误判）
+    return currentState || null
+  }
+
+  if (!draftResult.hasBlockingIssues && isDraftPersistenceStateResolved(currentState)) {
+    // 已完成且重新校验通过：保持原状态，避免生成新的 resolvedAt 造成完成态反复写入
+    return currentState
+  }
 
   if (draftResult.hasBlockingIssues) {
     const actionIssues = normalizeFormDesignValidationIssuesToActionIssues(draftResult.issues, {

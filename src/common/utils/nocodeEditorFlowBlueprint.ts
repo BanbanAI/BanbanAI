@@ -28,6 +28,7 @@ export type NocodeEditorFlowBlueprint = {
 
 export type NocodeEditorFlowBlueprintMismatchReason =
   | 'source_scheme_revision_mismatch'
+  | 'source_scheme_revision_unverifiable'
   | 'target_mismatch'
   | 'main_path_drift'
   | 'unexpected_scope_expansion'

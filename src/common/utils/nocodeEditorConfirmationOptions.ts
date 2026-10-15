@@ -72,6 +72,8 @@ const resolveNeedSpecificDisplayLabel = (
   return normalizeNeedSpecificLabel(label)
 }
 
+// 选项只来自模型显式给出的答案空间，运行时不合成默认“是/否”。
+// 没有选项的题没有可点选答案，按补充说明输入呈现（规格化层会把可选题型降级为 note_only）。
 export const inferNocodeEditorConfirmationQuestionOptions = (
   question?: ConfirmationQuestionLike | null,
 ): NocodeEditorAiConfirmQuestionOption[] | undefined => {
@@ -80,33 +82,7 @@ export const inferNocodeEditorConfirmationQuestionOptions = (
   }
 
   const options = Array.isArray(question?.options) ? question.options : []
-  if (options.length) {
-    return options
-  }
-
-  if (question?.questionKind === 'single_select') {
-    return undefined
-  }
-
-  const title = normalizeText(question?.title)
-  if (!title) {
-    return undefined
-  }
-
-  if (question?.questionKind !== 'binary' && !isBinaryNocodeEditorConfirmationQuestionTitle(title)) {
-    return undefined
-  }
-
-  return [
-    {
-      value: 'yes',
-      label: i18next.t('nocodeEditorConfirmationOptions.yes'),
-    },
-    {
-      value: 'no',
-      label: i18next.t('nocodeEditorConfirmationOptions.no'),
-    },
-  ]
+  return options.length ? options : undefined
 }
 
 export const resolveNocodeEditorConfirmationOptionDisplayLabel = (

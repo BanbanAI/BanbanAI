@@ -98,8 +98,10 @@
                         :mode="workbench.mode"
                         :flow-artifact-blocks="flowArtifactBlocks"
                         :applying-id="applyingId"
+                        :action-locked="actionLocked"
                         :history-entries="historyEntries"
                         :allow-review-actions="allowReviewActions"
+                        :historical="historical"
                         :response-drafts="resolveConfirmationResponseDrafts(activeFormCard?.item)"
                         :active-input-question-ids="resolveActiveConfirmationInputQuestionIds(activeFormCard?.item)"
                         :inline-note-question-ids="resolveInlineConfirmationNoteQuestionIds(activeFormCard?.item)"
@@ -167,8 +169,10 @@
                   :mode="workbench.mode"
                   :flow-artifact-blocks="flowArtifactBlocks"
                   :applying-id="applyingId"
+                  :action-locked="actionLocked"
                   :history-entries="historyEntries"
                   :allow-review-actions="allowReviewActions"
+                  :historical="historical"
                   :response-drafts="resolveConfirmationResponseDrafts(activeFormCard?.item)"
                   :active-input-question-ids="resolveActiveConfirmationInputQuestionIds(activeFormCard?.item)"
                   :inline-note-question-ids="resolveInlineConfirmationNoteQuestionIds(activeFormCard?.item)"
@@ -341,6 +345,10 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  historical: {
+    type: Boolean,
+    default: false,
+  },
   appName: {
     type: String,
     default: '',
@@ -356,6 +364,10 @@ const props = defineProps({
   applyingId: {
     type: String,
     default: '',
+  },
+  actionLocked: {
+    type: Boolean,
+    default: false,
   },
   getConfirmationResponseDrafts: {
     type: Function as PropType<(item: NocodeEditorAiStageBlueprintDisplayItem) => NocodeEditorAiConfirmationResponseDraftMap>,
@@ -537,7 +549,7 @@ const headerActions = computed(() => (
       return {
         ...action,
         loading: isBatchApplying.value && pendingBatchActionIntent.value === 'all',
-        disabled: Boolean(action.disabled || props.applyingId),
+        disabled: Boolean(action.disabled || props.applyingId || props.actionLocked),
       }
     })
 ))
@@ -862,7 +874,7 @@ const handleSelectGroup = (groupKey: string) => {
 }
 
 const handleApplyGroup = () => {
-  if (!props.allowReviewActions || !activeGroupPendingItems.value.length || props.applyingId) {
+  if (!props.allowReviewActions || !activeGroupPendingItems.value.length || props.applyingId || props.actionLocked) {
     return
   }
 
@@ -919,7 +931,7 @@ const handleHeaderAction = (actionKey: BlueprintWorkbenchHeaderActionKey) => {
   }
 
   if (actionKey === 'apply-pending-batch') {
-    if (pendingItemsForBatch.value.length && !props.applyingId) {
+    if (pendingItemsForBatch.value.length && !props.applyingId && !props.actionLocked) {
       pendingBatchActionIntent.value = 'all'
       emit('apply-pending-batch', {
         items: pendingItemsForBatch.value,

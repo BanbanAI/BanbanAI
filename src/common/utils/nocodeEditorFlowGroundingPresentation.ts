@@ -244,6 +244,30 @@ const conditionForbiddenTemplate: FlowGroundingConfirmationTemplate = {
   ],
 }
 
+const sequentialWriteConflictTemplate: FlowGroundingConfirmationTemplate = {
+  key: 'sequential-write-conflict',
+  capability: 'write',
+  title: '多个顺序步骤会改写同一字段',
+  description: '请确认这些更新应按顺序执行，还是分别对应不同条件下的结果。',
+  options: [
+    {
+      value: 'confirm-sequential-updates',
+      label: '确认按顺序更新',
+      description: '这些步骤确实需要依次写入同一字段。',
+    },
+    {
+      value: 'split-into-conditional-paths',
+      label: '改为条件分支',
+      description: '这些不同写入值分别对应不同条件或业务结果。',
+    },
+    {
+      value: 'adjust-write-design',
+      label: '调整写入设计',
+      description: '改用其他字段或重新设计后续处理方式。',
+    },
+  ],
+}
+
 const writeMissingTemplate: FlowGroundingConfirmationTemplate = {
   key: 'write-field-missing',
   capability: 'write',
@@ -380,6 +404,8 @@ const resolveFlowGroundingConfirmationTemplate = (
     return conditionMissingTemplate
   case 'grounding_condition_field_forbidden':
     return conditionForbiddenTemplate
+  case 'grounding_sequential_write_conflict':
+    return sequentialWriteConflictTemplate
   case 'grounding_write_field_missing':
     return writeMissingTemplate
   case 'grounding_write_field_forbidden':
@@ -463,6 +489,91 @@ const buildOwnerQuestionOptions = (
   ].map(option => ({ ...option }))
 }
 
+const buildCompatibleConditionFieldOptions = (
+  diagnostics: NocodeEditorFlowSchemeGroundingDiagnostic[],
+): NocodeEditorAiConfirmQuestionOption[] => {
+  const seen = new Set<string>()
+  return diagnostics
+    .flatMap(diagnostic => diagnostic.compatibleFields || [])
+    .flatMap((field) => {
+      const fieldId = normalizeText(field?.fieldId)
+      const fieldName = normalizeText(field?.fieldName)
+      if (!fieldId || !fieldName || seen.has(fieldId) || containsTechnicalFlowText(fieldName)) {
+        return []
+      }
+      seen.add(fieldId)
+      return [{
+        value: `use-existing-condition-field:${fieldId}`,
+        label: `改用现有字段（${fieldName}）`,
+        description: '使用该字段作为条件判断依据。',
+      }]
+    })
+    .slice(0, 3)
+}
+
+const collectBusinessReadableText = (value: unknown) => {
+  const text = normalizeText(value)
+  return text && !containsTechnicalFlowText(text) ? text : ''
+}
+
+const collectUniqueBusinessTexts = (values: unknown[]) => (
+  Array.from(new Set(values.map(collectBusinessReadableText).filter(Boolean)))
+)
+
+const joinBusinessTextList = (values: string[]) => (
+  values.slice(0, 3).map(value => `“${value}”`).join('、')
+)
+
+const buildConditionFieldQuestionNarrative = (
+  template: FlowGroundingConfirmationTemplate,
+  diagnostics: NocodeEditorFlowSchemeGroundingDiagnostic[],
+): { title: string; description: string } | null => {
+  const forbidden = template.key === 'condition-field-forbidden'
+  const fieldNames = collectUniqueBusinessTexts(
+    diagnostics.map(diagnostic => diagnostic.fieldRef?.fieldName || diagnostic.fieldRef?.fieldId),
+  )
+  if (!fieldNames.length) {
+    return null
+  }
+  const nodeNames = collectUniqueBusinessTexts(diagnostics.map(diagnostic => diagnostic.nodeName))
+  const nodeName = nodeNames[0]
+  const formName = collectBusinessReadableText(diagnostics[0]?.targetFormName)
+  const actionHint = '请从下面已有字段中选择替代字段，或补充说明条件应如何判断。'
+  const count = diagnostics.length > 1 ? diagnostics.length : fieldNames.length
+
+  if (count > 1) {
+    const title = forbidden
+      ? `有 ${count} 处条件使用了不能用于判断的字段`
+      : `流程条件有 ${count} 处引用了不存在的字段`
+    const nodeHint = nodeNames.length ? `涉及节点：${joinBusinessTextList(nodeNames)}。` : ''
+    return {
+      title,
+      description: `涉及字段：${joinBusinessTextList(fieldNames)}。${nodeHint}${actionHint}`,
+    }
+  }
+
+  const fieldName = fieldNames[0]
+  if (forbidden) {
+    const reason = nodeName
+      ? `流程在“${nodeName}”需要依据它判断后续路径，但该字段当前不支持条件判断。`
+      : '该字段当前不支持条件判断。'
+    return {
+      title: `字段“${fieldName}”不能用于条件判断`,
+      description: `${reason}${actionHint}`,
+    }
+  }
+
+  const reason = nodeName
+    ? `流程在“${nodeName}”需要依据它判断后续路径，但当前表单没有这个字段。`
+    : '流程需要依据它判断后续路径，但当前表单没有这个字段。'
+  return {
+    title: formName
+      ? `条件字段“${fieldName}”不在表单“${formName}”中`
+      : `条件字段“${fieldName}”不在当前表单中`,
+    description: `${reason}${actionHint}`,
+  }
+}
+
 const buildFlowGroundingQuestion = (
   template: FlowGroundingConfirmationTemplate,
   diagnostics: NocodeEditorFlowSchemeGroundingDiagnostic[],
@@ -482,6 +593,24 @@ const buildFlowGroundingQuestion = (
       required: true,
       allowFreeText: true,
       options: buildOwnerQuestionOptions(diagnostics, ownerLabel),
+    }
+  }
+
+  if (template.capability === 'condition') {
+    const narrative = buildConditionFieldQuestionNarrative(template, diagnostics)
+    return {
+      id: `flow-grounding-${template.key}`,
+      type: 'single-choice',
+      title: narrative?.title || template.title,
+      description: narrative?.description || template.description,
+      questionKind: 'single_select',
+      scopeKind: 'overview',
+      required: true,
+      allowFreeText: true,
+      options: [
+        ...buildCompatibleConditionFieldOptions(diagnostics),
+        ...template.options.map(option => ({ ...option })),
+      ],
     }
   }
 

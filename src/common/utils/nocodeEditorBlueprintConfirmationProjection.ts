@@ -16,10 +16,14 @@ type ProjectBlueprintConfirmationOptions = {
   summary?: unknown
 }
 
-type ProjectBlueprintConfirmationResult = {
+export type ProjectBlueprintConfirmationResult = {
   confirmation: NocodeEditorAiConfirmPayload | null
   openQuestions: string[]
   pendingQuestions: NocodeEditorAiConfirmQuestion[]
+}
+
+type ReconcileBlueprintConfirmationOptions = ProjectBlueprintConfirmationOptions & {
+  completedConfirmation?: unknown
 }
 
 const normalizeText = (value: unknown) => String(value ?? '').trim()
@@ -27,6 +31,42 @@ const normalizeText = (value: unknown) => String(value ?? '').trim()
 const normalizeQuestionTitleKey = (value: unknown) => normalizeText(value).toLowerCase()
 
 const isPendingQuestion = (question: NocodeEditorAiConfirmQuestion) => question.confirmed !== true
+
+const isCompletedQuestion = (question: NocodeEditorAiConfirmQuestion) => (
+  question.confirmed === true
+  || Boolean(
+    normalizeText(question.selectedOptionValue)
+    || normalizeText(question.answerSummary)
+    || normalizeText(question.answerDetail)
+    || question.options?.some(option => option.selected),
+  )
+)
+
+const getQuestionIdentityKeys = (question: NocodeEditorAiConfirmQuestion) => (
+  [
+    normalizeText(question.decisionKey),
+    /^(?:blueprint|form-blueprint)-question-\d+$/u.test(normalizeText(question.id))
+      ? ''
+      : normalizeText(question.id),
+    normalizeQuestionTitleKey(question.title),
+  ].filter(Boolean)
+)
+
+const mergeQuestionsByIdentity = (...questionLists: NocodeEditorAiConfirmQuestion[][]) => {
+  const merged: NocodeEditorAiConfirmQuestion[] = []
+  const seen = new Set<string>()
+
+  questionLists.flat().forEach((question) => {
+    const keys = getQuestionIdentityKeys(question)
+    if (keys.some(key => seen.has(key))) {
+      return
+    }
+    keys.forEach(key => seen.add(key))
+    merged.push(question)
+  })
+
+  return merged
+}
 
 const filterBlueprintStageQuestions = (value: unknown) => Array.isArray(value)
   ? filterNocodeEditorQuestionsForStage(value, 'form-blueprint')
@@ -141,14 +181,49 @@ export const projectBlueprintConfirmation = (
 ): ProjectBlueprintConfirmationResult => {
   const summary = normalizeText(options.summary) || undefined
   const confirmation = filterBlueprintStageConfirmation(options.confirmation)
-  const openQuestions = filterBlueprintStageQuestions(options.openQuestions)
+  const rawOpenQuestions = filterBlueprintStageQuestions(options.openQuestions)
   const lateQuestions = filterBlueprintStageQuestions(options.lateQuestions)
-  const baseConfirmation = normalizeNocodeEditorConfirmationPayload({
+  const initialBaseConfirmation = normalizeNocodeEditorConfirmationPayload({
+    stage: 'blueprint',
+    confirmation,
+    openQuestions: rawOpenQuestions,
+    summary,
+  })
+  const completedQuestionTitleKeys = new Set(
+    (initialBaseConfirmation?.questions || [])
+      .filter(isCompletedQuestion)
+      .map(question => normalizeQuestionTitleKey(question.title))
+      .filter(Boolean),
+  )
+  const openQuestions = Array.isArray(rawOpenQuestions)
+    ? rawOpenQuestions.filter(value => (
+      !completedQuestionTitleKeys.has(normalizeQuestionTitleKey(value))
+    ))
+    : rawOpenQuestions
+  const normalizedBaseConfirmation = normalizeNocodeEditorConfirmationPayload({
     stage: 'blueprint',
     confirmation,
     openQuestions,
     summary,
   })
+  const normalizedOpenQuestionConfirmation = normalizeNocodeEditorConfirmationPayload({
+    stage: 'blueprint',
+    openQuestions,
+    summary,
+  })
+  const baseConfirmation = normalizedBaseConfirmation
+    && normalizedOpenQuestionConfirmation?.questions.length
+    ? {
+      ...normalizedBaseConfirmation,
+      status: normalizedOpenQuestionConfirmation.questions.some(isPendingQuestion)
+        ? 'pending' as const
+        : normalizedBaseConfirmation.status,
+      questions: mergeQuestionsByIdentity(
+        normalizedBaseConfirmation.questions,
+        normalizedOpenQuestionConfirmation.questions,
+      ),
+    }
+    : normalizedBaseConfirmation
   const lateQuestionConfirmation = normalizeNocodeEditorConfirmationPayload({
     stage: 'blueprint',
     confirmation: Array.isArray(lateQuestions)
@@ -214,4 +289,80 @@ export const projectBlueprintConfirmation = (
     openQuestions: dedupeQuestionTitles(uniqueMergedPendingQuestions),
     pendingQuestions: uniqueMergedPendingQuestions,
   }
+}
+
+/**
+ * Reconciles a completed blueprint confirmation with the staged blueprint.
+ * The model may omit the completed answer from its next blueprint patch, so
+ * this boundary must consume the answer before deriving the next question set.
+ */
+export const reconcileBlueprintConfirmationDecisions = (
+  options: ReconcileBlueprintConfirmationOptions,
+): ProjectBlueprintConfirmationResult => {
+  const baseProjection = projectBlueprintConfirmation({
+    confirmation: options.confirmation,
+    openQuestions: options.openQuestions,
+    lateQuestions: options.lateQuestions,
+    summary: options.summary,
+  })
+  const completedConfirmation = normalizeNocodeEditorConfirmationPayload({
+    stage: 'blueprint',
+    confirmation: options.completedConfirmation,
+    summary: options.summary,
+  })
+  const completedQuestions = (completedConfirmation?.questions || [])
+    .filter(isCompletedQuestion)
+
+  if (!completedQuestions.length) {
+    return baseProjection
+  }
+
+  const completedKeys = new Set(completedQuestions.flatMap(getQuestionIdentityKeys))
+  const isAnswered = (question: NocodeEditorAiConfirmQuestion) => (
+    getQuestionIdentityKeys(question).some(key => completedKeys.has(key))
+  )
+  const remainingOpenQuestions = baseProjection.openQuestions.filter((title) => (
+    !completedKeys.has(normalizeQuestionTitleKey(title))
+  ))
+  const openQuestionConfirmation = normalizeNocodeEditorConfirmationPayload({
+    stage: 'blueprint',
+    openQuestions: remainingOpenQuestions,
+    summary: options.summary,
+  })
+  const remainingPendingQuestions = mergeQuestionsByIdentity(
+    baseProjection.pendingQuestions.filter(question => !isAnswered(question)),
+    openQuestionConfirmation?.questions || [],
+  )
+  const mergedQuestions = mergeQuestionsByIdentity(
+    completedQuestions,
+    remainingPendingQuestions,
+  )
+  const mergedConfirmation: NocodeEditorAiConfirmPayload = {
+    ...(baseProjection.confirmation || completedConfirmation || {
+      stage: 'blueprint' as const,
+      questions: [],
+    }),
+    stage: 'blueprint',
+    status: remainingPendingQuestions.length ? 'pending' : 'completed',
+    summary: baseProjection.confirmation?.summary
+      || completedConfirmation?.summary
+      || normalizeText(options.summary)
+      || undefined,
+    completionSummary: remainingPendingQuestions.length
+      ? undefined
+      : completedConfirmation?.completionSummary
+        || completedConfirmation?.summary
+        || undefined,
+    resultSummary: completedQuestions
+      .map(question => normalizeText(question.answerSummary || question.answerDetail))
+      .filter(Boolean),
+    questions: mergedQuestions,
+  }
+
+  return projectBlueprintConfirmation({
+    confirmation: mergedConfirmation,
+    openQuestions: remainingOpenQuestions,
+    lateQuestions: options.lateQuestions,
+    summary: options.summary,
+  })
 }

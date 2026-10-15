@@ -67,6 +67,13 @@ import {
   type NocodeEditorFlowPlanTriggerBranch,
   type NocodeEditorFlowPlanTriggerNode,
 } from '@common/utils/nocodeEditorFlowPlan'
+import type { NocodeEditorFlowAppliedSetting, NocodeEditorFlowRiskAlert } from '@common/utils/nocodeEditorFlowScheme'
+import { FLOW_SAFE_DEFAULT_RULES } from '@common/utils/nocodeEditorFlowSafeDefaults'
+import {
+  APPROVAL_NODE_PERSONNEL_DEFAULTS,
+  REPORT_DATA_NODE_PERSONNEL_DEFAULTS,
+  TRANSACT_NODE_PERSONNEL_DEFAULTS,
+} from '@common/utils/processNodePersonnelDefaults'
 import { buildNocodeEditorFlowFingerprint } from '@common/utils/nocodeEditorFlowPatch'
 import type {
   NocodeEditorAiFlowActionIssue,
@@ -168,6 +175,168 @@ export type ApplyAiFlowPlanResult = {
     totalNodeCount: number
     branchCount: number
   }
+}
+
+export const auditAppliedFlowDefaultSettings = (input: {
+  plan: NocodeEditorFlowPlan
+  flows: ProcessFlow[]
+  auditVersion: number
+}): NocodeEditorFlowAppliedSetting[] => {
+  const plannedNodes = new Map<string, NocodeEditorFlowPlanNode>()
+  const collectPlan = (nodes: NocodeEditorFlowPlanNode[]) => nodes.forEach((node) => {
+    if (node.nodeKey) plannedNodes.set(node.nodeKey, node)
+    node.branches?.forEach(branch => collectPlan(branch.nodes))
+  })
+  input.plan.triggerBranches.forEach(branch => collectPlan(branch.nodes))
+
+  const settings: NocodeEditorFlowAppliedSetting[] = []
+  const visit = (flows: ProcessFlow[]) => flows.forEach((flow) => {
+    const nodeKey = String(asRecord(flow.meta).schemeNodeKey || '').trim()
+    const planned = plannedNodes.get(nodeKey)
+    if (planned && planned.type === flow.type) {
+      const actual = asRecord(flow.options)
+      FLOW_SAFE_DEFAULT_RULES.filter(rule => rule.nodeType === flow.type).forEach((rule) => {
+        const optionKey = rule.settingPath.slice('options.'.length)
+        const hasExplicitCanonicalValue = planned.options?.[optionKey] != null
+        const explicitAliases: Record<string, unknown> = rule.nodeType === 'approval'
+          ? {
+              approverSameAsSubmitter: planned.options?.sameAsSubmitter,
+              allowRevert: asRecord(planned.options?.revert).enabled,
+              allowReject: asRecord(planned.options?.reject).enabled,
+              continueAfterReject: asRecord(planned.options?.reject).continue,
+              requireApprovalComments: asRecord(planned.options?.comments).required,
+            }
+          : {}
+        const hasExplicitAliasValue = explicitAliases[optionKey] != null
+        if (hasExplicitCanonicalValue || hasExplicitAliasValue || actual[optionKey] !== rule.defaultValue) return
+        settings.push({
+          nodeKey,
+          nodeTitle: String(actual.name || planned.name || nodeKey),
+          nodeType: flow.type,
+          settingPath: rule.settingPath,
+          actualValue: rule.defaultValue,
+          displayLabel: rule.label,
+          displayValue: rule.displayValue,
+          ruleSource: rule.ruleSource,
+          impact: rule.impact,
+          editLocation: '流程设计 / 节点设置',
+          auditVersion: input.auditVersion,
+        })
+      })
+    }
+    asArray<ProcessBranch>(flow.branches).forEach(branch => visit(branch.flows))
+  })
+  visit(input.flows)
+  return settings
+}
+
+export const auditAppliedFlowRisks = (input: {
+  plan: NocodeEditorFlowPlan
+  flows: ProcessFlow[]
+}): NocodeEditorFlowRiskAlert[] => {
+  const plannedNodes = new Map<string, NocodeEditorFlowPlanNode>()
+  const collectPlan = (nodes: NocodeEditorFlowPlanNode[]) => nodes.forEach((node) => {
+    if (node.nodeKey) plannedNodes.set(node.nodeKey, node)
+    node.branches?.forEach(branch => collectPlan(branch.nodes))
+  })
+  input.plan.triggerBranches.forEach(branch => collectPlan(branch.nodes))
+
+  const alerts = new Map<string, NocodeEditorFlowRiskAlert>()
+  const addRisk = (
+    flow: ProcessFlow,
+    planned: NocodeEditorFlowPlanNode,
+    risk: Pick<NocodeEditorFlowRiskAlert, 'riskKey' | 'severity' | 'title' | 'impact'>,
+    isRequested: boolean,
+    isFallback = false,
+  ) => {
+    const nodeKey = String(asRecord(flow.meta).schemeNodeKey || '').trim()
+    const existing = alerts.get(risk.riskKey) || {
+      ...risk,
+      editLocation: '流程设计 / 节点设置',
+      nodes: [],
+    }
+    existing.nodes.push({
+      nodeKey,
+      nodeTitle: String(asRecord(flow.options).name || planned.name || nodeKey),
+      source: isFallback ? 'system_fallback' : isRequested ? 'user_requested' : 'system_default',
+    })
+    alerts.set(risk.riskKey, existing)
+  }
+  const hasTransferLimit = (value: unknown) => {
+    const range = asRecord(value)
+    return ['users', 'roles', 'departments'].some(key => asArray(range[key]).length > 0)
+  }
+  const visit = (flows: ProcessFlow[], hasWrittenData = false) => {
+    let precedingWrite = hasWrittenData
+    flows.forEach((flow, index) => {
+      const nodeKey = String(asRecord(flow.meta).schemeNodeKey || '').trim()
+      const planned = plannedNodes.get(nodeKey)
+      if (planned?.type === flow.type && flow.type === ProcessNodeType.APPROVAL) {
+        const actual = asRecord(flow.options)
+        const requested = asRecord(planned.options)
+        const reject = asRecord(requested.reject)
+        const emptyHandler = asRecord(requested.emptyHandler)
+        const isManualApproval = actual.category !== ApprovalCategory.AUTO_APPROVE && actual.category !== ApprovalCategory.AUTO_REJECT
+        if (actual.category === ApprovalCategory.AUTO_APPROVE) {
+          addRisk(flow, planned, {
+            riskKey: 'automatic_approval', severity: 'high', title: '审批节点自动通过',
+            impact: '此步骤不会等待负责人审核，申请将直接通过。请确认业务确实允许免审；否则改为人工审批。',
+          }, requested.category != null)
+        }
+        if (isManualApproval && actual.approverSameAsSubmitter === ApproverSameAsSubmitter.SELF) {
+          addRisk(flow, planned, {
+            riskKey: 'submitter_self_approval', severity: 'high', title: '提交人可能自行审批',
+            impact: '如果申请人同时是审批人，申请人可能审批自己的报销申请。建议检查是否需要禁止提交人审批自己的申请。',
+          }, requested.approverSameAsSubmitter != null || requested.sameAsSubmitter != null)
+        }
+        if (isManualApproval && actual.approverEmpty === OwnerEmptyHandle.AUTO_APPROVE) {
+          const requestedEmpty = requested.approverEmpty ?? emptyHandler.type ?? emptyHandler.mode ?? emptyHandler.action
+          addRisk(flow, planned, {
+            riskKey: 'empty_approver_auto_approve', severity: 'high', title: '审批人为空时自动通过',
+            impact: '找不到审批人时，流程会跳过人工审批并继续，申请可能未经审核就通过。建议改为转交管理员或指定人员处理。',
+          }, requestedEmpty != null && normalizeToken(requestedEmpty) !== 'admin', normalizeToken(requestedEmpty) === 'admin')
+        }
+        if (actual.allowReject === true && actual.continueAfterReject === true) {
+          addRisk(flow, planned, {
+            riskKey: 'continue_after_reject', severity: 'high', title: '驳回后继续执行',
+            impact: '申请已被驳回仍会继续后续处理，可能触发通知或数据更新。请确认驳回后是否应结束流程或退回修改。',
+          }, requested.continueAfterReject != null || reject.continue != null)
+          if (precedingWrite && actual.rollbackDataBeforeReject === false) {
+            addRisk(flow, planned, {
+              riskKey: 'reject_without_rollback', severity: 'high', title: '驳回后已写入的数据仍保留',
+              impact: '驳回后，前面步骤写入的业务数据仍会保留，可能与单据处理结果不一致。建议检查这些数据是否需要撤销。',
+            }, requested.rollbackDataBeforeReject != null)
+          }
+        }
+      }
+      if (planned?.type === flow.type && (flow.type === ProcessNodeType.APPROVAL || flow.type === ProcessNodeType.TRANSACT)) {
+        const actual = asRecord(flow.options)
+        const requested = asRecord(planned.options)
+        if (actual.allowTransfer === true && !hasTransferLimit(actual.transferRange) && actual.category !== ApprovalCategory.AUTO_APPROVE && actual.category !== ApprovalCategory.AUTO_REJECT) {
+          addRisk(flow, planned, {
+            riskKey: 'unrestricted_transfer', severity: 'medium', title: '转交范围未限制',
+            impact: '当前未限定可接收转交任务的人员、角色或部门，办理人可能将任务转给范围外人员。建议设置允许接收转交的范围。',
+          }, requested.allowTransfer != null || requested.transferRange != null)
+        }
+        if (actual.allowFinishFlow === true && flows.slice(index + 1).some(next => next.type !== ProcessNodeType.END)) {
+          addRisk(flow, planned, {
+            riskKey: 'early_finish_permission', severity: 'medium', title: '可提前结束流程',
+            impact: '办理人可以提前结束审批，后续审批或处理步骤将被跳过。建议确认哪些情况可以提前结束，并限制相应权限。',
+          }, requested.allowFinishFlow != null)
+        }
+      }
+      if ([ProcessNodeType.ADD_DATA, ProcessNodeType.EDIT_DATA, ProcessNodeType.DELETE_DATA, ProcessNodeType.REPORT_DATA].includes(flow.type)) {
+        precedingWrite = true
+      }
+      const branches = asArray<ProcessBranch>(flow.branches)
+      if (branches.length) {
+        precedingWrite = branches.map(branch => visit(branch.flows, precedingWrite)).some(Boolean)
+      }
+    })
+    return precedingWrite
+  }
+  visit(input.flows)
+  return [...alerts.values()]
 }
 
 type NocodeEditorFlowPlanDiagnosticLevel =
@@ -2184,6 +2353,14 @@ const resolveApprovalOptions = (
 ) => {
   const nodeName = normalizeText(value.name) || '审批节点'
   const nextValue = value as ApprovalOptions
+  nextValue.allowTransfer ??= true
+  nextValue.allowRevert ??= true
+  nextValue.allowReject ??= true
+  nextValue.continueAfterReject ??= false
+  nextValue.rollbackDataBeforeReject ??= false
+  nextValue.allowStash ??= false
+  nextValue.allowFinishFlow ??= false
+  nextValue.requireApprovalComments ??= false
   if (!nextValue.category) {
     nextValue.category = ApprovalCategory.MANUAL
   }
@@ -2208,6 +2385,7 @@ const resolveApprovalOptions = (
       'id',
     )
   }
+  nextValue.approverEmpty ??= APPROVAL_NODE_PERSONNEL_DEFAULTS.approverEmpty
   const sameAsSubmitter = normalizeToken((nextValue as Record<string, any>).sameAsSubmitter)
   if (!nextValue.approverSameAsSubmitter && sameAsSubmitter) {
     if (['autoskip', 'skip', '自动跳过'].includes(sameAsSubmitter)) {
@@ -2218,6 +2396,7 @@ const resolveApprovalOptions = (
       nextValue.approverSameAsSubmitter = ApproverSameAsSubmitter.SELF
     }
   }
+  nextValue.approverSameAsSubmitter ??= APPROVAL_NODE_PERSONNEL_DEFAULTS.approverSameAsSubmitter
   const reject = asRecord((nextValue as Record<string, any>).reject)
   if (Object.keys(reject).length) {
     if (typeof reject.enabled === 'boolean') {
@@ -2257,7 +2436,7 @@ const resolveApprovalOptions = (
       nextValue.approverType = ApproverType.AND
     }
   }
-  nextValue.approverType = nextValue.approverType || ApproverType.AND
+  nextValue.approverType = nextValue.approverType || APPROVAL_NODE_PERSONNEL_DEFAULTS.approverType
   if (!nextValue.categoryRule) {
     nextValue.categoryRule = 'normal' as ApprovalOptions['categoryRule']
   }
@@ -2286,6 +2465,14 @@ const resolveTransactOptions = (
   context: FlowApplyContext,
 ) => {
   const nextValue = value as TransactOptions
+  nextValue.transactorType ??= TRANSACT_NODE_PERSONNEL_DEFAULTS.transactorType
+  nextValue.transactorEmpty ??= TRANSACT_NODE_PERSONNEL_DEFAULTS.transactorEmpty
+  nextValue.allowTransfer ??= true
+  nextValue.allowRevert ??= true
+  nextValue.allowStash ??= false
+  nextValue.allowFinishFlow ??= false
+  nextValue.requireTransactComments ??= false
+  nextValue.requireSatisfyCondition ??= false
   if (nextValue.transactorEmpty === OwnerEmptyHandle.ADMIN && !nextValue.transactorEmptyAdmin) {
     const users = asArray<OrganizeData['users'][number]>(context.organizeData.users)
     const adminUserId = normalizeText(
@@ -2336,6 +2523,11 @@ const resolveReportDataOptions = (
   context: FlowApplyContext,
 ) => {
   const nextValue = value as ReportDataOptions
+  nextValue.reporterEmpty ??= REPORT_DATA_NODE_PERSONNEL_DEFAULTS.reporterEmpty
+  nextValue.allowStash ??= false
+  nextValue.allowFinishFlow ??= false
+  nextValue.requireTransactComments ??= true
+  nextValue.requireSatisfyCondition ??= false
   const targetCandidate = resolveTargetTableCandidate(value, {
     tableUID: nextValue.targetTableUID,
   })

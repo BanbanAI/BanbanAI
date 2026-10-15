@@ -121,6 +121,7 @@
           :class="{
             'is-ready': inlineBatchConfirmLabel && !isCompleted,
           }"
+          :loading="isLoadingPhase"
           :disabled="isPrimaryDisabled"
           @click="handlePrimaryAction"
         >
@@ -456,11 +457,11 @@ const showQuestionSection = computed(() => (
   showReadyBody.value && displayQuestions.value.length > 0
 ))
 const primaryActionLabel = computed(() => {
-  if (isCompletedActionPhase.value) {
+  if (isCompletedActionPhase.value || isLoadingPhase.value) {
     return completedPrimaryLabel.value
   }
 
-  if (isLoadingPhase.value || isErrorPhase.value) {
+  if (isErrorPhase.value) {
     return ''
   }
 
@@ -472,7 +473,6 @@ const secondaryActionText = computed(() => (
 const showActionsSection = computed(() => (
   showReadyBody.value
   && !isReadyWithoutConfirmation.value
-  && !isLoadingPhase.value
   && !isErrorPhase.value
   && (
     readonlyVersion.value
@@ -514,6 +514,7 @@ const showPreviewAction = computed(() => Boolean(previewActionText.value))
 const isPrimaryDisabled = computed(() => (
   readonlyVersion.value
   || props.actionDisabled
+  || isLoadingPhase.value
   || (isCompletedActionPhase.value && !isCompletedContinuationActionable.value)
   || (!inlineBatchConfirmLabel.value && isPendingPrimaryDisabled.value)
 ))

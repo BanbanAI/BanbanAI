@@ -2767,6 +2767,53 @@ export const replaceColFieldsByFormula = (formula: string, callback: (keys: stri
   return processFunction(formula);
 };
 
+/**
+ * 兼容已保存的旧 runtime 公式：[[subform]].[[table.subform.field]]。
+ * 只折叠一层、完整 token 的子表字段链，避免改变普通点运算。
+ */
+export const normalizeLegacyRuntimeSubformReferences = (formula: string) => {
+  const legacyReferencePattern = /^\[\[[A-Za-z0-9_-]+,[^\]\r\n]+\]\]\s*\.\s*(\[\[[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+,[^\]\r\n]+\]\])/;
+  let normalized = '';
+  let index = 0;
+  let quote = '';
+
+  while (index < formula.length) {
+    const character = formula[index];
+    if (quote) {
+      normalized += character;
+      if (character === '\\' && index + 1 < formula.length) {
+        normalized += formula[index + 1];
+        index += 2;
+        continue;
+      }
+      if (character === quote) {
+        quote = '';
+      }
+      index += 1;
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character;
+      normalized += character;
+      index += 1;
+      continue;
+    }
+
+    const match = formula.slice(index).match(legacyReferencePattern);
+    if (match) {
+      normalized += match[1];
+      index += match[0].length;
+      continue;
+    }
+
+    normalized += character;
+    index += 1;
+  }
+
+  return normalized;
+};
+
 export const replaceByFormula = (formula: string, callback: (keys: string[]) => string) => {
   return formula?.replaceAll(/\[\[(.*?)\]\]/g, ($0, $1) => {
     const arr = $1?.split(",");
@@ -2969,19 +3016,22 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
       const emptyCheckReferenceKeys = getFormulaEmptyCheckReferenceKeys(getFormulaStr(_field.meta?.extra?.formula));
       for(const row of rows) {
         if(_field.uid.split('.').length === 1) {
-          let formula = replaceColFieldsByFormula(getFormulaStr(_field.meta?.extra?.formula), (keys) => {
-            const { fieldId, subFieldId } = resolveFormulaRowFieldIds(keys, targetTable, formData);
-            const shouldNormalizeFormulaValues = isNumericFormulaReference(fieldId, subFieldId)
-              && !emptyCheckReferenceKeys.has(keys.join(','));
+          let formula = replaceColFieldsByFormula(
+            normalizeLegacyRuntimeSubformReferences(getFormulaStr(_field.meta?.extra?.formula)),
+            (keys) => {
+              const { fieldId, subFieldId } = resolveFormulaRowFieldIds(keys, targetTable, formData);
+              const shouldNormalizeFormulaValues = isNumericFormulaReference(fieldId, subFieldId)
+                && !emptyCheckReferenceKeys.has(keys.join(','));
   
-            if (subFieldId) {
-              const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId)
-                .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
-            } else {
-              return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
-            }
-          })
+              if (subFieldId) {
+                const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
+                return getSubFieldColumnValues(fieldValue, subFieldId)
+                  .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              } else {
+                return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+              }
+            },
+          )
           formula = replaceByFormula(formula, (keys) => {
             const { fieldId, subFieldId } = resolveFormulaRowFieldIds(keys, targetTable, formData);
             const shouldNormalizeFormulaValues = isNumericFormulaReference(fieldId, subFieldId)
@@ -3006,19 +3056,22 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
             const fallbackSubRows = getSubFieldFallbackRows(row, _field.uid);
             row[key] = fallbackSubRows.length ? fallbackSubRows : [{}];
           }
-          const rawFormula = replaceColFieldsByFormula(getFormulaStr(_field.meta?.extra?.formula), (keys) => {
-            const { fieldId, subFieldId } = resolveFormulaRowFieldIds(keys, targetTable, formData);
-            const shouldNormalizeFormulaValues = isNumericFormulaReference(fieldId, subFieldId)
-              && !emptyCheckReferenceKeys.has(keys.join(','));
+          const rawFormula = replaceColFieldsByFormula(
+            normalizeLegacyRuntimeSubformReferences(getFormulaStr(_field.meta?.extra?.formula)),
+            (keys) => {
+              const { fieldId, subFieldId } = resolveFormulaRowFieldIds(keys, targetTable, formData);
+              const shouldNormalizeFormulaValues = isNumericFormulaReference(fieldId, subFieldId)
+                && !emptyCheckReferenceKeys.has(keys.join(','));
   
-            if (subFieldId) {
-              const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId)
-                .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
-            } else {
-              return [normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues)];
-            }
-          })
+              if (subFieldId) {
+                const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
+                return getSubFieldColumnValues(fieldValue, subFieldId)
+                  .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              } else {
+                return [normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues)];
+              }
+            },
+          )
           for(let j = 0; j < (row[key].length || 0); j++) {
             const subRow = row[key][j]
             const formula = replaceByFormula(rawFormula, (keys) => {

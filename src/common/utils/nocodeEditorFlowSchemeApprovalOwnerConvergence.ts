@@ -6,120 +6,48 @@ import type {
 } from './nocodeEditorConfirmationDecisionProjection'
 import type {
   NocodeEditorFlowScheme,
+  NocodeEditorFlowSchemeDeferredConfigItem,
   NocodeEditorFlowSchemeDependency,
   NocodeEditorFlowSchemeQuestion,
   NocodeEditorFlowSchemeStep,
 } from './nocodeEditorFlowScheme'
 import type {
+  SchemeRestageBlueprintDiagnosticLike,
   UnifiedFlowIssue,
+} from './nocodeEditorFlowUnifiedIssue'
+import {
+  buildUnifiedFlowIssuesFromSchemeRestageDiagnostics,
 } from './nocodeEditorFlowUnifiedIssue'
 import {
   isNocodeEditorFlowApprovalOwnerSourceQuestion,
 } from './nocodeEditorFlowQuestionPolicy'
+import {
+  collectFlowSchemeApprovalSteps,
+  flattenFlowApprovalOwnerSummaryFields,
+  hasFlowApprovalOwnerTargetContextMismatch,
+  isApplicantRoleFieldName,
+  normalizeFlowApprovalOwnerText,
+  resolveFlowApprovalOwnerSummaryTarget,
+  resolveFlowSchemeDependencyState,
+  type FlowApprovalOwnerSummaryField,
+} from './nocodeEditorFlowApprovalOwnerRules'
 
-type UnknownRecord = Record<string, unknown>
-
-type FlowSummaryMemberField = {
-  fieldId: string
-  fieldName: string
-  ownerPolicy: string
-  subFields?: FlowSummaryMemberField[]
-}
-
-type FlowSummaryTarget = {
-  tableId: string
-  tableName: string
-  fields: FlowSummaryMemberField[]
-}
+type FlowSummaryMemberField = FlowApprovalOwnerSummaryField
 
 export type FlowSchemeApprovalOwnerConvergenceResult = {
   hasConfirmedFormMemberSource: boolean
   issues: UnifiedFlowIssue[]
+  scheme: NocodeEditorFlowScheme
+  unverifiedDependencyIds: string[]
 }
 
 const FORM_MEMBER_FIELD_OPTION_PREFIX = 'use-existing-owner-field:'
 
-const normalizeText = (value: unknown) => String(value ?? '').trim()
+const normalizeText = normalizeFlowApprovalOwnerText
+const flattenSummaryFields = flattenFlowApprovalOwnerSummaryFields
+const resolveCurrentTarget = resolveFlowApprovalOwnerSummaryTarget
 
-const normalizeToken = (value: unknown) => normalizeText(value)
-  .toLowerCase()
-  .replace(/\s+/g, '')
-  .replace(/[-_/\\]/g, '')
-
-const isApplicantRoleFieldName = (value: unknown) => (
-  ['报销人', '申请人'].includes(normalizeText(value))
-)
-
-const isRecord = (value: unknown): value is UnknownRecord => (
-  Boolean(value)
-  && typeof value === 'object'
-  && !Array.isArray(value)
-)
-
-const isSameToken = (left: unknown, right: unknown) => {
-  const normalizedLeft = normalizeToken(left)
-  const normalizedRight = normalizeToken(right)
-  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
-}
-
-const collectSummaryFields = (value: unknown): FlowSummaryMemberField[] => {
-  if (!isRecord(value)) {
-    return []
-  }
-
-  const fieldId = normalizeText(value.fieldId)
-  const fieldName = normalizeText(value.fieldName)
-  const ownerPolicy = normalizeText(value.ownerPolicy)
-  if (!fieldId || !fieldName) {
-    return []
-  }
-
-  const subFields = Array.isArray(value.subFields)
-    ? value.subFields.flatMap(collectSummaryFields)
-    : []
-  return [{
-    fieldId,
-    fieldName,
-    ownerPolicy,
-    ...(subFields.length ? { subFields } : {}),
-  }]
-}
-
-const flattenSummaryFields = (fields: FlowSummaryMemberField[]) => (
-  fields.flatMap(field => [
-    field,
-    ...flattenSummaryFields(field.subFields || []),
-  ])
-)
-
-const resolveCurrentTarget = (flowSummary: unknown): FlowSummaryTarget | null => {
-  if (!isRecord(flowSummary) || !isRecord(flowSummary.forms) || !isRecord(flowSummary.forms.currentForm)) {
-    return null
-  }
-
-  const currentForm = flowSummary.forms.currentForm
-  const tableId = normalizeText(currentForm.tableId)
-  const tableName = normalizeText(currentForm.tableName)
-  if (!tableId && !tableName) {
-    return null
-  }
-
-  return {
-    tableId,
-    tableName,
-    fields: Array.isArray(currentForm.fields)
-      ? currentForm.fields.flatMap(collectSummaryFields)
-      : [],
-  }
-}
-
-const collectApprovalSteps = (scheme: NocodeEditorFlowScheme) => {
-  const allSteps: NocodeEditorFlowSchemeStep[] = [
-    ...(scheme.mainPath || []),
-    ...(scheme.branches || []).flatMap(branch => branch.steps || []),
-  ]
-  return allSteps.filter(step => step.kind === 'approval')
-}
+export { collectFlowSchemeApprovalSteps }
 
 const hasFormMemberSourceDecision = (
   decisions: NocodeEditorConfirmationDecision[] | undefined,
@@ -211,6 +139,171 @@ const buildInternalInconsistencyIssue = (input: {
   diagnostics: input.diagnostics,
 }] satisfies UnifiedFlowIssue[]
 
+const buildConvergenceResult = (input: {
+  scheme: NocodeEditorFlowScheme
+  hasConfirmedFormMemberSource: boolean
+  issues: UnifiedFlowIssue[]
+  unverifiedDependencyIds?: string[]
+}): FlowSchemeApprovalOwnerConvergenceResult => ({
+  hasConfirmedFormMemberSource: input.hasConfirmedFormMemberSource,
+  issues: input.issues,
+  scheme: input.scheme,
+  unverifiedDependencyIds: input.unverifiedDependencyIds || [],
+})
+
+const buildApprovalOwnerEvidenceDeferredItem = (
+  step: NocodeEditorFlowSchemeStep,
+): NocodeEditorFlowSchemeDeferredConfigItem => ({
+  id: `flow-deferred:approval-owner:${step.key}:evidence`,
+  lifecycleStatus: 'pending',
+  nodeKey: step.key,
+  nodeTitle: step.title,
+  settingPath: 'options.approver',
+  category: 'owner_binding',
+  requirementLevel: 'required',
+  supportStatus: 'runtime_supported',
+  summary: `${step.title}的审批人字段暂无法与当前表单核对，将在流程生成后补齐`,
+  fillTiming: 'after_generation',
+  severity: 'high',
+  relatedIssueCodes: ['approval_owner_form_evidence_unavailable'],
+})
+
+const getDeferredItemSemanticKey = (
+  item: NocodeEditorFlowSchemeDeferredConfigItem,
+) => [
+  normalizeText(item.nodeKey),
+  normalizeText(item.settingPath),
+  normalizeText(item.category),
+].join('|')
+
+const mergeApprovalOwnerDeferredItems = (input: {
+  existingItems?: NocodeEditorFlowSchemeDeferredConfigItem[] | null
+  incomingItems: NocodeEditorFlowSchemeDeferredConfigItem[]
+}) => {
+  const existingItems = Array.isArray(input.existingItems) ? input.existingItems : []
+  const existingKeys = new Set(existingItems.map(getDeferredItemSemanticKey))
+  return [
+    ...existingItems,
+    ...input.incomingItems.filter(item => !existingKeys.has(getDeferredItemSemanticKey(item))),
+  ]
+}
+
+const markDependenciesUnverified = (input: {
+  scheme: NocodeEditorFlowScheme
+  dependencyIds: Set<string>
+}): NocodeEditorFlowScheme => {
+  if (!input.dependencyIds.size) {
+    return input.scheme
+  }
+  return {
+    ...input.scheme,
+    dependencies: (input.scheme.dependencies || []).map(dependency => (
+      input.dependencyIds.has(dependency.id)
+        ? { ...dependency, unverifiedReason: 'form_evidence_unavailable' as const }
+        : dependency
+    )),
+  }
+}
+
+const convergeApprovalOwnersWithoutFieldEvidence = (input: {
+  scheme: NocodeEditorFlowScheme
+  approvalSteps: NocodeEditorFlowSchemeStep[]
+  planningContextKey?: string
+}): FlowSchemeApprovalOwnerConvergenceResult => {
+  const dependencies = (input.scheme.dependencies || []).filter(dependency => (
+    dependency.requiredFor === 'approval_owner'
+  ))
+  const diagnostics: Array<Record<string, unknown>> = []
+  const unverifiedDependencyIds = new Set<string>()
+  const incomingDeferredItems: NocodeEditorFlowSchemeDeferredConfigItem[] = []
+
+  input.approvalSteps.forEach((step) => {
+    const scopedDependencies = dependencies.filter(dependency => (
+      dependency.scopeKind === 'step'
+      && normalizeText(dependency.scopeKey) === normalizeText(step.key)
+    ))
+    const narrowQuestions = (input.scheme.openQuestions || []).filter(question => (
+      normalizeText(question.scopeKey) === normalizeText(step.key)
+      && isNarrowApprovalOwnerFieldQuestion(question)
+    ))
+    const resolutionCount = scopedDependencies.length + narrowQuestions.length
+    if (resolutionCount !== 1) {
+      diagnostics.push({
+        code: resolutionCount > 1
+          ? 'approval_owner_resolution_duplicate'
+          : 'approval_owner_resolution_missing',
+        message: '每个审批节点必须收敛为已有成员字段、计划新增成员字段或具体成员字段问题之一。',
+        nodeKey: step.key,
+        nodeName: step.title,
+      })
+      return
+    }
+
+    if (narrowQuestions.length === 1) {
+      return
+    }
+
+    const dependency = scopedDependencies[0] as NocodeEditorFlowSchemeDependency
+    const { isPlanned } = resolveFlowSchemeDependencyState(dependency)
+    if (isPlanned) {
+      const fieldName = normalizeText(dependency.fieldRef?.fieldName)
+      const expectedType = normalizeText(dependency.fieldRef?.expectedType)
+      if (!fieldName || expectedType !== 'memberSelect') {
+        diagnostics.push({
+          code: 'approval_owner_planned_field_incomplete',
+          message: '计划新增的审批人字段必须明确字段名和成员组件类型。',
+          nodeKey: step.key,
+          nodeName: step.title,
+          fieldName,
+          expectedType,
+        })
+      }
+      return
+    }
+
+    const { isExisting } = resolveFlowSchemeDependencyState(dependency)
+    if (isExisting) {
+      unverifiedDependencyIds.add(dependency.id)
+      incomingDeferredItems.push(buildApprovalOwnerEvidenceDeferredItem(step))
+      return
+    }
+
+    diagnostics.push({
+      code: 'approval_owner_resolution_invalid',
+      message: '审批人字段依赖未使用已确认的成员字段收敛方式。',
+      nodeKey: step.key,
+      nodeName: step.title,
+      resolutionStatus: dependency.resolutionStatus,
+      resolutionMode: dependency.resolutionMode,
+      materializationStatus: dependency.materializationStatus,
+    })
+  })
+
+  const markedScheme = markDependenciesUnverified({
+    scheme: input.scheme,
+    dependencyIds: unverifiedDependencyIds,
+  })
+  return {
+    hasConfirmedFormMemberSource: true,
+    issues: diagnostics.length
+      ? buildInternalInconsistencyIssue({
+        planningContextKey: input.planningContextKey,
+        diagnostics,
+      })
+      : [],
+    scheme: incomingDeferredItems.length
+      ? {
+        ...markedScheme,
+        deferredConfigItems: mergeApprovalOwnerDeferredItems({
+          existingItems: markedScheme.deferredConfigItems,
+          incomingItems: incomingDeferredItems,
+        }),
+      }
+      : markedScheme,
+    unverifiedDependencyIds: [...unverifiedDependencyIds],
+  }
+}
+
 export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
   scheme: NocodeEditorFlowScheme
   flowSummary?: unknown
@@ -221,46 +314,61 @@ export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
     || input.scheme.confirmation?.planningContextKey
   const hasConfirmedFormMemberSource = hasFormMemberSourceDecision(input.flowConfirmationDecisions)
   if (!hasConfirmedFormMemberSource) {
-    return {
+    return buildConvergenceResult({
+      scheme: input.scheme,
       hasConfirmedFormMemberSource: false,
       issues: [],
-    }
+    })
   }
 
-  const approvalSteps = collectApprovalSteps(input.scheme)
+  const approvalSteps = collectFlowSchemeApprovalSteps(input.scheme)
   if (!approvalSteps.length) {
-    return {
+    return buildConvergenceResult({
+      scheme: input.scheme,
       hasConfirmedFormMemberSource: true,
       issues: [],
-    }
+    })
   }
+
+  const pendingSourceQuestions = [
+    ...(input.scheme.openQuestions || []).filter(question => isNocodeEditorFlowApprovalOwnerSourceQuestion(question)),
+    ...(input.scheme.confirmation?.questions || []).filter(question => (
+      !hasQuestionAnswer(question) && isNocodeEditorFlowApprovalOwnerSourceQuestion(question)
+    )),
+  ]
+  const buildRepeatedSourceIssues = () => buildInternalInconsistencyIssue({
+    planningContextKey,
+    diagnostics: pendingSourceQuestions.map(question => ({
+      code: 'owner_source_question_repeated',
+      message: '审批人来源已经确认，方案不能再次询问来源类型。',
+      questionId: 'id' in question ? normalizeText(question.id) : normalizeText(question.key),
+      questionTitle: normalizeText(question.title),
+    })),
+  })
 
   const target = resolveCurrentTarget(input.flowSummary)
   const targetFormId = normalizeText(input.scheme.target?.formId)
   const targetFormName = normalizeText(input.scheme.target?.formName)
   if (!target) {
-    return {
-      hasConfirmedFormMemberSource: true,
-      issues: buildInternalInconsistencyIssue({
-        planningContextKey,
-        diagnostics: [{
-          code: 'target_field_evidence_unavailable',
-          message: '当前目标表单没有可用于审批人收敛的字段证据。',
-          targetFormId,
-          targetFormName,
-        }],
-      }),
+    if (pendingSourceQuestions.length) {
+      return buildConvergenceResult({
+        scheme: input.scheme,
+        hasConfirmedFormMemberSource: true,
+        issues: buildRepeatedSourceIssues(),
+      })
     }
+    return convergeApprovalOwnersWithoutFieldEvidence({
+      scheme: input.scheme,
+      approvalSteps,
+      planningContextKey,
+    })
   }
 
-  if (
-    (targetFormId && !isSameToken(targetFormId, target.tableId))
-    || (targetFormName && !isSameToken(targetFormName, target.tableName))
-  ) {
-    return {
+  if (hasFlowApprovalOwnerTargetContextMismatch({ scheme: input.scheme, target })) {
+    return buildConvergenceResult({
+      scheme: input.scheme,
       hasConfirmedFormMemberSource: true,
-      issues: buildInternalInconsistencyIssue({
-        planningContextKey,
+      issues: buildUnifiedFlowIssuesFromSchemeRestageDiagnostics({
         diagnostics: [{
           code: 'target_context_mismatch',
           message: '当前字段证据不属于流程方案指定的目标表单。',
@@ -269,8 +377,10 @@ export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
           evidenceTableId: target.tableId,
           evidenceTableName: target.tableName,
         }],
+        sourceStage: 'flow-scheme',
+        planningContextKey,
       }),
-    }
+    })
   }
 
   const fields = flattenSummaryFields(target.fields)
@@ -279,31 +389,22 @@ export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
       .filter(field => field.ownerPolicy === 'member')
       .map((field): [string, FlowSummaryMemberField] => [field.fieldId, field]),
   )
-  const pendingSourceQuestions = [
-    ...(input.scheme.openQuestions || []).filter(question => isNocodeEditorFlowApprovalOwnerSourceQuestion(question)),
-    ...(input.scheme.confirmation?.questions || []).filter(question => (
-      !hasQuestionAnswer(question) && isNocodeEditorFlowApprovalOwnerSourceQuestion(question)
-    )),
-  ]
   if (pendingSourceQuestions.length) {
-    return {
+    return buildConvergenceResult({
+      scheme: input.scheme,
       hasConfirmedFormMemberSource: true,
-      issues: buildInternalInconsistencyIssue({
-        planningContextKey,
-        diagnostics: pendingSourceQuestions.map(question => ({
-          code: 'owner_source_question_repeated',
-          message: '审批人来源已经确认，方案不能再次询问来源类型。',
-          questionId: 'id' in question ? normalizeText(question.id) : normalizeText(question.key),
-          questionTitle: normalizeText(question.title),
-        })),
-      }),
-    }
+      issues: buildRepeatedSourceIssues(),
+    })
   }
 
   const dependencies = (input.scheme.dependencies || []).filter(dependency => (
     dependency.requiredFor === 'approval_owner'
   ))
   const diagnostics: Array<Record<string, unknown>> = []
+  const restageDiagnostics: SchemeRestageBlueprintDiagnosticLike[] = []
+  const compatibleOwnerFields = [...memberFieldsById.values()]
+    .filter(field => !isApplicantRoleFieldName(field.fieldName))
+    .map(field => ({ fieldId: field.fieldId, fieldName: field.fieldName }))
 
   approvalSteps.forEach((step) => {
     const scopedDependencies = dependencies.filter(dependency => (
@@ -343,36 +444,31 @@ export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
     }
 
     const dependency = scopedDependencies[0] as NocodeEditorFlowSchemeDependency
-    const isExisting = (
-      dependency.resolutionStatus === 'resolved'
-      && dependency.resolutionMode === 'use_existing'
-      && dependency.materializationStatus === 'existing'
-    )
-    const isPlanned = (
-      dependency.resolutionStatus === 'resolved'
-      && dependency.resolutionMode === 'create_later'
-      && dependency.materializationStatus === 'planned'
-    )
+    const { isExisting, isPlanned } = resolveFlowSchemeDependencyState(dependency)
     if (isExisting) {
       const fieldId = normalizeText(dependency.fieldRef?.fieldId)
       const fieldName = normalizeText(dependency.fieldRef?.fieldName)
       const currentField = memberFieldsById.get(fieldId)
+      const isApplicantRole = Boolean(currentField && isApplicantRoleFieldName(currentField.fieldName))
       if (
         !fieldId
         || !fieldName
         || !currentField
         || currentField.fieldName !== fieldName
-        || isApplicantRoleFieldName(currentField.fieldName)
+        || isApplicantRole
       ) {
-        diagnostics.push({
+        restageDiagnostics.push({
           code: 'approval_owner_existing_field_invalid',
-          message: '复用的审批人字段必须是当前目标表单中真实存在的成员字段。',
+          message: isApplicantRole
+            ? '审批人不能是申请人角色字段，需要重新确认审批人字段绑定。'
+            : '复用的审批人字段必须是当前目标表单中真实存在的成员字段，需要重新确认审批人字段绑定。',
           nodeKey: step.key,
           nodeName: step.title,
           fieldId,
           fieldName,
           targetFormId: target.tableId,
           targetFormName: target.tableName,
+          compatibleFields: compatibleOwnerFields,
         })
       }
       return
@@ -405,13 +501,22 @@ export const convergeNocodeEditorFlowSchemeApprovalOwners = (input: {
     })
   })
 
-  return {
+  const restageIssues = buildUnifiedFlowIssuesFromSchemeRestageDiagnostics({
+    diagnostics: restageDiagnostics,
+    sourceStage: 'flow-scheme',
+    planningContextKey,
+  })
+  return buildConvergenceResult({
+    scheme: input.scheme,
     hasConfirmedFormMemberSource: true,
-    issues: diagnostics.length
-      ? buildInternalInconsistencyIssue({
-        planningContextKey,
-        diagnostics,
-      })
-      : [],
-  }
+    issues: [
+      ...(diagnostics.length
+        ? buildInternalInconsistencyIssue({
+          planningContextKey,
+          diagnostics,
+        })
+        : []),
+      ...restageIssues,
+    ],
+  })
 }

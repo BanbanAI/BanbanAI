@@ -9,6 +9,74 @@ import type {
 } from './types'
 import type { NocodeEditorPlanningScope } from '@common/utils/nocodeEditorPlanningScope'
 
+const canonicalizeBlueprintValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(item => canonicalizeBlueprintValue(item))
+  }
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  return Object.keys(value as Record<string, unknown>)
+    .sort()
+    .reduce<Record<string, unknown>>((result, key) => {
+      result[key] = canonicalizeBlueprintValue((value as Record<string, unknown>)[key])
+      return result
+    }, {})
+}
+
+/** Confirmation metadata is lifecycle state, so it must not create a new blueprint version. */
+export const buildBlueprintConfigurationFingerprint = (blueprint: unknown) => {
+  if (!blueprint || typeof blueprint !== 'object' || Array.isArray(blueprint)) {
+    return ''
+  }
+
+  const value = blueprint as Record<string, unknown>
+  return JSON.stringify(canonicalizeBlueprintValue({
+    title: value.title,
+    summary: value.summary,
+    forms: value.forms,
+  }))
+}
+
+export const hasBlueprintConfigurationChanged = (previous: unknown, next: unknown) => (
+  buildBlueprintConfigurationFingerprint(previous) !== buildBlueprintConfigurationFingerprint(next)
+)
+
+export const buildFlowBlueprintConfigurationFingerprint = (blueprint: unknown) => {
+  if (!blueprint || typeof blueprint !== 'object' || Array.isArray(blueprint)) {
+    return ''
+  }
+
+  const value = blueprint as Record<string, unknown>
+  // Keep lifecycle metadata out of the version identity. The flow blueprint
+  // type currently contains only these business configuration fields, but the
+  // explicit projection also protects this fingerprint if confirmation or
+  // staging metadata is attached at runtime.
+  return JSON.stringify(canonicalizeBlueprintValue({
+    title: value.title,
+    summary: value.summary,
+    target: value.target,
+    triggerBranches: value.triggerBranches,
+  }))
+}
+
+export const hasFlowBlueprintConfigurationChanged = (previous: unknown, next: unknown) => (
+  buildFlowBlueprintConfigurationFingerprint(previous)
+  !== buildFlowBlueprintConfigurationFingerprint(next)
+)
+
+export const hasFlowBlueprintSourceRevisionContentConflict = (input: {
+  previousBlueprint: unknown
+  previousSourceSchemeRevision?: number
+  nextBlueprint: unknown
+  nextSourceSchemeRevision?: number
+}) => Boolean(
+  Number(input.previousSourceSchemeRevision) > 0
+  && Number(input.previousSourceSchemeRevision) === Number(input.nextSourceSchemeRevision)
+  && hasFlowBlueprintConfigurationChanged(input.previousBlueprint, input.nextBlueprint),
+)
+
 export const createStagedBlueprintState = (input: {
   planningScope: NocodeEditorPlanningScope
   revision: number

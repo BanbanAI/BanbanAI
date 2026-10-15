@@ -74,7 +74,8 @@ export function VitePluginElectronBuilder(userOptions: Partial<ViteElectronBuild
     configureServer: ({ httpServer }: ViteDevServer) => {
       httpServer.on('listening', () => {
         const address: any = httpServer.address();
-        options.env.DEV_SERVER_URL = `${viteConfig.server.https ? "https" : "http"}://${address.address}:${address.port}`;
+        const host = address.address === "0.0.0.0" || address.address === "::" ? "127.0.0.1" : address.address;
+        options.env.DEV_SERVER_URL = `${viteConfig.server.https ? "https" : "http"}://${host.includes(":") ? `[${host}]` : host}:${address.port}`;
         options.env.DEV_SERVER_PORT = address.port;
         handleDev(options)
       })
@@ -212,8 +213,9 @@ async function handleDev(options: ResolvedViteElectronBuilderOptions) {
     console.log(chalk.yellowBright('⚡Main Process Running'));
     if (child) child.kill();
     child = await runMainProcess(join(mainFile, `${main}.js`), inspectPort);
-    child.on('exit', ()=>{
-      process.exit();
+    child.on('exit', (code, signal)=>{
+      console.error('[dev] Main process exited', { code, signal });
+      process.exit(code ?? (signal ? 1 : 0));
     });
   });
 }

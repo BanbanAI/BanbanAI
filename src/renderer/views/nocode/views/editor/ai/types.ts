@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import type { NocodeEditorAiConfirmPayload } from '@common/types/nocodeEditorConfirmation'
+import type { NocodeProcessAiDeferredConfigItem } from '@common/types/project'
 import type { AiAssistantConfirmationCardPresentation } from '@common/types/ai'
 import type { NocodeEditorIndustrySkeletonCarryover } from '@common/utils/nocodeEditorIndustrySkeleton'
 import type { FlowIssueRoutingResult } from '@common/utils/nocodeEditorFlowIssueRouter'
@@ -298,6 +299,7 @@ export type NocodeEditorAiChatStreamPayload = {
 
 export type NocodeEditorAiStreamErrorKind =
   | 'payload_too_large'
+  | 'context_window_exceeded'
   | 'provider_timeout'
   | 'provider_output_overflow'
   | 'stream_error'
@@ -307,9 +309,12 @@ export type NocodeEditorAiStreamErrorMetadata = {
   errorKind?: NocodeEditorAiStreamErrorKind
   retryable?: boolean
   userMessagePersisted?: boolean
-  recoveryAction?: 'continue_generation'
+  recoveryAction?: 'continue_generation' | 'compact_context'
   timeoutPhase?: 'first_event' | 'idle' | 'total'
   timeoutMs?: number
+  contextRecoveryAttempt?: number
+  contextBudgetExceededReason?: 'token' | 'body'
+  sourceTraceId?: string
 }
 
 export type NocodeEditorAiThreadMessage = {
@@ -500,9 +505,13 @@ export type NocodeEditorAiBlueprintApplyFormResult = {
 export type NocodeEditorAiBlueprintFieldBinding = {
   tableId?: string
   fieldKey: string
+  fieldPath?: string
   fieldName: string
   widgetId: string
   widgetType?: string
+  valueType?: string
+  sourceScope?: 'blueprint' | 'current-form' | 'linked-table' | 'other-table'
+  sourceFormKey?: string
   parentFieldKey?: string
   parentWidgetId?: string
   token?: string
@@ -663,6 +672,7 @@ export type NocodeEditorAiFlowIssueLocateResult = {
 export type NocodeEditorAiDraftSaveOptions = {
   persistToApp?: boolean
   skipProcessValidation?: boolean
+  aiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[]
 }
 
 export type NocodeEditorAiDraftSaveResult = {
@@ -970,6 +980,9 @@ export type NocodeEditorAiFlowApplyResult = {
     branchCount: number
   }
   warnings: string[]
+  appliedSettings?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowAppliedSetting[]
+  riskAlerts?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowRiskAlert[]
+  deferredConfigItems?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowSchemeDeferredConfigItem[]
   flowIssueState?: NocodeEditorAiFlowIssueState | null
   flowUnifiedIssues?: UnifiedFlowIssue[] | null
   flowIssueRouting?: FlowIssueRoutingResult | null
@@ -1103,6 +1116,11 @@ export type NocodeEditorAiRuntime = {
   locateDraftIssue: (issue: NocodeEditorAiDraftActionIssue) => Promise<NocodeEditorAiDraftIssueLocateResult>
   locateFlowIssue: (issue: NocodeEditorAiFlowActionIssue) => Promise<NocodeEditorAiFlowIssueLocateResult>
   executeTool: (toolName: string, input?: Record<string, unknown>) => Promise<unknown>
+  getFlowBlueprintStageFailureState?: () => {
+    planningContextKey: string
+    code: string
+    count: number
+  } | null
 }
 
 export type NocodeEditorAiActiveFormulaTaskContext = {

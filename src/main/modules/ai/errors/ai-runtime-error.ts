@@ -11,6 +11,9 @@ export const AI_RUNTIME_USER_ACTIONABLE_ERROR_CODES = [
   'AI_PROVIDER_ACCESS_FORBIDDEN',
   'AI_STRUCTURED_JSON_INVALID',
   'AI_CONTEXT_WINDOW_EXCEEDED',
+  'AI_ATTACHMENT_CONTEXT_LIMIT_EXCEEDED',
+  'AI_PROVIDER_REQUEST_BODY_TOO_LARGE',
+  'AI_PROVIDER_OUTPUT_LIMIT',
 ] as const
 
 export type AiRuntimeUserActionableErrorCode = typeof AI_RUNTIME_USER_ACTIONABLE_ERROR_CODES[number]
@@ -23,17 +26,20 @@ const AI_RUNTIME_USER_ACTIONABLE_ERROR_CODE_SET = new Set<string>(
 export class AiRuntimeUserActionableError extends Error {
   readonly code: AiRuntimeUserActionableErrorCode
   readonly category: AiRuntimeUserActionableErrorCategory
+  readonly metadata?: Record<string, unknown>
 
   constructor(
     code: AiRuntimeUserActionableErrorCode,
     message: string,
     category: AiRuntimeUserActionableErrorCategory,
     cause?: unknown,
+    metadata?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'AiRuntimeUserActionableError'
     this.code = code
     this.category = category
+    this.metadata = metadata
     if (cause !== undefined) {
       Object.assign(this, { cause })
     }

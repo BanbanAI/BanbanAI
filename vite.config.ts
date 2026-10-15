@@ -114,6 +114,8 @@ export default defineConfig(async ({ command, mode }) => {
   const isClient = mode !== "server";
   const entryDir = isClient ? "src/main/app.ts" : "src/main/server.ts";
   const main = isClient ? "app" : "server";
+  const inspectPort = Number(process.env[isClient ? "INSPECT_PORT" : "SERVER_INSPECT_PORT"])
+    || (isClient ? 5758 : 5757);
   const outputRoot = join(__dirname, `dist/${isClient ? "app" : "server"}/main/zh-CN`);
   outputApp = join(outputRoot, "app");
   outputPublic = join(outputApp, "public");
@@ -140,9 +142,9 @@ export default defineConfig(async ({ command, mode }) => {
     appDir: outputApp,
     main,
     entryFile: isClient ? "app.js" : "server.js",
-    inspectPort: isClient ? 5758 : 5757,
+    inspectPort,
     devConfig: {
-      inspectPort: isClient ? 5758 : 5757,
+      inspectPort,
     },
     env: {},
     ...(isClient ? {

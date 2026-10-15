@@ -17,6 +17,9 @@ import {
 import {
   normalizeVisibleFlowGroundingQuestions,
 } from './nocodeEditorFlowGroundingPresentation'
+import {
+  carryOverNocodeEditorFlowPersonnelProjectionFields,
+} from './nocodeEditorFlowPersonnelSourceOptions'
 import type {
   NocodeEditorFlowSchemeGroundingDiagnostic,
 } from './nocodeEditorFlowSchemeGrounding'
@@ -243,16 +246,19 @@ const projectIssueToVisibleQuestion = (
       : [],
   })
   const question = questions[0] || buildFallbackQuestionPayload(issue, index)
+  // 可见化投影只保留展示白名单字段，人员来源题依赖的 personnelDecision / personnelCandidate
+  // 需从 issue.questionPayload 原题回挂，否则卡片渲染侧的人员来源规范化守卫会失效。
+  const visibleQuestion = carryOverNocodeEditorFlowPersonnelProjectionFields(sourceQuestion, question)
   const decisionKey = normalizeText(sourceQuestion.decisionKey)
   return decisionKey
     ? {
-      ...question,
+      ...visibleQuestion,
       decisionKey,
       ...(sourceQuestion.decisionKeySource
         ? { decisionKeySource: sourceQuestion.decisionKeySource }
         : {}),
     }
-    : question
+    : visibleQuestion
 }
 
 const isLateStageReturnIssue = (issue: UnifiedFlowIssue) => (

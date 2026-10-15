@@ -5,6 +5,7 @@ import {
   FLOW_DATA_OWNER_SOURCE_SUBMITTER,
   FormOption,
   NocodeProcess,
+  NocodeProcessAiDeferredConfigItem,
   PROCESS_TARGET_SOURCE_UID,
   ProcessFlow,
   ProcessNodeOwnerType,
@@ -728,6 +729,7 @@ export const copyProcessVersionToForm = (
   sourceFlows: ProcessFlow[],
   targetProcess: NocodeProcess | undefined,
   context: CopyProcessContext,
+  sourceAiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[],
 ) => {
   const currentSubTableUIDSet = getCurrentAndTargetSubTableUIDs(context.currentTable);
   const currentTableUIDSet = new Set<string>([context.currentTable.uid, ...currentSubTableUIDSet]);
@@ -757,6 +759,11 @@ export const copyProcessVersionToForm = (
   nextProcess.versionStatusByVersion = nextProcess.versionStatusByVersion || {};
   nextProcess.flowsByVersion[getProcessVersionKey(nextVersion)] = copiedFlows;
   nextProcess.versionStatusByVersion[getProcessVersionKey(nextVersion)] = ProcessVersionStatus.DESIGNING;
+  // 继承源版本的 AI 延期配置记录，避免跨表单复制绕过启用前门禁（定位失效的项由门禁自行跳过）
+  if (sourceAiDeferredConfigItems?.length) {
+    nextProcess.aiDeferredConfigByVersion = nextProcess.aiDeferredConfigByVersion || {};
+    nextProcess.aiDeferredConfigByVersion[getProcessVersionKey(nextVersion)] = deepClone(sourceAiDeferredConfigItems);
+  }
   if (!nextProcess.version) {
     nextProcess.version = nextVersion;
   }

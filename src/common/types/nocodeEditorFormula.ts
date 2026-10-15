@@ -84,6 +84,14 @@ export type NocodeEditorFormulaPreflightIssue = {
   userActionRequired: boolean
 }
 
+export type NocodeEditorFormulaReferenceIssueCode =
+  | 'formula_reference_field_key_unknown'
+  | 'formula_reference_parent_invalid'
+  | 'formula_reference_ambiguous'
+  | 'formula_reference_container_not_scalar'
+  | 'formula_reference_source_unknown'
+  | 'formula_reference_runtime_token_missing'
+
 export type NocodeEditorFormulaTargetResult = {
   itemKey: string
   tableId?: string

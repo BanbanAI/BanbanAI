@@ -78,25 +78,28 @@ import { decodeHtml } from '@renderer/utils/replace';
 const props = withDefaults(defineProps<{
   block: AiAssistantArtifactBlock
   applying?: boolean
+  historical?: boolean
 }>(), {
   applying: false,
+  historical: false,
 })
 
 const emit = defineEmits<{
   (event: 'view', block: AiAssistantArtifactBlock): void
 }>()
 
-const caption = computed(() => resolveAiArtifactCaption(props.block))
+const caption = computed(() => resolveAiArtifactCaption(props.block, { historical: props.historical }))
 const title = computed(() => resolveAiArtifactTitle(props.block))
-const subtitle = computed(() => resolveAiArtifactSubtitle(props.block))
+const subtitle = computed(() => resolveAiArtifactSubtitle(props.block, { historical: props.historical }))
 const meta = computed(() => resolveAiArtifactMeta(props.block))
 const timeMeta = computed(() => meta.value.find(item => item.startsWith(i18next.t('artifactBlock.stagedAt', { time: '' }).trim())) || '')
 const statMeta = computed(() => meta.value.filter(item => item !== timeMeta.value))
 const canOpen = computed(() => canOpenAiArtifact(props.block))
-const viewLabel = computed(() => resolveAiArtifactViewLabel(props.block))
+const viewLabel = computed(() => resolveAiArtifactViewLabel(props.block, { historical: props.historical }))
 const versionLabel = computed(() => resolveAiArtifactVersionLabel(props.block))
 const statusTag = computed(() => resolveAiArtifactStatusTag(props.block, {
   applying: props.applying,
+  historical: props.historical,
 }))
 const statusTagTone = computed(() => resolveAiArtifactStatusTagTone(statusTag.value))
 </script>
@@ -268,6 +271,11 @@ const statusTagTone = computed(() => resolveAiArtifactStatusTagTone(statusTag.va
 .artifact-card-status.is-applied {
   background: #edf8f2;
   color: #2c8b66;
+}
+
+.artifact-card-status.is-historical {
+  background: #eef3f9;
+  color: #607791;
 }
 
 .artifact-card-subtitle {

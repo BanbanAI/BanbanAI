@@ -45,15 +45,30 @@ import {
 } from './ai-provider-stream-lifecycle'
 import {
   applyNocodeEditorOutputLimit,
+  resolveOutputLimitModelKwargs,
   throwIfIncompleteToolOutputAtLimit,
 } from './ai-provider-output-policy'
-import { tryParseToolArgumentJsonObject } from './ai-openai-tool-argument-repair.util'
+import {
+  type ToolArgumentRepairDiagnostic,
+  isToolArgumentRepairApplied,
+  tryParseToolArgumentJsonObject,
+} from './ai-openai-tool-argument-repair.util'
 import { AiAttachmentService } from '../thread/ai-attachment.service'
 import { AI_READ_ATTACHMENT_TOOL_NAME } from '../thread/ai-attachment-tool'
 import type { AiProviderModel } from '@common/types/ai-provider'
 import { aiModelSupportsImageInput, aiModelSupportsOpenAiArrayContent } from '@common/utils/aiModelCapabilities'
 import { AiContextWindowService } from '../runtime/ai-context-window.service'
-import { retainNocodeEditorStructuredMessagesAfterCompaction } from '../nocode-editor/nocode-editor-provider-context-projection.util'
+import {
+  estimateProviderRequestBodyBytes,
+  projectNocodeEditorProviderMessagesForContext,
+  retainNocodeEditorStructuredMessagesAfterCompaction,
+} from '../nocode-editor/nocode-editor-provider-context-projection.util'
+import { classifyAiProviderContextError } from './ai-provider-context-error.util'
+import {
+  isAiContextRecoveryRequested,
+  streamWithContextRecovery,
+} from './ai-provider-context-recovery.util'
+import { resolveAiProviderRequestWithProjectedMessages } from './ai-provider-context-request.util'
 
 type OpenAiRuntimeSettings = {
   apiKey: string
@@ -81,7 +96,10 @@ type OpenAiRuntimeSettings = {
   endpointTypes: AiProviderModel['endpointTypes']
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   contextWindow?: number | null
+  workbenchDefaultOutputTokens?: number | null
+  editorDefaultOutputTokens?: number | null
   supportsStreaming: boolean
   organization?: string
   temperature: number
@@ -311,7 +329,35 @@ export class AiOpenAiService {
     }
 
     try {
-      yield* this.streamTurnWithSettings(request, settings)
+      yield* streamWithContextRecovery({
+        request,
+        stream: activeRequest => this.streamTurnWithSettings(activeRequest, settings),
+        classify: classifyAiProviderContextError,
+        createRecoveryRequest: (sourceRequest, kind) => ({
+          ...sourceRequest,
+          metadata: {
+            ...(sourceRequest.metadata || {}),
+            contextRecoveryAttempt: 1,
+            contextRecoveryReason: kind,
+            contextRecoverySourceTraceId: this.getRequestTraceId(sourceRequest),
+          },
+        }),
+        createExhaustedError: (recoveryError, retryErrorKind, contextRecoveryAttempt) => new AiRuntimeUserActionableError(
+          retryErrorKind === 'body' ? 'AI_PROVIDER_REQUEST_BODY_TOO_LARGE' : 'AI_CONTEXT_WINDOW_EXCEEDED',
+          retryErrorKind === 'body'
+            ? `当前请求内容过大，${contextRecoveryAttempt ? '系统已尝试缩短上下文。' : ''}请减少附件、拆分需求或新建会话。`
+            : `当前对话上下文超过模型窗口，${contextRecoveryAttempt ? '系统已尝试缩短上下文。' : ''}请减少附件、拆分需求或新建会话。`,
+          'runtime',
+          recoveryError,
+          {
+            recoverable: true,
+            recoveryAction: 'compact_context',
+            contextBudgetExceededReason: retryErrorKind,
+            contextRecoveryAttempt,
+            sourceTraceId: this.getRequestTraceId(request),
+          },
+        ),
+      })
     } catch (error) {
       if (this.isAbortError(error, request.signal)) {
         return
@@ -372,9 +418,10 @@ export class AiOpenAiService {
     const defaultHeaders = this.buildTraceHeaders(request)
     const sdkApiKey = settings.apiKey || AiOpenAiService.NO_AUTH_PROVIDER_API_KEY
     const structuredJsonOptions = request?.metadata?.structuredJsonOptions as StructuredJsonInvokeOptions | undefined
+    const outputLimit = this.resolveOutputLimit(request, settings)
     const modelKwargs = applyNocodeEditorOutputLimit({
       scene: request.metadata?.scene,
-      modelKwargs: settings.modelKwargs,
+      modelKwargs: outputLimit.modelKwargs,
     })
 
     return new ChatOpenAI({
@@ -393,6 +440,25 @@ export class AiOpenAiService {
         defaultHeaders,
       },
     } as any)
+  }
+
+  private resolveOutputLimit(request: Pick<AiRelayTurnRequest, 'metadata'>, settings: OpenAiRuntimeSettings) {
+    return resolveOutputLimitModelKwargs({
+      scene: request.metadata?.scene,
+      modelKwargs: settings.modelKwargs,
+      maxOutputTokens: settings.maxOutputTokens,
+      contextWindow: settings.contextWindow,
+      workbenchDefaultOutputTokens: settings.workbenchDefaultOutputTokens,
+      editorDefaultOutputTokens: settings.editorDefaultOutputTokens,
+    })
+  }
+
+  private resolveInputBudget(request: Pick<AiRelayTurnRequest, 'metadata'>, settings: OpenAiRuntimeSettings) {
+    const outputLimit = this.resolveOutputLimit(request, settings)
+    return this.contextWindowService.resolveBudget({
+      ...settings,
+      configuredOutputTokens: outputLimit.effectiveOutputTokens,
+    }).inputBudget
   }
 
   private createProviderStreamLifecycle(request: AiRelayTurnRequest): AiProviderStreamLifecycle {
@@ -580,11 +646,86 @@ export class AiOpenAiService {
     request: AiRelayTurnRequest,
     settings: OpenAiRuntimeSettings,
   ): Promise<{ request: AiRelayTurnRequest; compacted: boolean }> {
-    if (request.messages.some(item => item.metadata?.contextCompaction === true)) {
-      return { request, compacted: false }
+    const removeAttachmentsForTraceId = String(request.metadata?.removeAttachmentsForTraceId || '').trim()
+    let attachmentsRemoved = false
+    let historyMessages = request.messages
+      .filter(item => this.shouldKeepHistoryMessageForModel(item))
+      .map((item) => {
+        if (
+          !removeAttachmentsForTraceId
+          || item.role !== AiMessageRole.USER
+          || String(item.metadata?.traceId || '').trim() !== removeAttachmentsForTraceId
+          || !Array.isArray(item.metadata?.attachments)
+        ) {
+          return item
+        }
+        attachmentsRemoved = true
+        const metadata = { ...item.metadata }
+        delete metadata.attachments
+        delete metadata.attachmentIntent
+        delete metadata.attachmentSummary
+        delete metadata.attachmentSummaryLines
+        delete metadata.providerPromptContent
+        return { ...item, metadata }
+      })
+    const inputBudget = this.resolveInputBudget(request, settings)
+    let editorProjectionCompacted = false
+    const isExplicitCompactRetry = request.metadata?.recoveryAction === 'compact_context'
+    const isRecoveryAttempt = isAiContextRecoveryRequested(request.metadata)
+    if (request.metadata?.scene === 'nocode-editor') {
+      const sourceHistoryMessages = historyMessages
+      const modeOrder = ['full', 'focused', 'minimal'] as const
+      const projections = modeOrder.map(projectionMode => ({
+        projectionMode,
+        result: projectNocodeEditorProviderMessagesForContext(historyMessages, { projectionMode }),
+      }))
+      const estimateTokens = (messages: AiProviderMessage[]) => (
+        this.contextWindowService.estimateMessagesTokens([
+          { role: AiMessageRole.SYSTEM, content: request.systemPrompt },
+          ...messages,
+          ...request.actionResults.map(result => ({
+            role: AiMessageRole.TOOL,
+            content: JSON.stringify(result.output ?? result.error ?? ''),
+          })),
+        ], settings) + this.contextWindowService.estimateTextTokens(request.actions.map(action => ({
+          name: action.name,
+          description: action.description,
+          inputSchema: action.inputSchema,
+          outputSchema: action.outputSchema,
+        })), settings)
+      )
+      const estimateBytes = (messages: AiProviderMessage[]) => estimateProviderRequestBodyBytes({
+        model: settings.model,
+        systemPrompt: request.systemPrompt,
+        actions: request.actions,
+        messages,
+        modelKwargs: this.resolveOutputLimit(request, settings).modelKwargs,
+        reasoning: request.reasoning,
+        temperature: settings.temperature,
+        stream: true,
+      })
+      const fullTokens = estimateTokens(projections[0].result.messages)
+      const remainingRatio = (inputBudget - fullTokens) / inputBudget
+      let selectedIndex = isRecoveryAttempt
+        ? 2
+        : remainingRatio > 0.6 ? 0 : remainingRatio > 0.3 ? 1 : 2
+      while (selectedIndex < projections.length - 1) {
+        const candidate = projections[selectedIndex].result.messages
+        const exceedsTokenBudget = estimateTokens(candidate) > inputBudget
+        const maxBodyBytes = Number(settings.maxRequestBodyBytes || 0)
+        const exceedsKnownBodyLimit = maxBodyBytes > 0 && estimateBytes(candidate) > maxBodyBytes
+        if (!exceedsTokenBudget && !exceedsKnownBodyLimit) break
+        selectedIndex += 1
+      }
+      historyMessages = projections[selectedIndex].result.messages
+      editorProjectionCompacted = projections[selectedIndex].result.compacted
+        || JSON.stringify(historyMessages) !== JSON.stringify(sourceHistoryMessages)
     }
-    const historyMessages = request.messages.filter(item => this.shouldKeepHistoryMessageForModel(item))
-    const inputBudget = this.contextWindowService.resolveInputBudget(settings)
+    const projectedRequest = resolveAiProviderRequestWithProjectedMessages(
+      request,
+      historyMessages,
+      editorProjectionCompacted || attachmentsRemoved,
+    )
     const estimatedTokens = this.contextWindowService.estimateMessagesTokens([
       { role: AiMessageRole.SYSTEM, content: request.systemPrompt },
       ...historyMessages,
@@ -598,12 +739,51 @@ export class AiOpenAiService {
       inputSchema: action.inputSchema,
       outputSchema: action.outputSchema,
     })), settings)
-    if (!this.contextWindowService.shouldCompact(estimatedTokens, inputBudget)) {
-      return { request, compacted: false }
+    const estimatedBodyBytes = estimateProviderRequestBodyBytes({
+      model: settings.model,
+      systemPrompt: request.systemPrompt,
+      actions: request.actions,
+      messages: historyMessages,
+      modelKwargs: this.resolveOutputLimit(request, settings).modelKwargs,
+      reasoning: request.reasoning,
+      temperature: settings.temperature,
+      stream: true,
+    })
+    const exceedsKnownBodyLimit = Number(settings.maxRequestBodyBytes || 0) > 0
+      && estimatedBodyBytes > Number(settings.maxRequestBodyBytes)
+    const shouldPrecompact = this.contextWindowService.shouldCompact(estimatedTokens, inputBudget)
+      || exceedsKnownBodyLimit
+      || isExplicitCompactRetry
+    if (!isRecoveryAttempt && !shouldPrecompact) {
+      return { request: projectedRequest, compacted: editorProjectionCompacted }
     }
 
-    const { old } = this.contextWindowService.splitHistory(historyMessages)
+    const { old } = this.contextWindowService.splitHistoryWithRecentCount(
+      historyMessages,
+      isRecoveryAttempt ? 2 : AiContextWindowService.RECENT_MESSAGE_COUNT,
+    )
     if (!old.length) {
+      if (editorProjectionCompacted || attachmentsRemoved) {
+        return { request: projectedRequest, compacted: editorProjectionCompacted }
+      }
+      if (isRecoveryAttempt) {
+        const reason = request.metadata?.contextRecoveryReason === 'body' ? 'body' : 'token'
+        throw new AiRuntimeUserActionableError(
+          reason === 'body' ? 'AI_PROVIDER_REQUEST_BODY_TOO_LARGE' : 'AI_CONTEXT_WINDOW_EXCEEDED',
+          reason === 'body'
+            ? '当前请求内容已无法进一步缩短。请减少附件、拆分需求或新建会话。'
+            : '当前对话上下文已无法进一步压缩。请减少附件、拆分需求或新建会话。',
+          'runtime',
+          undefined,
+          {
+            recoverable: true,
+            recoveryAction: 'compact_context',
+            contextBudgetExceededReason: reason,
+            contextRecoveryAttempt: 1,
+            sourceTraceId: this.getRequestTraceId(request),
+          },
+        )
+      }
       return { request, compacted: false }
     }
 
@@ -660,6 +840,7 @@ export class AiOpenAiService {
       inputBudget,
       currentEvidenceTokens: request.actionResults.length,
       tokenContext: settings,
+      recentMessageCount: isRecoveryAttempt ? 2 : undefined,
     })
     if (request.metadata?.scene === 'nocode-editor') {
       projected.messages = retainNocodeEditorStructuredMessagesAfterCompaction({
@@ -710,7 +891,11 @@ export class AiOpenAiService {
     }
   }
 
-  private buildPromptDiagnostics(request: AiRelayTurnRequest, messages: Array<SystemMessage | HumanMessage | AIMessage | ToolMessage>): AiPromptDiagnostics {
+  private buildPromptDiagnostics(
+    request: AiRelayTurnRequest,
+    messages: Array<SystemMessage | HumanMessage | AIMessage | ToolMessage>,
+    settings: OpenAiRuntimeSettings,
+  ): AiPromptDiagnostics {
     const conversationProfile = this.normalizeConversationProfile(request.metadata?.conversationProfile)
     const allowedAppIds = this.normalizePromptIdList(request.metadata?.appScope?.appIds)
     const currentAccessibleAppsSignature = String(
@@ -778,9 +963,7 @@ export class AiOpenAiService {
       currentActionResultChars: currentActionResultPrompt.length,
       historyPromptSnapshotChars,
       contextCompacted: request.metadata?.contextCompaction !== undefined,
-      contextBudgetTokens: this.contextWindowService.resolveInputBudget(
-        request.metadata?.modelRouting || {},
-      ),
+      contextBudgetTokens: this.resolveInputBudget(request, settings),
     }
   }
 
@@ -2994,8 +3177,8 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       yield { type: AiStreamEventType.CONTEXT_COMPACTION_COMPLETED, raw: projectedRequest.metadata?.contextCompaction }
     }
     const messages = await this.buildMessagesForModel(projectedRequest)
-    const promptDiagnostics = this.buildPromptDiagnostics(projectedRequest, messages)
-    const inputBudget = this.contextWindowService.resolveInputBudget(settings)
+    const promptDiagnostics = this.buildPromptDiagnostics(projectedRequest, messages, settings)
+    const inputBudget = this.resolveInputBudget(request, settings)
     const toolSchemaTokens = this.contextWindowService.estimateTextTokens(projectedRequest.actions.map(action => ({
       name: action.name,
       description: action.description,
@@ -3003,11 +3186,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       outputSchema: action.outputSchema,
     })), settings)
     if (promptDiagnostics.estimatedTokens + toolSchemaTokens > inputBudget) {
-      throw new AiRuntimeUserActionableError(
-        'AI_CONTEXT_WINDOW_EXCEEDED',
-        '当前对话上下文超过模型窗口，请减少本轮附件或继续新建会话',
-        'runtime',
-      )
+      this.logger.warn(`AI prompt estimate exceeds input budget; allowing one provider attempt after preflight projection (${promptDiagnostics.estimatedTokens + toolSchemaTokens}/${inputBudget})`)
     }
     const toolChoice = this.resolveToolChoice(projectedRequest)
     const parallelToolCalls = await this.resolveParallelToolCalls(projectedRequest, settings)
@@ -3088,7 +3267,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     })), settings)
     return this.contextWindowService.shouldCompact(
       estimatedTokens,
-      this.contextWindowService.resolveInputBudget(settings),
+      this.resolveInputBudget(request, settings),
     ) && historyMessages.length > AiContextWindowService.RECENT_MESSAGE_COUNT
   }
 
@@ -3542,14 +3721,14 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
   }
 
   private extractToolCalls(response: any, actions: AiActionDefinition[]) {
-    const rawCalls = this.extractRawToolCalls(response)
+    const rawCalls = this.extractRawToolCallsWithDiagnostics(response).calls
 
     return rawCalls
       .map((call: any) => this.toActionCall(call, actions))
       .filter(Boolean) as AiActionCall[]
   }
 
-  private extractRawToolCalls(response: any) {
+  private extractRawToolCallsWithDiagnostics(response: any) {
     const directToolCalls = Array.isArray(response?.tool_calls)
       ? response.tool_calls
       : []
@@ -3561,32 +3740,38 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     )
     const mergedToolCalls = this.dedupeRawToolCalls([
       ...directToolCalls,
-      ...recoveredFromAdditionalKwargs,
-      ...recoveredFromInvalidToolCalls,
+      ...recoveredFromAdditionalKwargs.calls,
+      ...recoveredFromInvalidToolCalls.calls,
     ])
 
     if (
       !directToolCalls.length
       && mergedToolCalls.length
-      && (recoveredFromAdditionalKwargs.length || recoveredFromInvalidToolCalls.length)
+      && (recoveredFromAdditionalKwargs.calls.length || recoveredFromInvalidToolCalls.calls.length)
     ) {
       const sources = [
-        recoveredFromAdditionalKwargs.length
-          ? `additional_kwargs.tool_calls=${recoveredFromAdditionalKwargs.length}`
+        recoveredFromAdditionalKwargs.calls.length
+          ? `additional_kwargs.tool_calls=${recoveredFromAdditionalKwargs.calls.length}`
           : '',
-        recoveredFromInvalidToolCalls.length
-          ? `invalid_tool_calls=${recoveredFromInvalidToolCalls.length}`
+        recoveredFromInvalidToolCalls.calls.length
+          ? `invalid_tool_calls=${recoveredFromInvalidToolCalls.calls.length}`
           : '',
       ].filter(Boolean).join(', ')
       this.logger.warn(`OpenAI structured tool_calls 为空，已从 ${sources} 恢复 ${mergedToolCalls.length} 个工具调用`)
     }
 
-    return mergedToolCalls
+    return {
+      calls: mergedToolCalls,
+      repairs: [
+        ...recoveredFromAdditionalKwargs.repairs,
+        ...recoveredFromInvalidToolCalls.repairs,
+      ],
+    }
   }
 
   private recoverToolCallsFromAdditionalKwargs(rawToolCalls: any) {
     if (!Array.isArray(rawToolCalls) || !rawToolCalls.length) {
-      return []
+      return { calls: [], repairs: [] }
     }
 
     const groups: Array<{
@@ -3622,47 +3807,86 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       })
     }
 
-    return groups.flatMap(group => {
+    const repairs: ToolArgumentRepairDiagnostic[] = []
+    const calls = groups.flatMap(group => {
       if (!group.name || !group.argumentsText.trim()) {
         return []
       }
 
-      const parsedArgs = this.tryParseToolArgumentObject(group.argumentsText)
-      if (!parsedArgs) {
+      const parsed = tryParseToolArgumentJsonObject(group.argumentsText)
+      if (!parsed) {
         return []
       }
+      this.collectToolArgumentRepairDiagnostic(
+        repairs,
+        'additional_kwargs',
+        group.name,
+        parsed.repairKind,
+        parsed.sourceText,
+      )
 
       return [{
         id: group.id,
         name: group.name,
-        args: parsedArgs,
+        args: parsed.value,
       }]
     })
+
+    return { calls, repairs }
   }
 
   private recoverToolCallsFromInvalidToolCalls(rawToolCalls: any) {
     if (!Array.isArray(rawToolCalls) || !rawToolCalls.length) {
-      return []
+      return { calls: [], repairs: [] }
     }
 
-    return rawToolCalls.flatMap((rawToolCall: any) => {
+    const repairs: ToolArgumentRepairDiagnostic[] = []
+    const calls = rawToolCalls.flatMap((rawToolCall: any) => {
       const name = String(rawToolCall?.name || rawToolCall?.function?.name || '').trim()
       if (!name) {
         return []
       }
 
-      const parsedArgs = this.tryParseToolArgumentObject(
+      const parsed = tryParseToolArgumentJsonObject(
         rawToolCall?.args ?? rawToolCall?.arguments ?? rawToolCall?.function?.arguments,
       )
-      if (!parsedArgs) {
+      if (!parsed) {
         return []
       }
+      this.collectToolArgumentRepairDiagnostic(
+        repairs,
+        'invalid_tool_calls',
+        name,
+        parsed.repairKind,
+        parsed.sourceText,
+      )
 
       return [{
         id: String(rawToolCall?.id || '').trim() || undefined,
         name,
-        args: parsedArgs,
+        args: parsed.value,
       }]
+    })
+
+    return { calls, repairs }
+  }
+
+  private collectToolArgumentRepairDiagnostic(
+    repairs: ToolArgumentRepairDiagnostic[],
+    source: ToolArgumentRepairDiagnostic['source'],
+    name: string,
+    repairKind: ToolArgumentRepairDiagnostic['repairKind'],
+    sourceText?: string,
+  ) {
+    if (!isToolArgumentRepairApplied(repairKind)) {
+      return
+    }
+
+    repairs.push({
+      source,
+      name,
+      repairKind,
+      sourceChars: sourceText?.length || 0,
     })
   }
 
@@ -4150,7 +4374,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
   ): AsyncGenerator<AiRelayStreamEvent, void, void> {
     const usage = this.extractUsage(response)
     const toolCalls = this.extractToolCalls(response, request.actions)
-    const rawToolCalls = this.extractRawToolCalls(response)
+    const {
+      calls: rawToolCalls,
+      repairs: toolArgumentRepairs,
+    } = this.extractRawToolCallsWithDiagnostics(response)
     const invalidToolCallCount = Array.isArray(response?.invalid_tool_calls)
       ? response.invalid_tool_calls.length
       : 0
@@ -4190,6 +4417,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       invalidToolCalls: response?.invalid_tool_calls || [],
       invalidToolCallCount,
       toolCallRepairAttempted,
+      toolArgumentRepairs,
       additionalKwargs: response?.additional_kwargs || {},
       responseMetadata: response?.response_metadata || {},
     })
@@ -4255,6 +4483,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
           invalidToolCalls: this.summarizeInvalidToolCalls(response?.invalid_tool_calls),
           invalidToolCallCount,
           toolCallRepairAttempted,
+          toolArgumentRepairs,
           parallelToolCallsRequested: request.metadata?.parallelToolCallsRequested === true,
           parallelToolCalls: request.metadata?.parallelToolCalls === true,
           parallelToolCallsRetried: request.metadata?.parallelToolCallsRetried === true,
@@ -4263,6 +4492,13 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
         },
       }
       return
+    }
+
+    if (finishReason === 'length' && text.trim()) {
+      yield {
+        type: AiStreamEventType.DELTA,
+        text: `\n\n${global.i18next.t('AiOpenaiService.outputMayBeIncomplete')}`,
+      }
     }
 
     yield {
@@ -4286,6 +4522,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
         invalidToolCalls: this.summarizeInvalidToolCalls(response?.invalid_tool_calls),
         invalidToolCallCount,
         toolCallRepairAttempted,
+        toolArgumentRepairs,
         parallelToolCallsRequested: request.metadata?.parallelToolCallsRequested === true,
         parallelToolCalls: request.metadata?.parallelToolCalls === true,
         parallelToolCallsRetried: request.metadata?.parallelToolCallsRetried === true,
@@ -4495,6 +4732,23 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     this.throwIfAborted(request.signal)
     const providerAwareInit = this.buildProviderAwareRequestInit(settings, init)
     const requestBodyBytes = this.measureRequestBodyBytes(providerAwareInit.body)
+    const maxRequestBodyBytes = Number(settings.maxRequestBodyBytes || 0)
+    if (maxRequestBodyBytes > 0 && requestBodyBytes > maxRequestBodyBytes) {
+      throw new AiRuntimeUserActionableError(
+        'AI_PROVIDER_REQUEST_BODY_TOO_LARGE',
+        '当前请求内容过大，系统已保留必要上下文，但仍无法发送。请减少附件、拆分需求或新建会话。',
+        'runtime',
+        undefined,
+        {
+          recoverable: true,
+          recoveryAction: 'compact_context',
+          contextBudgetExceededReason: 'body',
+          actualBodyBytes: requestBodyBytes,
+          maxRequestBodyBytes,
+          scene: request.metadata?.scene,
+        },
+      )
+    }
     await this.logDebugPayload(request.conversationId, 'OpenAI Request Payload', {
       round: this.getRequestRound(request),
       traceId: this.getRequestTraceId(request),
@@ -4738,7 +4992,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       endpointTypes: fallbackRuntimeConfig.endpointTypes,
       maxInputTokens: fallbackRuntimeConfig.maxInputTokens,
       maxOutputTokens: fallbackRuntimeConfig.maxOutputTokens,
+      maxRequestBodyBytes: fallbackRuntimeConfig.maxRequestBodyBytes,
       contextWindow: fallbackRuntimeConfig.contextWindow,
+      workbenchDefaultOutputTokens: fallbackRuntimeConfig.workbenchDefaultOutputTokens,
+      editorDefaultOutputTokens: fallbackRuntimeConfig.editorDefaultOutputTokens,
       supportsStreaming: fallbackRuntimeConfig.supportsStreaming,
       organization: undefined,
       model: this.requireResolvedModel(
@@ -5162,7 +5419,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       endpointTypes: runtimeConfig.endpointTypes,
       maxInputTokens: runtimeConfig.maxInputTokens,
       maxOutputTokens: runtimeConfig.maxOutputTokens,
+      maxRequestBodyBytes: runtimeConfig.maxRequestBodyBytes,
       contextWindow: runtimeConfig.contextWindow,
+      workbenchDefaultOutputTokens: runtimeConfig.workbenchDefaultOutputTokens,
+      editorDefaultOutputTokens: runtimeConfig.editorDefaultOutputTokens,
       supportsStreaming: runtimeConfig.supportsStreaming,
       organization: undefined,
       model: this.requireResolvedModel(

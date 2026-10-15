@@ -331,6 +331,16 @@ export const resolveBlueprintExplicitWidgetType = (value: unknown) => {
   return rawWidgetType
 }
 
+export const GENERIC_BLUEPRINT_WIDGET_TYPES = new Set([
+  '',
+  'widget.form.textInput',
+  'widget.form.numberInput',
+])
+
+export const isGenericBlueprintWidgetType = (value: unknown) => (
+  GENERIC_BLUEPRINT_WIDGET_TYPES.has(resolveBlueprintExplicitWidgetType(value))
+)
+
 export const buildBlueprintFieldIntentSignals = (
   input: BlueprintFieldIntentInput,
 ): BlueprintFieldIntentSignals => ({
@@ -498,6 +508,30 @@ const genericFallbackDecision = (): BlueprintFieldIntentDecision => createDecisi
   matchedSignals: [],
 })
 
+// 名称歧义分支下，模型显式给出的 widgetType 若已是该问题的候选答案，则直接信任、不再复问
+const resolveTrustedExplicitWidgetDecision = (
+  signals: BlueprintFieldIntentSignals,
+  options: {
+    capabilityFamily: BlueprintFieldIntentCapabilityFamily
+    widgetTypes: string[]
+    matchedSignal: string
+  },
+): BlueprintFieldIntentDecision | undefined => {
+  const explicitWidgetType = signals.explicitWidgetType
+  if (!explicitWidgetType || !options.widgetTypes.includes(explicitWidgetType)) {
+    return undefined
+  }
+  return createDecision({
+    intent: 'generic',
+    capabilityFamily: options.capabilityFamily,
+    widgetType: explicitWidgetType,
+    trustedExplicitWidgetType: explicitWidgetType,
+    confidence: 'high',
+    requiresClarification: false,
+    matchedSignals: [options.matchedSignal, `explicit-widget:${explicitWidgetType}`],
+  })
+}
+
 const buildRelationSemanticText = (signals: BlueprintFieldIntentSignals) => [
   signals.fieldName,
   signals.description,
@@ -595,7 +629,9 @@ const resolvePlanningTextFirstStrategyHint = (
       .map(alias => normalizeIntentToken(alias))
       .filter(Boolean)
     const sameRelationDomain = hintAliases.some(alias => normalizedRelationAliases.includes(alias))
-    if (!sameRelationDomain) {
+    const targetFieldKey = normalizeIntentToken(hint.targetFieldKey)
+    const currentFieldKey = normalizeIntentToken(signals.fieldName)
+    if (!sameRelationDomain && (!targetFieldKey || targetFieldKey !== currentFieldKey)) {
       continue
     }
 
@@ -665,6 +701,14 @@ const organizationIdentityResolvers: BlueprintFieldIntentResolver[] = [
   ({ signals }) => {
     const ambiguousDepartmentKeyword = findKeyword(signals.fieldName, AMBIGUOUS_DEPARTMENT_KEYWORDS)
     if (!ambiguousDepartmentKeyword) return undefined
+    const trustedExplicitWidgetDecision = resolveTrustedExplicitWidgetDecision(signals, {
+      capabilityFamily: 'organization-identity',
+      widgetTypes: ['widget.form.departmentSelect', 'widget.form.memberSelect'],
+      matchedSignal: `ambiguous-department:${ambiguousDepartmentKeyword}`,
+    })
+    if (trustedExplicitWidgetDecision) {
+      return trustedExplicitWidgetDecision
+    }
     return createDecision({
       intent: 'ambiguous-relation',
       capabilityFamily: 'organization-identity',
@@ -792,6 +836,14 @@ const personResolvers: BlueprintFieldIntentResolver[] = [
         matchedSignals: [`direct-relation-person:${directRelationKeyword}`, 'source'],
       })
     }
+    const trustedExplicitWidgetDecision = resolveTrustedExplicitWidgetDecision(signals, {
+      capabilityFamily: 'organization-identity',
+      widgetTypes: ['widget.form.memberSelect', 'widget.form.textInput'],
+      matchedSignal: `ambiguous-relation:${directRelationKeyword}`,
+    })
+    if (trustedExplicitWidgetDecision) {
+      return trustedExplicitWidgetDecision
+    }
     return createDecision({
       intent: 'ambiguous-person',
       capabilityFamily: 'organization-identity',
@@ -804,6 +856,14 @@ const personResolvers: BlueprintFieldIntentResolver[] = [
   ({ signals }) => {
     const ambiguousKeyword = findAmbiguousPersonKeyword(signals.fieldName)
     if (!ambiguousKeyword) return undefined
+    const trustedExplicitWidgetDecision = resolveTrustedExplicitWidgetDecision(signals, {
+      capabilityFamily: 'organization-identity',
+      widgetTypes: ['widget.form.memberSelect', 'widget.form.textInput'],
+      matchedSignal: `ambiguous-keyword:${ambiguousKeyword}`,
+    })
+    if (trustedExplicitWidgetDecision) {
+      return trustedExplicitWidgetDecision
+    }
     return createDecision({
       intent: 'ambiguous-person',
       capabilityFamily: 'organization-identity',
@@ -953,6 +1013,18 @@ const timeGranularityResolvers: BlueprintFieldIntentResolver[] = [
   ({ signals, semanticText }) => {
     const fullText = `${signals.fieldName} ${semanticText}`.trim()
     if (matchesAnyPattern(signals.fieldName, AMBIGUOUS_TIME_PATTERNS)) {
+      const trustedExplicitWidgetDecision = resolveTrustedExplicitWidgetDecision(signals, {
+        capabilityFamily: 'time-granularity',
+        widgetTypes: [
+          'widget.form.datePicker',
+          'widget.form.timePicker',
+          'widget.form.dateRangePicker',
+        ],
+        matchedSignal: 'time-ambiguous',
+      })
+      if (trustedExplicitWidgetDecision) {
+        return trustedExplicitWidgetDecision
+      }
       return createDecision({
         intent: 'generic',
         capabilityFamily: 'time-granularity',
@@ -1000,6 +1072,14 @@ const mediaEvidenceResolvers: BlueprintFieldIntentResolver[] = [
   ({ signals, semanticText }) => {
     const fullText = `${signals.fieldName} ${semanticText}`.trim()
     if (matchesAnyPattern(signals.fieldName, AMBIGUOUS_ATTACHMENT_PATTERNS)) {
+      const trustedExplicitWidgetDecision = resolveTrustedExplicitWidgetDecision(signals, {
+        capabilityFamily: 'media-evidence',
+        widgetTypes: ['widget.form.image-uploader', 'widget.form.file-uploader'],
+        matchedSignal: 'attachment-ambiguous',
+      })
+      if (trustedExplicitWidgetDecision) {
+        return trustedExplicitWidgetDecision
+      }
       return createDecision({
         intent: 'generic',
         capabilityFamily: 'media-evidence',

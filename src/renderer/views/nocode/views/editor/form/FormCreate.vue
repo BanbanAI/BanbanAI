@@ -90,7 +90,7 @@
 </template>
 
 <script lang='ts' setup>
-import { Connection, Table, ProjectPreviewPlatform, FormOption, ProcessVersionStatus, SettingTab } from '@common/types/project';
+import { Connection, Table, ProjectPreviewPlatform, FormOption, NocodeProcessAiDeferredConfigItem, ProcessVersionStatus, SettingTab } from '@common/types/project';
 import { ref, reactive, computed, inject, nextTick, watch, onBeforeUnmount } from 'vue';
 import { provideFormData, provideFormOption, provideFormTable } from './hooks';
 import { useMagicKeys, whenever } from '@vueuse/core';
@@ -113,7 +113,9 @@ import {
 import { resolveFormSaveLoadingTarget } from './formSaveLoadingTarget';
 import { buildBlueprintDraftPersistenceState } from '../ai/blueprintDraftSaveState';
 import {
+  buildResolvedDraftPersistenceState,
   isDraftPersistenceStateDraftOnly,
+  isDraftPersistenceStateResolved,
   resolveRefreshedDraftPersistenceState,
   shouldBlockNavigationForDraftPersistenceState,
 } from '../ai/draftIssueActionList';
@@ -199,23 +201,61 @@ const getCurrentAiDraftPersistenceSource = () => ({
   sourceBlueprintVersionKey: aiDraftPersistenceState.value?.sourceBlueprintVersionKey,
 });
 
-const buildSavedFormDraftPersistenceState = (
+const hasHistoricalFormDraftIssues = (
+  state?: NocodeEditorAiDraftPersistenceState | null,
+) => (
+  isDraftPersistenceStateDraftOnly(state)
+  && Boolean(
+    (Array.isArray(state?.actionIssues) && state.actionIssues.length > 0)
+    || (Array.isArray(state?.resolvedIssues) && state.resolvedIssues.length > 0)
+    || (Array.isArray(state?.issues) && state.issues.length > 0)
+  )
+)
+
+// 暂存/保存后的重新校验结果必须显式上报：清空展示态不代表配置已补齐，
+// “已完成”只能由校验为空的 resolved 态驱动；校验仍有 issue 时维持清单并保留草稿来源身份。
+const buildRevalidatedFormDraftPersistenceState = (
   issues: FormDesignValidationIssue[] = [],
+  options: { previousDraftState?: NocodeEditorAiDraftPersistenceState | null } = {},
 ): NocodeEditorAiDraftPersistenceState | null => {
-  if (!issues.length) {
+  const previousDraftState = options.previousDraftState || aiDraftPersistenceState.value;
+  const currentFormId = getCurrentFormIdentity();
+  const previousDraftFormId = String(previousDraftState?.sourceFormId || '').trim();
+  const isSameFormDraft = !previousDraftFormId || !currentFormId || previousDraftFormId === currentFormId;
+  const sourceFromDraft = isSameFormDraft && previousDraftState
+    ? {
+      sourceTraceId: previousDraftState.sourceTraceId,
+      sourceBlueprintIdentityKey: previousDraftState.sourceBlueprintIdentityKey,
+      sourceBlueprintVersionKey: previousDraftState.sourceBlueprintVersionKey,
+    }
+    : getCurrentAiDraftPersistenceSource();
+  if (issues.length) {
+    return buildBlueprintDraftPersistenceState({
+      ok: true,
+      persistedToSession: true,
+      persistedToApp: true,
+      hasBlockingIssues: true,
+      issues,
+      summary: summarizeFormDesignValidationIssues(issues).summary,
+      ...getAiDraftFormContext(),
+    }, {
+      dirty: false,
+      ...sourceFromDraft,
+      sourceFormId: (isSameFormDraft ? previousDraftState?.sourceFormId : '') || currentFormId || undefined,
+    });
+  }
+  if (!isSameFormDraft || !hasHistoricalFormDraftIssues(previousDraftState)) {
     return null;
   }
-  return buildBlueprintDraftPersistenceState({
-    ok: true,
-    persistedToSession: true,
-    persistedToApp: true,
-    hasBlockingIssues: true,
-    issues,
-    summary: summarizeFormDesignValidationIssues(issues).summary,
-    ...getAiDraftFormContext(),
-  }, {
-    dirty: false,
-    ...getCurrentAiDraftPersistenceSource(),
+  if (isDraftPersistenceStateResolved(previousDraftState)) {
+    return previousDraftState;
+  }
+  return buildResolvedDraftPersistenceState(previousDraftState, {
+    resolvedAt: Date.now(),
+    sourceTraceId: previousDraftState.sourceTraceId,
+    sourceBlueprintIdentityKey: previousDraftState.sourceBlueprintIdentityKey,
+    sourceBlueprintVersionKey: previousDraftState.sourceBlueprintVersionKey,
+    sourceFormId: previousDraftState.sourceFormId,
   });
 }
 
@@ -471,7 +511,9 @@ const restoreFormDesignValidationErrors = async () => {
   return [];
 }
 
-const restoreSavedFormDraftPersistenceState = async () => {
+const restoreSavedFormDraftPersistenceState = async (
+  previousDraftState?: NocodeEditorAiDraftPersistenceState | null,
+) => {
   if (hasDirtyDraftPersistenceState() && hasLocalChanges.value) {
     return aiDraftPersistenceState.value;
   }
@@ -481,7 +523,7 @@ const restoreSavedFormDraftPersistenceState = async () => {
     await nextTick();
     issues = formDesignerRef.value?.getDesignValidationIssues?.() || [];
   }
-  const nextState = buildSavedFormDraftPersistenceState(issues);
+  const nextState = buildRevalidatedFormDraftPersistenceState(issues, { previousDraftState });
   emitDraftPersistenceStateChange(nextState);
   return nextState;
 }
@@ -587,9 +629,13 @@ const saveProcess = async (_connection = formData.value) => {
   _connection.formOptions = getOptions();
   return _connection;
 }
-const saveProcessForAiDraft = async (_connection = formData.value) => {
+const saveProcessForAiDraft = async (
+  _connection = formData.value,
+  aiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[],
+) => {
   const result = await formProcessRef.value?.save?.({
     skipValidation: true,
+    aiDeferredConfigItems,
   });
   _connection.formOptions = getOptions();
   return {
@@ -602,6 +648,11 @@ const save = async (noMessage = false, noLoading = false): Promise<FormSaveResul
     !noMessage && ElMessage.info(i18next.t('formCreate.noSave'))
     return 'unchanged'
   };
+
+    // props.save 会清空 AI 草稿展示态，先留存草稿快照，供保存后的重新校验判定是否补齐并保留来源身份
+    const draftStateBeforeSave = isDraftPersistenceStateDraftOnly(aiDraftPersistenceState.value)
+      ? aiDraftPersistenceState.value
+      : null;
 
     const loadingInstance = noLoading ? null : ElLoading.service({
       text: i18next.t('formCreate.saving'),
@@ -635,7 +686,7 @@ const save = async (noMessage = false, noLoading = false): Promise<FormSaveResul
       }
     }
     if (result === 'saved' || result === 'unchanged') {
-      emitDraftPersistenceStateChange(null);
+      await restoreSavedFormDraftPersistenceState(draftStateBeforeSave);
     }
     if (loadingInstance) {
       loadingInstance.close();
@@ -656,12 +707,14 @@ const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
   const formContext = getAiDraftFormContext()
   const shouldPersistToApp = Boolean(options.persistToApp)
   if (!hasLocalChanges.value) {
+    // 没有本地改动不等于配置已补齐：仍按当前设计态重新校验，避免把“未重新校验”误报成“问题已解决”
+    const issues = formDesignerRef.value?.getDesignValidationIssues?.() || []
     return {
       ok: true,
       persistedToSession: true,
       persistedToApp: shouldPersistToApp,
-      hasBlockingIssues: false,
-      issues: [],
+      hasBlockingIssues: issues.length > 0,
+      issues,
       ...formContext,
     }
   }
@@ -690,7 +743,7 @@ const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
     try {
       assertAiDraftPersistenceRefreshActive(refreshGuard)
       if (options.skipProcessValidation) {
-        const processDraftResult = await saveProcessForAiDraft(_formData)
+        const processDraftResult = await saveProcessForAiDraft(_formData, options.aiDeferredConfigItems)
         _formData = processDraftResult.formData
         flowIssueState = processDraftResult.flowIssueState || null
       } else {
@@ -726,7 +779,7 @@ const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
     formDesignerRef.value?.resetChangeTracking?.()
     formProcessRef.value?.markSaved?.()
     aiDraftDirty.value = false
-    emitDraftPersistenceStateChange(null)
+    emitDraftPersistenceStateChange(buildRevalidatedFormDraftPersistenceState([]))
   }
   const summary = summarizeFormDesignValidationIssues(issues).summary
   return {
@@ -1025,6 +1078,7 @@ const closeForm = async () => {
 }
 
 whenever(and(or(Meta_S, Ctrl_S)), () => {
+  if (props.blueprintApplyingReadonly) return;
   if (!formData.value || !originTable.value) return;
   save();
 });

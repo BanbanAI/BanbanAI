@@ -137,7 +137,7 @@ import {
   useFormOption,
 } from './hooks';
 import { Branch, BranchNode, ProcessNode } from './process/process';
-import { FormOption, NocodeProcess, ProcessFlow, ProcessNodeType, ProcessVersionStatus, WidgetSoul } from '@common/types/project';
+import { FormOption, NocodeProcess, NocodeProcessAiDeferredConfigItem, ProcessFlow, ProcessNodeType, ProcessVersionStatus, WidgetSoul } from '@common/types/project';
 import { isEmpty } from '@common/utils/object';
 import { NOCODE, NOCODE_SIGN_IS_LATEST, ORGANIZE_UTIL, UPDATE_NOCODE_SIGN } from '@renderer/types';
 import { cloneDeep } from 'lodash';
@@ -146,6 +146,7 @@ import {
   getFormElementsInfo,
   getEnabledProcessVersion,
   getMaxProcessVersion,
+  getProcessAiDeferredConfigItems,
   getProcessVersionKey,
   getProcessVersionNumbers,
   getProcessVersionStatus,
@@ -153,6 +154,8 @@ import {
   hasProcessVersion,
   canEnableProcessVersion,
   canDisableProcessVersion,
+  inheritProcessAiDeferredConfigItems,
+  resolveUnsatisfiedProcessAiDeferredConfigItems,
   isSystemField,
   SystemField,
 } from '@common/utils';
@@ -168,6 +171,8 @@ import ProcessVersionManagerDialog from './process/ProcessVersionManagerDialog.v
 import FormSaveTipDialog from './dialogs/FormSaveTipDialog.vue';
 import {
   applyAiFlowPlan as buildAppliedAiFlowPlan,
+  auditAppliedFlowDefaultSettings,
+  auditAppliedFlowRisks,
   buildAiFlowSummary,
   compileAiFlowPatchNode,
   inspectRuntimeFlowIssueState,
@@ -200,7 +205,7 @@ import CopyProcessToFormDialog from './process/CopyProcessToFormDialog.vue';
 import { buildCrossAppTargetForms, copyProcessVersionToForm, getCopyableTargetForms, getTargetTableByUID, type CopyableTargetForm } from './utils/processCopy';
 import axios, { AxiosError } from 'axios';
 import { checkNocodeSyncBeforeRequest, handleNocodeSyncConflictError } from '@renderer/utils/nocodeSyncMessage';
-import { useShareNocodeCacheStore } from '@renderer/stores';
+import { useShareNocodeCacheStore, useOrganizeCacheStore } from '@renderer/stores';
 import { projectApi } from '@renderer/utils/api/project';
 import { isNocodeImportExpired } from '@common/utils';
 import { unique } from '@common/utils/unique';
@@ -421,6 +426,40 @@ const isInvalidFlows = (flows: ProcessFlow[]) => {
 }
 
 const organizeData = reactive<OrganizeData>({} as null);
+let organizeDataReady = false;
+let organizeDataLoading: Promise<void> | null = null;
+
+const loadOrganizeData = async () => {
+  const cacheStore = useOrganizeCacheStore();
+  await organizeUtil.getDepartments();
+  await organizeUtil.getAllUsers();
+  await organizeUtil.getUsers();
+  await organizeUtil.getRoles();
+
+  // 加载失败时缓存不会标记 loaded，此时不能把空白数据当作已就绪
+  if (!cacheStore.loaded) {
+    throw new Error(i18next.t('organizeCache.loadFailed'));
+  }
+
+  organizeData.departments = organizeUtil.departments;
+  organizeData.roles = organizeUtil.roles;
+  organizeData.users = organizeUtil.allUsers;
+  organizeDataReady = true;
+}
+
+// AI 流程读取/应用人员与角色引用前必须先就绪组织数据，未就绪时引用会被静默丢弃
+const ensureOrganizeDataReady = async () => {
+  if (organizeDataReady) {
+    return;
+  }
+  if (!organizeDataLoading) {
+    organizeDataLoading = loadOrganizeData().finally(() => {
+      organizeDataLoading = null;
+    });
+  }
+  await organizeDataLoading;
+}
+
 const branch: Ref<Branch> = ref(null);
 
 const ensureProcessStructure = () => {
@@ -973,6 +1012,8 @@ const createCopiedVersionFromSource = (sourceVersion: number, switchToNewVersion
   const nextVersion = getMaxProcessVersion(process) + 1;
   process.flowsByVersion[getProcessVersionKey(nextVersion)] = sourceFlows;
   setProcessVersionStatus(process, nextVersion, ProcessVersionStatus.DESIGNING);
+  // 继承源版本的 AI 延期配置记录，避免复制出的版本绕过启用前门禁
+  inheritProcessAiDeferredConfigItems(process, sourceVersion, nextVersion);
   processMetaChanged.value = true;
   if (switchToNewVersion) {
     loadVersion(nextVersion);
@@ -1263,6 +1304,7 @@ const handleConfirmCopyToForm = async () => {
       nocodeId: targetForm.nocodeId || targetNocodeData.meta?.id,
       nocodeName: targetForm.nocodeName || targetNocodeData.meta?.name,
     },
+    getProcessAiDeferredConfigItems(ensureProcessStructure(), copyToFormDialog.sourceVersion),
   );
   targetFormOption.process = copiedResult.process;
 
@@ -1357,6 +1399,11 @@ const handleEnableVersion = async (version: number) => {
   }
   if (!canEnableProcessVersion(process, targetVersion)) {
     ElMessage.warning(i18next.t('FormProcess.processEnableIncompleteTips'));
+    return;
+  }
+  const unsatisfiedAiDeferred = resolveUnsatisfiedProcessAiDeferredConfigItems(process, targetVersion);
+  if (unsatisfiedAiDeferred.length) {
+    ElMessage.warning(i18next.t('FormProcess.processEnableAiDeferredTips', { count: unsatisfiedAiDeferred.length }));
     return;
   }
   const valid = targetVersion === editingVersion.value
@@ -1581,7 +1628,7 @@ defineExpose({
     versionDeleteStateMap.value = {};
     persistedVersions.value = [];
   },
-  async save(options?: { skipValidation?: boolean }) {
+  async save(options?: { skipValidation?: boolean; aiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[] }) {
     const valid = await validateEditingDraftFlows();
     if (!options?.skipValidation && !valid) {
       throw new Error(i18next.t('FormProcess.processSaveIncompleteTips'));
@@ -1597,7 +1644,12 @@ defineExpose({
         isFieldRendered: isAiFlowSummaryFieldRendered,
       })
       : null;
-    persistCurrentDraft();
+    const persistedVersion = persistCurrentDraft();
+    if (options?.aiDeferredConfigItems) {
+      const process = ensureProcessStructure();
+      process.aiDeferredConfigByVersion = process.aiDeferredConfigByVersion || {};
+      process.aiDeferredConfigByVersion[getProcessVersionKey(persistedVersion)] = options.aiDeferredConfigItems;
+    }
     return {
       ok: true,
       flowIssueState: (flowIssueState || null) as NocodeEditorAiFlowIssueState | null,
@@ -1611,7 +1663,8 @@ defineExpose({
     structureChanged.value = false;
     processMetaChanged.value = false;
   },
-  getAiFlowSummary() {
+  async getAiFlowSummary() {
+    await ensureOrganizeDataReady();
     return buildAiFlowSummary({
       currentTable: table.value,
       tables: formData.value?.tables || [],
@@ -1625,7 +1678,8 @@ defineExpose({
       isFieldRendered: isAiFlowSummaryFieldRendered,
     });
   },
-  validateAiFlowPlan(input: { plan: unknown }) {
+  async validateAiFlowPlan(input: { plan: unknown }) {
+    await ensureOrganizeDataReady();
     if (!table.value) {
       throw new Error('当前未找到表单信息');
     }
@@ -1666,6 +1720,7 @@ defineExpose({
     if (isApplyingAiFlow.value) {
       throw new Error(i18next.t('FormProcess.aiApplyingFlowWait'));
     }
+    await ensureOrganizeDataReady();
     const startedAt = Date.now();
     const result = buildAppliedAiFlowPlan({
       plan: input?.plan,
@@ -1683,12 +1738,23 @@ defineExpose({
       await applyAiFlowPlanStepByStep(result.flows);
       canvasChanged.value = true;
       structureChanged.value = true;
+      const appliedSettings = auditAppliedFlowDefaultSettings({
+        plan: result.plan,
+        flows: getCurrentDraftFlows(),
+        auditVersion: editingVersion.value,
+      });
+      const riskAlerts = auditAppliedFlowRisks({
+        plan: result.plan,
+        flows: getCurrentDraftFlows(),
+      });
       return {
         ok: true,
         startedAt,
         finishedAt: Date.now(),
         summary: result.summary,
         warnings: result.warnings,
+        appliedSettings,
+        riskAlerts,
         flowIssueState: result.flowIssueState || null,
       };
     } finally {
@@ -1703,6 +1769,7 @@ defineExpose({
         '已有流程局部修改正在保存，请等待当前事务完成',
       );
     }
+    await ensureOrganizeDataReady();
     let snapshot: NocodeEditorFlowPatchVersionMutationSnapshot | undefined;
     try {
       const process = ensureProcessStructure();
@@ -1888,15 +1955,8 @@ defineExpose({
   focusAiFlowIssue,
 })
 
-onMounted(async () => {
-  await organizeUtil.getDepartments()
-  await organizeUtil.getAllUsers()
-  await organizeUtil.getUsers()
-  await organizeUtil.getRoles()
-
-  organizeData.departments = organizeUtil.departments
-  organizeData.roles = organizeUtil.roles
-  organizeData.users = organizeUtil.allUsers
+onMounted(() => {
+  ensureOrganizeDataReady().catch(() => {})
 })
 </script>
 

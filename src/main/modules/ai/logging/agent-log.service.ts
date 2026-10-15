@@ -19,8 +19,19 @@ export class AiAgentLogService {
     model?: string
     timeoutPhase?: string
     timeoutMs?: number
-    firstEventRetryCount?: number
+    roundRetryCount?: number
+    retryReason?: string
+    forceCompact?: boolean
     retrying?: boolean
+    promptChars?: number
+    promptBytes?: number
+    inputTokens?: number
+    toolFailureSignatures?: Array<{
+      signature: string
+      count: number
+      firstRound: number
+      lastRound: number
+    }>
     error: string
   }) {
     await this.writeBlock(conversationId, payload.round ? `第 ${payload.round} 轮 异常` : '异常', [
@@ -29,8 +40,18 @@ export class AiAgentLogService {
       payload.model ? `Model: ${payload.model}` : '',
       payload.timeoutPhase ? `超时阶段: ${payload.timeoutPhase}` : '',
       Number.isFinite(payload.timeoutMs) ? `超时阈值: ${payload.timeoutMs}ms` : '',
-      Number.isFinite(payload.firstEventRetryCount) ? `首事件重试次数: ${payload.firstEventRetryCount}` : '',
+      Number.isFinite(payload.roundRetryCount) ? `本轮重试次数: ${payload.roundRetryCount}` : '',
+      payload.retryReason && payload.retryReason !== 'none' ? `重试原因: ${payload.retryReason}` : '',
+      typeof payload.forceCompact === 'boolean' ? `强制压缩: ${payload.forceCompact ? '是' : '否'}` : '',
       typeof payload.retrying === 'boolean' ? `即将重试: ${payload.retrying ? '是' : '否'}` : '',
+      Number.isFinite(payload.promptChars) ? `Prompt 字符数: ${payload.promptChars}` : '',
+      Number.isFinite(payload.promptBytes) ? `Prompt 字节数: ${payload.promptBytes}` : '',
+      Number.isFinite(payload.inputTokens) ? `累计 inputTokens: ${payload.inputTokens}` : '',
+      payload.toolFailureSignatures?.length
+        ? `本轮工具失败签名: ${payload.toolFailureSignatures
+          .map(item => `${item.signature}×${item.count}(第${item.firstRound}-${item.lastRound}轮)`)
+          .join('; ')}`
+        : '',
       `错误信息: ${payload.error}`,
     ])
   }

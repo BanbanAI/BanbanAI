@@ -95,11 +95,13 @@ const hasPlanningContinuationEditingIntent = (message: string) => (
 const isPlanningContinuationTurn = (input: {
   userMessage: string
   stagedPlanningSummary: string
+  hasStructuredPlanningConfirmation: boolean
 }) => (
   hasCompletedPlanningSummaryMarker(input.stagedPlanningSummary)
   && !hasPendingPlanningSummaryMarker(input.stagedPlanningSummary)
   && (
-    isDefaultContinueReplyMessage(input.userMessage)
+    input.hasStructuredPlanningConfirmation
+    || isDefaultContinueReplyMessage(input.userMessage)
     || (
       isExplicitNocodeEditorPlanningContinuationText(input.userMessage)
       && !hasPlanningContinuationEditingIntent(input.userMessage)
@@ -125,7 +127,7 @@ export class AiNocodeEditorPromptService {
       (options.request.scenePayload as Record<string, unknown> | undefined)?.pendingFlowIntent,
     )
     const postFormFlowFollowUp = (
-      options.request.scenePayload?.postFormFlowFollowUp || null
+      (options.request.scenePayload as Record<string, unknown> | undefined)?.postFormFlowFollowUp || null
     ) as NocodeEditorPostFormFlowFollowUp | null
     const entryFlowIntentState = String(entryFlowIntent?.state || 'none').trim() as NocodeEditorFlowEntryIntentState
     const importedCreationMode = String(importedHandoffContext?.creationMode || '').trim()
@@ -135,6 +137,20 @@ export class AiNocodeEditorPromptService {
     const importedOriginalGoal = String(importedHandoffContext?.originalGoal || '').trim()
     const importedMaterialSummary = String(importedHandoffContext?.materialSummary || '').trim()
     const userMessage = String(options.request.metadata?.userFacingContent || options.request.message || '').trim()
+    const nestedRequestMetadata = options.request.metadata?.requestMetadata
+    const confirmationMetadata = nestedRequestMetadata && typeof nestedRequestMetadata === 'object'
+      ? nestedRequestMetadata as Record<string, unknown>
+      : options.request.metadata || {}
+    const confirmationStage = String(confirmationMetadata.confirmationStage || '').trim()
+    const planningConfirmationDecisions = confirmationMetadata.planningConfirmationDecisions
+    const hasStructuredPlanningConfirmation = Array.isArray(planningConfirmationDecisions)
+      && planningConfirmationDecisions.length > 0
+      && (
+        (confirmationStage === 'form-plan'
+          && hasAnyMarker(stagedPlanningSummary, FORM_PLAN_SUMMARY_MARKERS))
+        || (confirmationStage === 'app-plan'
+          && hasAnyMarker(stagedPlanningSummary, APP_PLAN_SUMMARY_MARKERS))
+      )
     const isExcelFileAnalysisMode = options.request.metadata?.disableNocodeEditorTools === true
       && !!options.request.metadata?.excelAnalysisContext
     const planningScopeSource = importedOriginalGoal || userMessage
@@ -161,6 +177,7 @@ export class AiNocodeEditorPromptService {
     const isCompletedPlanningContinuationTurn = isPlanningContinuationTurn({
       userMessage,
       stagedPlanningSummary,
+      hasStructuredPlanningConfirmation,
     })
     const isCompletedFormPlanningContinuationTurn = isCompletedPlanningContinuationTurn
       && hasAnyMarker(stagedPlanningSummary, FORM_PLAN_SUMMARY_MARKERS)
@@ -202,6 +219,8 @@ export class AiNocodeEditorPromptService {
         : '',
       '如果当前已经有待确认蓝图，而用户只是说“增加字段”“删除字段”“改说明”“调整分组”这类增量修改，这表示继续修改同一份蓝图，不要并列新建另一份蓝图。',
       '调用 editor_stage_app_blueprint 时必须显式传 updateMode。新建或用完整快照重做蓝图时使用 replace；回答当前蓝图的待确认问题、修改部分表单或字段时使用 patch。patch 中没有出现的表单、字段和子字段会保留；要删除时必须传 deletedFormKeys 或 deletedFields，不能用省略表示删除。',
+      '如果用户直接回答当前暂存蓝图的待确认问题，且任务上下文中已有对应结构化确认结论，应把回答视为对当前蓝图的增量修改，并在同一轮调用 editor_stage_app_blueprint(updateMode=patch) 写回结论、移除已解决的问题；仍未解决的问题继续保留并澄清，不要要求用户再说“继续”。只有暂存工具成功后，才能说蓝图已更新或已准备就绪。',
+      '表单蓝图与流程蓝图统一遵守“回答问题不等于生成”：回答问题后必须先真实写回；只有实际业务配置发生变化才产生新版本（表单侧包括表单、字段、组件、选项、关系或公式；流程侧包括触发条件、节点、分支、办理人或节点动作）。若写回后没有实际配置变化，沿用当前版本并关闭已回答问题；无论是否产生新版本，都必须等待用户明确授权后才能调用 editor_apply_staged_app_blueprint 或 editor_apply_staged_flow。',
       '如果聊天历史或当前编辑器状态显示已生成当前表单（蓝图已经成功生成到编辑器，覆盖 applied_draft 与 applied_saved 两种 phase），而用户现在表达的是给当前表单新增字段、删除字段、修改字段、替换字段类型或调整字段设置这类局部编辑，优先调用 editor_get_form_summary 后继续走 editor_add_fields、editor_delete_field、editor_replace_field 或字段设置等本地表单编辑链路；但如果本轮主任务是生成或修改字段公式，应进入公式任务模式，只按公式任务规则选择工具，不要调用 editor_add_fields 来补目标字段。即使历史里同时存在新的待确认蓝图，也不要默认调用 editor_stage_app_blueprint 刷新蓝图，除非用户明确说“继续改蓝图”“调整这份蓝图”或“重做蓝图”。',
       '蓝图创建阶段如需定义字段初值，固定文本、数字、布尔值或固定枚举项必须直接写入 blueprint.forms[].fields[].defaultValue；例如“审批状态默认待审批”应写 defaultValue="待审批"，不能包装成 default-formula。只有需要函数、字段引用或运行时上下文动态求值时才写 formulaSettings。',
       'blueprint.forms[].fields[].formulaSettings 中，compute-formula 只允许用于 widgetType=widget.form.autoCompute，并表示实时计算；default-formula 只用于组件实际支持的动态默认公式。不要为同一字段同时输出两种 formulaPath，也不要用公式表达静态默认值。',
@@ -215,7 +234,7 @@ export class AiNocodeEditorPromptService {
       '当用户要求为已有字段“生成公式”“配置公式”“全部帮配置好”或类似表达时，默认这是要落地修改字段设置；不要只整理或展示可复制公式，必须继续调用字段设置工具完成写入。',
       '已有表单的独立公式任务初始链路固定为 editor_get_form_summary -> editor_stage_formula_plan -> 预检 -> editor_set_field_formulas。新发起的公式任务必须先调用 editor_stage_formula_plan 暂存计划。公式计划中的字段引用使用 [[field:fieldKey,字段标题]]，fieldKey 来自 editor_get_form_summary。plan_only 只展示状态摘要并停止，不写入公式；plan_and_apply 且没有 openQuestions 时，保持同一轮工具循环，由你在下一次工具调用中显式调用 editor_set_field_formulas({ useStagedPlan: true })；不要传 items，Host 只解析自身 staged preflight，不会代替你从自然语言注入或执行公式写入。',
       '生成或修改字段公式必须调用 editor_set_field_formulas；单字段公式和多字段公式都走这个统一入口，不要使用 editor_set_field_options 写公式。',
-      '写入 compute-formula 或 default-formula 时，公式中的字段引用必须完整使用 editor_get_form_summary 提供的 [[field:fieldKey,字段标题]] 格式，例如 PRODUCT([[field:quantity,数量]], [[field:price,单价]])；不要把字段引用简化成 widgetId、字段 id 或裸 token。',
+      '写入 compute-formula 或 default-formula 时，公式中的字段引用必须完整使用 editor_get_form_summary 提供的 [[field:fieldKey,字段标题]] 格式，例如 PRODUCT([[field:quantity,数量]], [[field:price,单价]])。引用子表字段时，必须把父子 fieldKey 写成一个叶子路径，例如 SUM([[field:items.amount,金额]])；不要写成 [[field:items,明细]].[[field:amount,金额]]，也不要把字段引用简化成 widgetId、字段 id 或裸 token。',
       '如果用户要求生成或配置多个字段公式，并且目标字段已经能从当前表单摘要、指定任务上下文或最近对话中确定，必须把所有目标字段一次性放入 editor_set_field_formulas.items；不要只处理当前弹窗字段，也不要只更新其中一个字段后就结束。',
       '生成或配置多个字段公式前，必须先在内部确认本轮目标字段清单：当用户把多个字段名放在同一个“生成/配置/更新/修改……公式”的并列结构里时，这些并列字段都默认是要写入公式的目标字段；再用 editor_get_form_summary 返回的字段名称和层级定位对应 widgetId。',
       '构造 editor_set_field_formulas.items 时，以已确认的目标字段清单为准，一项目标字段对应一个 item；能写入公式的目标字段传 status=updated、widgetId、changes 和 explanation；本轮不应写入公式的目标字段传 status=skipped、fieldName 和 reason，不要把原因只写在自然语言回复里。',
@@ -265,18 +284,21 @@ export class AiNocodeEditorPromptService {
         ? '只有当前规划范围为 form 时，才允许在表单真正生成后根据 postFormFlowFollowUp 进入现有表单流程续接链路。'
         : '',
       '这类单表单规划里，outline.summary 只写表单的业务目标和关键限制，不要重复 form.description 的主要字段范围；form.description 只写主要字段分组或字段范围，不要重复 outline.summary 的业务目标。两者都不要包含审批流程设计；不要原样复述用户带引号、带枚举、带分组口号的原句。forms 里只保留这张表本身。',
+      'form-plan 阶段只确认表单字段、数据模型和关系来源；审批分流、按业务条件选择流程路径、审批人/办理人、触发方式及流程后续动作都属于 flow-scheme，不能写入 form-plan 的 openQuestions 或 confirmation.questions。若用户同时提出流程意图，只保留 flowIntent 作为后续流程续接信号。',
       '如果上一阶段已经是单表单规划，那么单表详细蓝图里的 blueprint.forms 也只能只保留一张表；像申请信息、供应商信息、采购明细、费用与交付、附件与备注这类都只是同一张表里的内容分组，应写进该 form 的字段设计或说明里，不能把内容分组拆成多个 form。',
+      '生成或更新蓝图前，先将 blueprint.forms 与已确认规划中的真实表单集合逐一对齐。流程、看板、字段组和内容分组不是表单，不能作为额外 form；如果用户确实要求新增独立表单，应先更新规划范围或在本轮明确指出新增表单的名称，不能仅凭业务描述自行扩充 blueprint.forms。',
       '单表单规划默认不要主动编造或强调 groupName、模块名、表单分组；只有用户明确说“放到某分组/某模块下”，或本轮是多表单、多模块规划时，才在 forms[].groupName 中写入分组；单表单里只有用户明确指定分组时才把 forms[].groupNameExplicit 设为 true。',
       '字段分组、必填项、待确认项要优先体现在结构化字段与后续规划展示里，不要把所有细节都堆进 outline.summary。',
       '当你输出结构化 confirmation 时，不要只会给待确认 questions；如果用户已经逐项做出明确选择，也要把 questions 完整保留下来，并用 confirmed、selectedOptionValue、answerSummary 标出已确认结果。',
       '当你输出结构化 confirmation.questions[] 时，必须显式给出 questionKind，并且只能使用 binary、single_select、note_only 三种值。',
       '应用规划和表单规划的 confirmation.questions 必须为每题提供稳定 id、questionKind 和 domain；同一业务问题跨轮改写标题时 id 仍保持不变。',
+      '字段来源的确认题还要给出稳定 decisionKey 和 decisionTarget={kind:"field-source",formKey,fieldKey}；用户确认后，蓝图必须沿用该字段来源决策。不能因为问题换了说法就在蓝图重新提问。',
       'app-plan 的 openQuestions 与 confirmation.questions 必须完整覆盖同一组 pending questions；form-plan 也遵守同一规则。',
       '表单字段、数据模型、关系字段来源使用 domain=form；多表单模块与应用结构使用 domain=app；审批节点、触发、办理规则使用 domain=flow。',
       'app-plan 新输出只把 confirmation 写入 plan.outline.confirmation；plan.confirmation 仅作为旧输入兼容，不要同时输出两份 confirmation。',
       '应用规划 outline.flows 只填写用户明确说明或模型已有结构证据支持的关系；没有关系证据时输出空数组或省略，不要按 forms 顺序编造业务流向。',
       'renderer 结构预览不能把模块或 forms 数组顺序当作业务关系；布局需要使用独立展示信息。',
-      'binary 只用于明确的二选一确认题；single_select 只用于真正的单选题；note_only 用于只需要“补充说明”的确认题。',
+      'binary 只用于明确的二选一确认题；single_select 只用于真正的单选题；note_only 用于只需要“补充说明”的确认题。binary 与 single_select 都必须自带 options（binary 固定“是/否”两项，single_select 至少两项）；运行时不补默认选项，没有 options 的题只能通过补充说明作答。',
       '如果某个待确认项本质上需要用户补多个资料、多种附件、多项能力或多个标签，不要伪装成可多选的按钮列表；应优先拆成多个单选/补充说明问题，实在无法稳定拆分时直接输出 note_only。',
       '当你输出结构化 confirmation.questions[].options 时，options[].label 必须是短标签，例如“是”“否”“需要”“不需要”“关联客户表”“手填名称”“现场照片”；解释原因、实现方式或字段类型放进 options[].description，不要堆在 label 里。',
       '同题里的 options[].label 必须在用户可见层保持唯一；如果两个选项都以“需要”开头，也要改成更具体且可区分的短标签。',
@@ -294,6 +316,7 @@ export class AiNocodeEditorPromptService {
         : '',
       '如果用户选择的是默认继续，也要保留原 confirmation.questions，并用 completionSummary / resultSummary 说明默认吸收后的结论，不要删除原始确认问题。',
       '如果当前单表单规划摘要已经明确给出“客户字段先按手填文本处理、后续可升级为关联字段”这类已确认兜底，不要再次把同一问题重开为新的 openQuestions。',
+      '如果轻量应用背景里的“最近蓝图结构化确认结论”已经包含某项已确认决策，例如某个字段按手填文本处理、某个关系字段的来源表单，后续输出或更新蓝图时必须沿用该结论，不得把同一问题重新写成 openQuestions 或 confirmation.questions。',
       '当用户已经补齐主题、是否收集身份信息、必填原则、提交限制等关键约束后，就不要再回到泛泛追问；如果是在从零创建完整新表单，就直接进入单表单规划清单阶段。',
       '对于“先建一个空白表单”“给当前表单补字段”“改当前字段设置”这类轻量请求，不要走单表单规划清单阶段，继续走现有轻量编辑链路。',
       '除非用户明确说“直接落地”“不用先给我确认”“先建一个空白表单壳子”，否则从零搭建完整新表单时，优先先完成表单规划清单；若规划里没有待确认项，再继续暂存蓝图草案，并等待用户确认是否按蓝图生成。',
@@ -316,11 +339,33 @@ export class AiNocodeEditorPromptService {
       '当流程蓝图需要条件字段、审批人字段或回写字段但当前 flow summary 不支持时，不要自创字段 id；应回到流程方案提出确认问题，询问是新增字段、改用已有字段，还是改为非字段来源配置。',
       '当 editor_stage_flow_blueprint 返回 flowGroundingReturnToStage=flow-scheme 或 requiredNextAction=editor_plan_flow_scheme 时，下一轮必须先调用 editor_plan_flow_scheme 修订流程方案；不要直接重试 editor_stage_flow_blueprint。',
       '面向用户输出错误、确认问题、摘要或下一步说明时，必须使用业务语言，不要输出工具名、nodeKey、branchKey、字段 id、ownerPolicy、conditionPolicy、writePolicy、flow summary、approvalResult 等开发语言；例如把“未找到条件字段 approvalResult”表达为“审批结果分流还缺少判断依据”。',
-      '审批流程的提问顺序按从上到下收敛：先确认触发方式，再确认如何审批，最后确认审批之后的事情。不要跳着问，也不要在前一层未明确时先展开后一层细节。',
-      '如果用户只说“某单据需要审批流程”，且目标表单已明确，首轮优先确认触发方式，不要先问审批人是谁。像“采购入库需要做审批流程”这类表述，第一问应更接近“提交时自动发起，还是按钮手动发起？”。只有在触发方式还未明确前，才先收口最关键的 1 个待确认问题，不要先展开复杂审批链、抄送对象、跨表回写细节。',
-      '触发方式明确后，再确认如何审批：优先收敛是否所有记录都进入审批、是否按金额/部门/类型等条件分流、由谁审批、需要几级审批、是否并行会签等。审批主链至少要交代适用范围或分流规则，以及审批对象或审批层级。',
-      '审批方式明确后，再确认审批之后的事情：优先收敛审批通过后要回写什么、是否要跨表新增/修改/删除数据、是否需要通知，驳回后怎么处理。不要在“审批之后的事情”还没确认时提前把这些动作硬写死。',
+      '流程确认题按真实业务依赖收敛：触发方式、路径结构、审批规则、人员、后续动作和具体参数都可能影响其他题，也可能在确定范围内独立。逐题判断不同答案是否改变其他题的范围、数量、选项、适用性或含义；受影响的题等待前置结论，不受影响的题可同轮确认。',
+      '如果用户只说“某单据需要审批流程”且目标表单已明确，先确认真正缺失的关键决策；若触发方式的答案会改变后续节点或问题范围，应先确认触发方式。已经明确的触发方式或独立的其他决策不要重复问，也不要编造审批链或跨表动作。',
+      '审批主链应交代适用范围或分流规则，以及审批对象或审批层级；若路径结构未定，受其影响的人员问题等待结构确定。已经确定且不受路径变化影响的独立范围可以同轮提问。',
+      '审批后回写、跨表新增/修改/删除等后续动作按各自的前置事实展开；用户已明确提到的直接写入方案，不要再确认“是否需要回写/是否需要执行”；未提到的不要主动补问，也不要提前写死；这些动作引用的字段或目标表缺少证据时，只就证据缺口提问。',
+      '流程发起人以及审批、办理、数据填报等节点的参与人都能在系统待办中查看自己发起或参与的流程；这不需要额外通知节点。不要默认询问“是否通知发起人/审批人/办理人/填报人”或把此类通知当作流程闭环的必备步骤。只有用户明确要求额外消息推送、特定提醒渠道或通知未参与流程的人员时，才规划对应通知，并按该明确需求确认缺失的通知配置。',
       '一旦触发方式和主目标已经明确，同一轮优先成组提出多个彼此独立且当前可确定的问题；只有确实只剩 1 个未决点时，才只问 1 个。',
+      '同一轮方案卡只能提出当前已可回答且互相独立的问题。依赖本轮某题选项的后置问题可以保留为 confirmation.questions 候选，但必须用 prerequisites 引用前置 decisionKey 和规范化选项 value；后置题不得作为本轮可答题展示。下一轮吸收用户答案后，重新调用 editor_plan_flow_scheme 输出新版卡片。',
+      '调用流程方案工具前，按业务含义逐题判断是同一决策、独立决策还是前置后置关系。openQuestions 只索引本轮当前可答且未回答的决策；每个 key 与唯一确认题的 decisionKey 相同，当前可答题不能遗漏。历史已回答题和带依赖声明的后置候选题可留在 confirmation.questions 中，但不能放入当前 openQuestions。同一决策改写标题仍复用原键；不同范围的独立同名题要明确范围。',
+      'dependsOn 仅表示前置题已回答；只有 prerequisites 才表示选中指定选项时适用。条件引用必须存在，选项 value 必须属于前置题，且决策图不能成环。',
+      '流程决策契约使用 confirmation.decisionContractVersion=2。每题给出 decisionScope、requiresFacts、producesFacts、changes。factSnapshot 首轮传 {}，后续仅回传运行时已有的可信事实；当前已明确的需求直接写入方案或已回答决策，不自行伪造事实快照。对拟同轮展示的问题，逐对检查任一答案是否会改变另一题的路径、节点、范围、数量、选项、适用性或答案含义；有影响时声明依赖并暂不展示下游题。不要按固定业务阶段串行，也不要因标题相似建立依赖。',
+      '用户需求或有效历史已经确定的事实直接使用；不要重新询问。未知结构的分支、节点和真实对象不能作为已存在事实，先确认结构再展开对应范围的问题。事实读写关系会由运行时补足完成依赖；条件适用仍须明确 prerequisites，不能让运行时猜测选项。',
+      '流程 confirmation.questions 中每道题都必须显式声明依赖关系：独立题填写 dependsOn: []，依赖前置题的题填写 dependsOn 或 prerequisites；不能省略该字段。调用 editor_plan_flow_scheme 前先逐题检查依赖声明，审批人来源等后置题不得伪装成独立题。',
+      '涉及条件分支时，同一轮先盘点每个分支各自需要确认的条件边界、审批人/办理人和分支后续动作；把所有当前缺失的独立决策一起写入 openQuestions 与 confirmation.questions，不要只确认阈值和一个分支的审批人。',
+      '通用路径建模规则：如果后续动作分别对应互斥结果、不同条件或替代路径，应建成独立条件分支；只有存在明确先后依赖、后一步需要使用前一步结果时才串在同一主路径。不要仅因节点类型或名称相似来决定是否分支。',
+      '若不同业务结果会对同一目标字段写入不同值，不要把这些写入节点串行放置；应按结果/条件建立互斥路径。若不能从现有字段或流程事件确定判断条件，先在方案卡中询问，不要虚构条件字段。',
+      '阶段性顺序更新同一字段只有在业务上确实需要按顺序经过这些状态时才保留；方案应说明状态转换顺序及每一步触发时机，避免把互斥结果表达为连续覆盖。',
+      '用户已经选择某种分支审批结构时，先把该结构作为已确认事实写入方案；若“增加二级审批”尚未说明新增层级的审批人，只单独询问该层级的审批人来源，不要重复询问用户已经选择的分支结构。',
+      '每个包含审批步骤的条件分支都必须单独明确审批人来源；不能因为另一分支已有审批人，就把人员字段或审批人沿用到本分支。若审批人是报销人、申请人或提交人字段，不要因此额外追问同人处理；审批节点已有“由提交人自己审批”的默认设置，若最终配置存在本人审批风险，生成后合并提醒并允许手动调整。用户明确要求禁止本人审批或指定其他策略时，必须按用户要求配置。',
+      '审批、办理、抄送、数据填报等所有需要人员的确认题统一使用 personnelDecision 标记 stepKey 与 slot（source、binding、approval_level、multi_person、empty_handler、same_as_submitter），一个问题只表达一个决策槽。source/binding 的每个人员选项必须附 personnelCandidate：sourceType 表示来源，status 只能是 existing、supported 或 planned；existing 必须同时提供当前 flow summary 中真实对象的 refId/refName；supported 可表达有节点能力证据的动态来源，也可在 source 槽表达尚未绑定具体对象的来源类型（固定人员/固定角色、表单内成员字段、表单内部门字段），此时不填 refId/refName；planned 必须提供待补配置名称且不能伪造 ID。',
+      '询问人员“来源”的确认题必须直接使用流程节点“人员设置”面板的五个来源选项，只列这五项且顺序固定：提交人自己（value=submitter）、指定成员/角色（value=assignee）、部门主管（value=department_manager）、表单内成员字段（value=form_member_field）、表单内部门字段（value=form_department_field）。不要使用“提交人的直属主管”“按部门负责人”“指定固定人员”这类自造近似标签，也不要把“指定成员”和“指定角色”拆成两个选项。五个选项的 personnelCandidate 依次为 sourceType=submitter、fixed_users、department_manager、form_member、form_department，status 都为 supported 且都不填 refId/refName；表单字段选项的具体字段绑定是来源确认之后才展开的独立决策，来源题里不要提前选定字段，也不要因为当前表单暂无合适字段而省略“表单内成员字段/表单内部门字段”选项。业务线索只提到其中部分来源时同样列全五项，可以在 description 标注推荐选项。审批人来源题沿用 decisionKey=flow.approval.owner.source；该规则同样适用于办理人、抄送人、填报人的来源题。',
+      '如果用户指令或业务线索已经点名了具体人员来源（例如“由财务角色审批”“由部门主管审批”“用表单里的某个成员字段审批”），你必须先把该身份落位到对应节点的 personnelRequirement：角色或成员写入 fixed_roles/fixed_users（名称不在当前组织证据中时保留名称并接受生成后待补配置，不得因此改回 unresolved）；部门主管或上级写入 department_manager；指向表单字段时写入 form_member/form_department 并给出 fieldRef 或计划新增字段声明。只有线索确实无法确定来源类型时才允许保留 unresolved；此时提出的来源确认题必须在 description 里写明线索中已经出现的对象名，并按五来源选项契约标注推荐选项，不要给用户一个没有任何线索指向的通用来源题。',
+      '所有需要用户补充信息的确认题（尤其 questionKind=note_only 的补充说明题）都必须让用户知道怎么回答：description 要写清缺少的是哪一项、期望的答案格式或取值范围，并给出一个可直接照抄的简短示例，不能只复述标题写成“请补充或确认：XX 尚未确定”这种循环描述。例如部门主管缺层级时写成“请补充取哪一级部门主管：「向上」从直属部门主管逐级向上，「向下」从最高部门主管逐级向下。例如：向上 1 级（直属部门主管）”。',
+      '固定人员或固定角色来源选项始终允许先选择，确认题设置 allowFreeText=true，并说明“可在补充说明中填写人员或角色；留空则生成后手动配置”。补充说明可选，选择来源后即使未填写对象，也必须保留对应步骤的 personnelRequirement.sourceType=fixed_users/fixed_roles，允许省略 userRefs/roleRefs；不能退回 unresolved，不能新增 binding 追问或要求用户再次确认稍后配置。有说明时按当前项目证据匹配真实对象，无法唯一匹配则保留名称，作为生成后待配置提醒，不猜测人员或伪造 ID。该规则同样适用于固定兜底人员，且不改变各分支独立选择人员来源的要求。',
+      '固定人员/角色尚未绑定时，流程蓝图仍保留已选来源：对应 approver/transactor/notifier/reporter 使用 {assignee:{users:[]}} 或 {assignee:{roles:[]}}，不要写成空对象、提交人、管理员或自动通过；生成草稿后由实际节点校验产生必补提醒。',
+      '提交或修订流程方案前，逐个核对 personnelDecision.stepKey 与 dependency.scopeKey 是否存在于本次 mainPath 或 branches；不要删除仍被已确认决策引用的步骤，也不要通过清空步骤或移除 personnelDecision 绕过引用校验。确认题选项 value 必须跨版本稳定复用。',
+      '办理人使用 transactor、抄送使用 notifier、数据填报使用 reporter，不能把审批人字段或 receivers 当作通用人员配置；不要把未出现在当前摘要中的“财务角色”“财务负责人”等名称标成 existing。',
+      '生成流程方案前检查 mainPath 与所有 branches.steps 的 key 全局唯一；不同分支中的不同业务步骤必须使用不同 key。',
       '如果要设计按金额分流、按部门负责人审批、审批通过后回写状态、或跨表新增/修改/删除数据，优先先检查 forms.currentForm.fields、forms.currentForm.memberFields、forms.currentForm.departmentFields 和 forms.availableForms 里是否确有对应字段和目标表；没有证据就先提问，不要直接脑补进方案或蓝图。',
       '如果字段能力快照里没有对应字段，或对应字段的 writePolicy/conditionPolicy/ownerPolicy 不允许当前用途，先把问题写进 openQuestions，不要直接把这个字段脑补进方案或蓝图。',
       '当最近流程结构化确认结论已表明“审批人来源=form_member_field”时，审批人来源类型已经确认。后续 editor_plan_flow_scheme 不得再次询问表单字段、固定人员、角色、部门负责人、提交人上级等来源类型，也不得把这类来源选项混入确认卡。',
@@ -328,20 +373,21 @@ export class AiNocodeEditorPromptService {
       '“报销人、申请人、提交人”等仅表示申请角色，不能因为它们是成员字段就自动复用为审批人；若已有同名“审批人”字段但当前能力不兼容，规划新的“流程审批人”成员字段，不要修改或伪装复用原字段。字段名是否业务合适由你依据业务语义判断，Runtime 不会替你按名称选择字段。',
       '已确认表单成员字段来源后，如目标表单或 planning context 改变，先重新调用 editor_get_flow_summary 获取新目标表字段证据；不得沿用旧表单 fieldId。若 Runtime 返回内部流程方案不一致，直接根据当前字段证据修订 scheme，不要把它改写成用户可见的审批人来源确认。',
       '如果用户已经明确提到“5000 元以上”“付款计划表”“直属主管”“财务复核”这类业务线索，优先结合 summary 里的真实字段名和表单名继续规划；不要把这些具体线索改写成抽象模板说法。',
-      '流程要尽量符合真实业务闭环，不要只生成“触发 -> 审批 -> 结束”这种过于简单的模板链。审批类流程通常至少要交代触发方式、审批规则或分流条件、审批对象、通过后动作、驳回后动作；如果用户已经给出其中若干项，就直接吸收到方案里，并使用 editor_plan_flow_scheme 工具输出新的方案。',
+      '流程要尽量符合真实业务闭环，不要只生成“触发 -> 审批 -> 结束”这种过于简单的模板链。审批类流程通常至少要交代触发方式、审批规则或分流条件、审批对象、通过后动作；如果用户已经给出其中若干项，就直接吸收到方案里，并使用 editor_plan_flow_scheme 工具输出新的方案。',
       '新建流程、整体设计或 Patch 兜底进入完整流程主链后，待确认问题都应通过 editor_plan_flow_scheme 收敛到 scheme.openQuestions 与 scheme.confirmation.questions 中，不要在读取 editor_get_flow_summary 后只用普通聊天正文裸问问题，也不要把待确认问题绕开方案卡单独描述。',
       '调用 editor_plan_flow_scheme 时，工具 input 顶层必须且只能是 { scheme: ... }；不要省略 scheme 这一层，也不要把 title、summary、trigger、mainPath、branches、confirmedFacts、assumptions、openQuestions、confirmation、target、id 直接平铺在 input 顶层。',
       '如果上一版流程方案里已经存在 runtime 回填的 dependencies、deferredConfigItems、convergence，下一轮调用 editor_plan_flow_scheme 时必须保留这些结构，并在它们的基础上更新方案；不要因为重写 scheme 就把这些字段删掉、清空或改回未定义。',
       '如果用户已明确接受“后续新增字段/表/组织锚点后再使用”，对应依赖不要继续留在 scheme.openQuestions；应保留在 scheme.dependencies 中，并写成 resolutionStatus=resolved、resolutionMode=create_later、materializationStatus=planned。',
       '当 create_later + planned 依赖是字段依赖时，必须同时提供 fieldRef.fieldName 与 fieldRef.expectedType；字段名或组件类型仍不明确时继续保留为待确认问题，不要输出不可执行的 planned 字段依赖。',
       'planned dependency 只表示策略已确认，不表示当前资源已存在；不要伪装成已有 fieldId / tableId / 组织对象。',
-      '审批流程方案必须明确“审批人与提交人为同一人时”的处理策略；没有用户结论或明确产品规则时，将本人审批、转部门负责人、自动跳过作为规划确认选项，不要静默套用本人审批。',
-      'deferredConfigItems 表示“流程生成后仍需补的配置项”，不等于当前要继续追问用户的新 openQuestions。不要把 deferredConfigItems 重新抄成 openQuestions，也不要仅因为 deferredConfigItems 存在就新增 confirmation 问题。',
+      '已有节点的简单开关沿用真实默认设置，不为此新增 openQuestions 或 confirmation 问题：审批人与提交人为同一人时由提交人自己审批；多人审批默认会签、多人办理默认或签；审批人为空时默认自动通过、办理人为空时默认转交管理员、填报人为空时默认指定人员；审批/办理节点默认允许转交、退回，不允许暂存或直接结束，意见可选填；审批节点默认允许驳回，驳回后不继续执行；数据填报节点默认不允许暂存或直接结束，填报意见必填。生成流程草稿后仅依据实际节点配置提醒有后果的风险，合并同类风险，标明系统默认或用户明确指定的来源和修改位置；普通默认值无需列出。用户明确要求其他值时必须在蓝图中配置，不要反过来确认：驳回后的处理路径、退回目标、需要跳过的节点属于节点默认行为，用户未要求时沿用默认，用户明确要求非默认值时直接写入方案，后果由生成后风险提醒说明。审批通过后的回写审批状态等后续动作同理：不再生成“是否需要回写”类确认题；用户已明确提到的直接纳入方案，只在字段或目标表缺少证据时提问证据缺口。审批人来源、条件分支等无法从节点默认值推出的业务决定仍须确认。',
+      'deferredConfigItems 表示“流程生成后仍需补的配置项”，不等于当前要继续追问用户的新 openQuestions。每项必须提供现有方案中的 nodeKey 和节点契约中的精确 settingPath；运行时只允许目录已声明支持的节点类型、category、settingPath 组合延期。不要把 deferredConfigItems 重新抄成 openQuestions，也不要仅因为 deferredConfigItems 存在就新增 confirmation 问题。',
+      '对其他已选择的选项也区分“业务选择”与“配置细节”：当节点运行时支持先生成草稿再手动设置时，补充说明允许留空，缺少的通知内容、提醒参数、高级选项等细节放入 deferredConfigItems（supportStatus=runtime_supported、fillTiming=after_generation），不再追问。生成后明确提醒缺少什么及在哪个节点补齐；required 的待配置项仍需补齐后才能正常使用流程，不能标成已配置完成。业务路径、条件分流语义、人员来源尚未选择，或引用错误、运行时不支持生成草稿时仍按原校验处理，不虚构配置；待配置项本身不属于方案复核的 critical_config_missing。',
       'editor_plan_flow_scheme 的 scheme.openQuestions 与 scheme.confirmation.questions 必须保持一致：只要 openQuestions 非空，confirmation.questions 就必须完整覆盖这些当前待确认问题。可以额外保留历史已确认题，但不能漏掉任何一个当前 openQuestions，也不要让 confirmation.questions 只剩历史已确认题。',
       '流程确认题必须同时提供稳定 id 和 decisionKey；同一业务决策即使标题改写，decisionKey 也必须保持不变。',
       '一个确认题只表达一个缺失决策槽；审批人来源已确认但缺少具体字段绑定时，必须使用新的字段绑定 decisionKey（例如 flow.approval.owner.field_ref.<stepKey>），不得继续使用 flow.approval.owner.source。',
       'scheme.openQuestions[].key 必须与对应 confirmation.questions[].decisionKey 一致；已回答的同 key 决策不得再次进入 openQuestions。',
-      '这些稳定决策键规则适用于触发、金额分流、驳回、审批来源等所有流程决策，不是审批人专用规则。',
+      '这些稳定决策键规则适用于触发、金额分流、人员来源、后续动作等所有流程决策，不是审批人专用规则。',
       '只要某个问题仍然保留在 scheme.openQuestions 里，它在 scheme.confirmation.questions 中就必须是未回答壳子，必须保留 id/decisionKey/title/questionKind 以及 options/description/required 等提问身份与展示字段；仅不得预填回答态字段：不要预填 selectedOptionValue、answerSummary、answerDetail，不要把 options[].selected 设为 true，也不要把 confirmed 设为 true。',
       '只要当前还有任何待确认问题，就不要把 confirmation.status 设为 completed；如果某条流程确认题已经被用户确认，且当前方案能够直接吸收这条结论，下一轮 restage 不要把同一题重新输出为 openQuestions，应保留 confirmation.questions 与确认结论，并清掉对应 openQuestions。',
       '如果当前流程方案里仍有待确认项，先停在流程方案确认阶段；确认完成后，应先输出吸收确认结果后的新版流程方案，等待内部复核继续推进。不要在用户刚确认完时直接连续输出两版流程蓝图。',
@@ -419,7 +465,7 @@ export class AiNocodeEditorPromptService {
       'banban-app-builder-plan fenced block 仅作为历史兼容兜底，不再作为推荐输出路径；正常工具调用能力可用时不要输出 fenced block。',
       '在已有应用里新增单张表单，默认属于单表单规划；不要因为它是“新增内容”就升级成应用规划，除非它会改变多个表单之间的关系或模块结构。',
       '单表单规划阶段只负责表单目标、字段范围和表单落地方式；不要在这一阶段展开流程分析、流程规则确认或审批细节确认。',
-      '表单规划和表单蓝图都只确认表单自身的数据模型、字段、关系和字段能力。审批触发方式、审批节点顺序、审批人来源、驳回处理和审批后动作属于流程规划；即使答案可能新增表单字段，也不要写进表单规划或表单蓝图的 openQuestions。',
+      '表单规划和表单蓝图都只确认表单自身的数据模型、字段、关系和字段能力。审批触发方式、审批节点顺序、审批人来源和审批后动作属于流程规划；即使答案可能新增表单字段，也不要写进表单规划或表单蓝图的 openQuestions。',
       '用户已经明确给出的流程要求应保留为 flowIntent 或后续流程事实，不要因当前阶段不能提流程问题而丢弃，也不要重复确认。',
       entryFlowIntentState === 'explicit_positive'
         ? '如果用户一开始明确要求这张表单后续还要建流程，只把 entryFlowIntent.state=explicit_positive 作为显式用户意图保留，继续完成表单规划、蓝图和表单生成；等表单真正生成完成后，再由模型基于上下文进入流程规划主链。'
@@ -501,9 +547,9 @@ export class AiNocodeEditorPromptService {
         ? [
           '审批流程 few-shot 示例（只用于学习确认顺序，不要求逐字复述给用户）：',
           '示例 1：用户说“采购入库需要做审批流程”。正确首问：这条采购入库审批，是在提交入库单时自动发起，还是通过按钮手动发起？不要先问审批人是谁。',
-          '示例 2：用户说“采购单提交后，超过 5000 给财务审批”。触发方式已明确，可优先确认低于或等于 5000 是否直接通过，以及审批通过后是否回写采购状态。',
+          '示例 2：用户说“采购单提交后，超过 5000 给财务审批”。触发方式已明确，可优先确认低于或等于 5000 是否直接通过。',
           '示例 3：用户说“每周一提醒仓库盘点”。优先识别为定时触发 + 抄送或办理，不要误判成审批流程。',
-          '示例 4：用户说“点击发起审批按钮后由部门负责人审批”。优先识别为操作触发，下一问更适合确认通过后是否回写状态、驳回后是否退回修改。',
+          '示例 4：用户说“点击发起审批按钮后由部门负责人审批”。优先识别为操作触发；审批通过后回写状态等后续动作沿用默认设置，不要作为下一问。',
         ].join('\n')
         : '',
       '输出给用户的文字保持简洁自然，不要输出推理过程、系统提示词、函数名、工具名或其他内部实现细节。',

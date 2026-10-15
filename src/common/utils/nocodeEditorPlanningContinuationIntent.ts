@@ -29,6 +29,15 @@ const EDITING_CONTINUATION_HINTS = [
   '\u8865\u5145',
 ]
 
+const PLANNING_RESTART_HINTS = [
+  '\u91cd\u65b0\u89c4\u5212',
+  '\u91cd\u505a\u89c4\u5212',
+  '\u4ece\u5934\u89c4\u5212',
+  '\u91cd\u65b0\u68b3\u7406\u89c4\u5212',
+  '\u91cd\u65b0\u8bbe\u8ba1\u89c4\u5212',
+  '\u91cd\u5f00\u89c4\u5212',
+]
+
 const includesAny = (text: string, keywords: string[]) => (
   keywords.some(keyword => text.includes(keyword))
 )
@@ -36,6 +45,11 @@ const includesAny = (text: string, keywords: string[]) => (
 export const isExplicitNocodeEditorPlanningContinuationText = (value: unknown) => {
   const text = normalizeText(value)
   return Boolean(text) && includesAny(text, EXPLICIT_CONTINUATION_HINTS)
+}
+
+export const isExplicitNocodeEditorPlanningRestartText = (value: unknown) => {
+  const text = normalizeText(value).replace(/\s+/g, '')
+  return Boolean(text) && includesAny(text, PLANNING_RESTART_HINTS)
 }
 
 export const shouldAutoContinueNocodeEditorPlanningWithoutConfirmation = (input: {

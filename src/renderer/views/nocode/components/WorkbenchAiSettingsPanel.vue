@@ -1,386 +1,479 @@
 <template>
   <div v-loading="loading" class="ai-model-manage-page">
     <div class="model-management-content">
-      <section class="default-model-section">
-        <el-alert
-          v-if="hasNoConfiguredDefaultModels"
-          class="default-model-alert"
-          type="warning"
-          :title="$t('workbenchAiSettingsPanel.defaultModelMissingWarning')"
-          :closable="false"
-          show-icon
-        />
-        <div class="section-header">
-          <div>
-            <h3>{{ $t('workbenchAiSettingsPanel.tierDefaultModels') }}</h3>
-            <p>{{ $t('workbenchAiSettingsPanel.tierDefaultModelsDescription') }}</p>
-          </div>
-          <el-switch
-            v-model="draft.autoTaskEnabled"
-            :aria-label="$t('workbenchAiSettingsPanel.autoTaskEnabled')"
-            size="small"
-            @change="handleAutoTaskEnabledChange"
-          />
-        </div>
-        <div class="tier-default-grid">
-          <div v-for="tier in tierRows" :key="tier.value" class="tier-default-card">
-            <label>{{ tier.label }}</label>
-            <el-select
-              :model-value="getTierDefaultValue(tier.value)"
-              :placeholder="$t('workbenchAiSettingsPanel.selectModelPlaceholder')"
-              :disabled="!draft.autoTaskEnabled"
-              clearable
-              @change="value => handleTierDefaultChange(tier.value, String(value || ''))"
-            >
-              <template #label="{ label }">
-                <span>{{ isTierDefaultModelUnavailable(tier.value) ? $t('workbenchAiSettingsPanel.noDefaultModel') : label }}</span>
-              </template>
-              <el-option
-                :label="$t('workbenchAiSettingsPanel.noDefaultModel')"
-                value=""
-              />
-              <el-option-group
-                v-for="group in getTierDefaultOptionGroups()"
-                :key="group.key"
-                :label="group.label"
-              >
-                <el-option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-option-group>
-            </el-select>
-          </div>
-        </div>
-      </section>
-
-      <section class="section-card--fill service-management-section">
-        <div class="management-layout">
-          <aside class="provider-rail">
-            <el-menu
-              :default-active="activeProviderId"
-              class="provider-menu"
-              @select="selectProvider"
-            >
-              <template v-for="provider in draft.providers" :key="provider.id">
-                <el-menu-item
-                  v-if="!isBuiltinProvider(provider)"
-                  :index="provider.id"
-                  @contextmenu.prevent.stop="openProviderContextMenu($event, provider)"
+      <el-tabs v-model="activeSettingsTab" class="settings-tabs">
+        <el-tab-pane :label="$t('workbenchAiSettingsPanel.modelServiceTab')" name="modelService">
+          <section class="section-card--fill service-management-section">
+            <div class="management-layout">
+              <aside class="provider-rail">
+                <el-menu
+                  :default-active="activeProviderId"
+                  class="provider-menu"
+                  @select="selectProvider"
                 >
-                  <span class="provider-item__icon" :class="{ 'is-ollama': provider.type === 'ollama' }">
-                    <el-icon v-if="provider.type === 'ollama'" :size="14"><i-ven-ollama /></el-icon>
-                    <span v-else>{{ getProviderInitial(provider) }}</span>
-                  </span>
-                  <span class="provider-item__name">{{ getProviderDisplayName(provider) }}</span>
-                  <span v-if="provider.enabled" class="provider-item__status">
-                    {{ $t('workbenchAiSettingsPanel.enabledStatus') }}
-                  </span>
-                </el-menu-item>
-                <el-menu-item v-else :index="provider.id">
-                  <span class="provider-item__icon is-builtin">
-                    <el-icon :size="14"><i-ven-logo /></el-icon>
-                  </span>
-                  <span class="provider-item__name">{{ getProviderDisplayName(provider) }}</span>
-                  <span v-if="provider.enabled" class="provider-item__status">
-                    {{ $t('workbenchAiSettingsPanel.enabledStatus') }}
-                  </span>
-                </el-menu-item>
-              </template>
-            </el-menu>
-            <el-menu
-              v-show="providerContextMenuVisible"
-              class="provider-context-menu provider-context-right-sub-menu"
-              :style="{
-                left: `${providerContextMenuPosition.left}px`,
-                top: `${providerContextMenuPosition.top}px`,
-              }"
-              @click.stop
-              @contextmenu.prevent
-              @select="handleProviderContextCommand"
-            >
-              <el-menu-item index="edit">
-                <el-icon><i-ep-edit /></el-icon>
-                <span>{{ $t('workbenchAiSettingsPanel.editProvider') }}</span>
-              </el-menu-item>
-              <el-menu-item index="delete" class="provider-context-menu__item--danger">
-                <el-icon><i-ep-delete /></el-icon>
-                <span>{{ $t('workbenchAiSettingsPanel.deleteProvider') }}</span>
-              </el-menu-item>
-            </el-menu>
-            <el-button
-              class="add-provider-button"
-              @click="openProviderDialog"
-            >
-              <template #icon>
-                <el-icon><i-ep-plus /></el-icon>
-              </template>
-              {{ $t('workbenchAiSettingsPanel.add') }}
-            </el-button>
-          </aside>
+                  <template v-for="provider in draft.providers" :key="provider.id">
+                    <el-menu-item
+                      v-if="!isBuiltinProvider(provider)"
+                      :index="provider.id"
+                      @contextmenu.prevent.stop="openProviderContextMenu($event, provider)"
+                    >
+                      <span class="provider-item__icon" :class="{ 'is-ollama': provider.type === 'ollama' }">
+                        <el-icon v-if="provider.type === 'ollama'" :size="14"><i-ven-ollama /></el-icon>
+                        <span v-else>{{ getProviderInitial(provider) }}</span>
+                      </span>
+                      <span class="provider-item__name">{{ getProviderDisplayName(provider) }}</span>
+                      <span v-if="provider.enabled" class="provider-item__status">
+                        {{ $t('workbenchAiSettingsPanel.enabledStatus') }}
+                      </span>
+                    </el-menu-item>
+                    <el-menu-item v-else :index="provider.id">
+                      <span class="provider-item__icon is-builtin">
+                        <el-icon :size="14"><i-ven-logo /></el-icon>
+                      </span>
+                      <span class="provider-item__name">{{ getProviderDisplayName(provider) }}</span>
+                      <span v-if="provider.enabled" class="provider-item__status">
+                        {{ $t('workbenchAiSettingsPanel.enabledStatus') }}
+                      </span>
+                    </el-menu-item>
+                  </template>
+                </el-menu>
+                <el-menu
+                  v-show="providerContextMenuVisible"
+                  class="provider-context-menu provider-context-right-sub-menu"
+                  :style="{
+                    left: `${providerContextMenuPosition.left}px`,
+                    top: `${providerContextMenuPosition.top}px`,
+                  }"
+                  @click.stop
+                  @contextmenu.prevent
+                  @select="handleProviderContextCommand"
+                >
+                  <el-menu-item index="edit">
+                    <el-icon><i-ep-edit /></el-icon>
+                    <span>{{ $t('workbenchAiSettingsPanel.editProvider') }}</span>
+                  </el-menu-item>
+                  <el-menu-item index="delete" class="provider-context-menu__item--danger">
+                    <el-icon><i-ep-delete /></el-icon>
+                    <span>{{ $t('workbenchAiSettingsPanel.deleteProvider') }}</span>
+                  </el-menu-item>
+                </el-menu>
+                <el-button
+                  class="add-provider-button"
+                  @click="openProviderDialog"
+                >
+                  <template #icon>
+                    <el-icon><i-ep-plus /></el-icon>
+                  </template>
+                  {{ $t('workbenchAiSettingsPanel.add') }}
+                </el-button>
+              </aside>
 
-          <div v-if="activeProvider" class="provider-detail">
-            <section class="detail-panel provider-config-panel">
-              <div class="provider-title-row">
-                <div class="provider-title-row__main">
-                  <h4>{{ getProviderDisplayName(activeProvider) }}</h4>
-                  <a href="https://www.banban.work" target="_black" v-if="isBuiltinProvider(activeProvider)" class="provider-title-row__link">
-                    <el-icon><i-ven-jump /></el-icon>
-                  </a>
+              <div v-if="activeProvider" class="provider-detail">
+                <section class="detail-panel provider-config-panel">
+                  <div class="provider-title-row">
+                    <div class="provider-title-row__main">
+                      <h4>{{ getProviderDisplayName(activeProvider) }}</h4>
+                      <a href="https://www.banban.work" target="_black" v-if="isBuiltinProvider(activeProvider)" class="provider-title-row__link">
+                        <el-icon><i-ven-jump /></el-icon>
+                      </a>
+                    </div>
+                    <div class="toolbar-actions">
+                      <el-switch
+                        v-model="activeProvider.enabled"
+                        :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
+                        size="small"
+                        @change="value => persistProviderFieldChange(activeProvider, 'enabled', value)"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="isBuiltinProvider(activeProvider) && isBuiltinAccountAccessLocked" class="login-required-card">
+                    <div class="login-required-card__icon"><el-icon><i-ven-logo /></el-icon></div>
+                    <div class="login-required-card__text">
+                      <h3>{{ $t('workbenchAiSettingsPanel.loginRequiredTitle') }}</h3>
+                      <p>{{ $t('workbenchAiSettingsPanel.loginRequiredDescription') }}</p>
+                    </div>
+                    <p v-if="showAdminLoginPrompt" class="login-required-card__admin-only">
+                      {{ $t('workbenchAiSettingsPanel.loginRequiredAdminOnly') }}
+                    </p>
+                    <el-button v-else type="primary" @click="openLoginDialog">{{ $t('workbenchAiSettingsPanel.login') }}</el-button>
+                  </div>
+                  <div v-else-if="isBuiltinProvider(activeProvider)" class="builtin-account-panel">
+                    <div class="builtin-account-panel__user">
+                      {{ passportState.showUserNickname }}
+                      <el-button v-if="passportState.isMainAccount" text size="small" bg @click="handleSoftwareLogout">
+                        <template #icon>
+                          <el-icon :size="14"><i-icon-park-outline-logout /></el-icon>
+                        </template>
+                        {{ $t('workbenchAiSettingsPanel.logout') }}
+                      </el-button>
+                    </div>
+                    <div class="toolbar-actions builtin-account-panel__coin-row">
+                      <div class="builtin-account-panel__coin">
+                        <el-icon :size="16"><i-ven-ai-star /></el-icon>
+                        {{ $t('workbenchAiSettingsPanel.points') }}: <span class="builtin-account-panel-coin__number">{{ softwareCoinBalance }}</span>
+                      </div>
+                      <el-button type="primary" @click="rechargeDrawerVisible = true">{{ $t('WorkbenchRechargeManagement.rechargeNow') }}</el-button>
+                    </div>
+                  </div>
+
+                  <div v-else class="external-provider-config">
+                    <div v-if="activeProvider.type === 'openai-compatible'" class="field-block field-block--with-action">
+                      <label>{{ $t('workbenchAiSettingsPanel.apiKey') }}</label>
+                      <div class="field-action-row">
+                        <el-input
+                          v-model.trim="activeProvider.apiKey"
+                          type="password"
+                          clearable
+                          :disabled="isProviderBusy(activeProvider)"
+                          placeholder="sk-proj-..."
+                          @change="value => persistProviderFieldChange(activeProvider, 'apiKey', value)"
+                        />
+                        <el-button
+                          :loading="hasPendingModelValidation(activeProvider)"
+                          :type="getProviderValidationButtonType(activeProvider)"
+                          :title="getProviderValidationMessage(activeProvider)"
+                          plain
+                          :disabled="isProviderValidationEntryDisabled(activeProvider)"
+                          @click="openModelValidationDialog(activeProvider)"
+                        >
+                          <template #icon v-if="hasProviderValidationPassed(activeProvider) || hasProviderValidationFailed(activeProvider)">
+                            <el-icon v-if="hasProviderValidationPassed(activeProvider)"><i-ep-check /></el-icon>
+                            <el-icon v-else-if="hasProviderValidationFailed(activeProvider)"><i-ep-refresh-right /></el-icon>
+                          </template>
+                          {{ getProviderValidationButtonLabel(activeProvider) }}
+                        </el-button>
+                      </div>
+                      <p class="field-help-text" v-if="false">{{ $t('workbenchAiSettingsPanel.apiKeySeparatorTip') }}</p>
+                      <p class="field-tip-text">{{ $t('workbenchAiSettingsPanel.apiKeyEncryptedTip') }}</p>
+                    </div>
+                    <div class="field-block">
+                      <label>{{ $t('workbenchAiSettingsPanel.serviceUrl') }}</label>
+                      <div class="field-action-row">
+                        <el-input
+                          v-model.trim="activeProvider.baseUrl"
+                          :disabled="isProviderBusy(activeProvider)"
+                          :placeholder="activeProvider.type === 'ollama' ? 'http://localhost:11434/v1' : 'https://example.com/v1'"
+                          @change="value => persistProviderFieldChange(activeProvider, 'baseUrl', value)"
+                        />
+                        <el-button
+                          v-if="activeProvider.type === 'ollama'"
+                          :loading="hasPendingModelValidation(activeProvider)"
+                          :type="getProviderValidationButtonType(activeProvider)"
+                          :title="getProviderValidationMessage(activeProvider)"
+                          plain
+                          :disabled="isProviderValidationEntryDisabled(activeProvider)"
+                          @click="openModelValidationDialog(activeProvider)"
+                        >
+                          <template #icon v-if="hasProviderValidationPassed(activeProvider) || hasProviderValidationFailed(activeProvider)">
+                            <el-icon v-if="hasProviderValidationPassed(activeProvider)"><i-ep-check /></el-icon>
+                            <el-icon v-else-if="hasProviderValidationFailed(activeProvider)"><i-ep-refresh-right /></el-icon>
+                          </template>
+                          {{ getProviderValidationButtonLabel(activeProvider) }}
+                        </el-button>
+                      </div>
+                      <p v-if="getProviderEndpointPreview(activeProvider)" class="field-help-text field-help-text--preview">
+                        {{ $t('workbenchAiSettingsPanel.serviceUrlPreview') }}{{ getProviderEndpointPreview(activeProvider) }}
+                      </p>
+                    </div>
+                    <p v-if="activeProvider.lastHealthMessage" class="provider-feedback-text">{{ activeProvider.lastHealthMessage }}</p>
+                  </div>
+                </section>
+
+                <section class="detail-panel model-list-panel">
+                  <div class="model-list-header">
+                    <h4>{{ $t('workbenchAiSettingsPanel.models') }} <span>{{ getManagedModelDisplayCount(activeProvider) }}</span></h4>
+                    <div class="model-list-header__actions">
+                      <el-tooltip :content="$t('WorkbenchAiHealthCheckDialog.title')" placement="top" effect="light">
+                        <el-button
+                          class="health-check-button"
+                          circle
+                          text
+                          :loading="isProviderHealthActionRunning(activeProvider)"
+                          :disabled="isProviderLoginLocked(activeProvider) || !getManagedModelDisplayCount(activeProvider) || isProviderBusy(activeProvider)"
+                          @click="handleProviderHealthAction(activeProvider)"
+                        >
+                          <template #icon>
+                            <el-icon v-if="!isProviderHealthActionRunning(activeProvider)"><i-ven-check-all-ai /></el-icon>
+                          </template>
+                        </el-button>
+                      </el-tooltip>
+                      <el-button
+                        size="small"
+                        :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
+                        @click="openModelPickerDialog(activeProvider.id)"
+                      >{{ $t('workbenchAiSettingsPanel.add') }}</el-button>
+                    </div>
+                  </div>
+
+                  <el-empty
+                    v-if="!getManagedModelDisplayCount(activeProvider)"
+                    :description="$t('workbenchAiSettingsPanel.emptyAddedModels')"
+                    :image-size="56"
+                  />
+
+                  <el-collapse
+                    v-else
+                    v-model="expandedManagedModelGroupKeys"
+                    class="managed-model-list managed-model-groups"
+                  >
+                    <el-collapse-item
+                      v-for="group in managedModelGroups"
+                      :key="group.key"
+                      :name="group.key"
+                      class="managed-model-group"
+                    >
+                      <template #title>
+                        <div class="managed-model-group__title">
+                          <span>{{ group.name }}</span>
+                          <el-button
+                            circle
+                            text
+                            class="managed-model-group__delete"
+                            :title="$t('workbenchAiSettingsPanel.deleteModelGroup')"
+                            :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
+                            @click.stop="handleDeleteModelGroup(activeProvider, group)"
+                          >
+                            <el-icon><i-ep-minus /></el-icon>
+                          </el-button>
+                        </div>
+                      </template>
+                      <div class="managed-model-group__list">
+                        <div
+                          v-for="model in group.models"
+                          :key="model.id"
+                          class="managed-model-row"
+                        >
+                      <div class="managed-model-row__main">
+                        <span class="model-status-mark" :class="{ 'is-enabled': model.enabled }"></span>
+                        <div>
+                          <div class="model-title__name-line">
+                            <span>{{ getModelDisplayName(activeProvider, model) }}</span>
+                            <el-tag
+                              v-for="label in getSystemDefaultModelTagLabels(activeProvider, model)"
+                              :key="label"
+                              size="small"
+                              type="primary"
+                            >{{ label }}</el-tag>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="managed-model-row__actions">
+                        <div v-if="isModelHealthChecking(activeProvider, model)" class="model-health-status is-checking">
+                          <el-icon class="is-loading"><i-ep-loading /></el-icon>
+                        </div>
+                        <el-tooltip
+                          v-else-if="getModelHealthResult(activeProvider, model)"
+                          placement="top"
+                          :show-after="200"
+                          effect="light"
+                        >
+                          <template #content>
+                            <div class="model-health-tooltip">
+                              <div
+                                v-for="keyResult in getModelHealthResult(activeProvider, model)?.keyResults"
+                                :key="keyResult.keyIndex"
+                                class="model-health-tooltip__item"
+                              >
+                                <strong :class="keyResult.success ? 'is-passed' : 'is-failed'">
+                                  {{ keyResult.success ? $t('WorkbenchAiHealthCheckDialog.passed') : $t('WorkbenchAiHealthCheckDialog.failed') }}
+                                </strong>
+                                <span>{{ getHealthCheckKeyLabel(activeProvider, keyResult.keyIndex) }}</span>
+                                <span v-if="keyResult.success">
+                                  {{ $t('WorkbenchAiHealthCheckDialog.durationLabel') }}{{ formatModelHealthDuration(keyResult.durationMs) }}
+                                </span>
+                                <span v-else-if="keyResult.message">{{ keyResult.message }}</span>
+                              </div>
+                            </div>
+                          </template>
+                          <div class="model-health-status" :class="`is-${getModelHealthStatus(activeProvider, model)}`">
+                            <span v-if="getModelHealthLatency(activeProvider, model)" class="model-health-latency">
+                              {{ getModelHealthLatency(activeProvider, model) }}
+                            </span>
+                            <el-icon>
+                              <i-ep-circle-check-filled v-if="getModelHealthStatus(activeProvider, model) === 'passed'" />
+                              <i-ep-warning-filled v-else-if="getModelHealthStatus(activeProvider, model) === 'partial'" />
+                              <i-ep-circle-close-filled v-else />
+                            </el-icon>
+                          </div>
+                        </el-tooltip>
+                        <el-button
+                          circle
+                          text
+                          :title="$t('workbenchAiSettingsPanel.modelSettings')"
+                          :disabled="isModelActionLocked(activeProvider, model)"
+                          @click="openModelEditDialog(activeProvider, model)"
+                        >
+                          <el-icon><i-ep-setting /></el-icon>
+                        </el-button>
+                        <el-button
+                          class="model-delete-button"
+                          circle
+                          text
+                          :title="$t('workbenchAiSettingsPanel.delete')"
+                          :disabled="isModelActionLocked(activeProvider, model)"
+                          @click="handleDeleteModel(activeProvider, model)"
+                        ><el-icon><i-ep-minus /></el-icon></el-button>
+                      </div>
+                    </div>
+                      </div>
+                    </el-collapse-item>
+                  </el-collapse>
+                </section>
+              </div>
+
+              <div v-else class="provider-detail provider-detail--empty">
+                <el-empty :description="$t('workbenchAiSettingsPanel.emptyModelServices')">
+                  <el-button type="primary" @click="openProviderDialog">{{ $t('workbenchAiSettingsPanel.addModelService') }}</el-button>
+                </el-empty>
+              </div>
+            </div>
+          </section>
+        </el-tab-pane>
+        <el-tab-pane name="advancedSettings">
+          <template #label>
+            <span class="settings-tab-label">
+              {{ $t('workbenchAiSettingsPanel.advancedSettingsTab') }}
+              <span v-if="hasNoConfiguredDefaultModels" class="settings-tab-label__dot" aria-hidden="true"></span>
+            </span>
+          </template>
+          <div class="advanced-settings-pane">
+            <section class="default-model-section">
+              <el-alert
+                v-if="hasNoConfiguredDefaultModels"
+                class="default-model-alert"
+                type="warning"
+                :title="$t('workbenchAiSettingsPanel.defaultModelMissingWarning')"
+                :closable="false"
+                show-icon
+              />
+              <div class="section-header">
+                <div>
+                  <h3>{{ $t('workbenchAiSettingsPanel.tierDefaultModels') }}</h3>
+                  <p>{{ $t('workbenchAiSettingsPanel.tierDefaultModelsDescription') }}</p>
                 </div>
-                <div class="toolbar-actions">
-                  <el-switch
-                    v-model="activeProvider.enabled"
-                    :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
-                    size="small"
-                    @change="value => persistProviderFieldChange(activeProvider, 'enabled', value)"
+                <el-switch
+                  v-model="draft.autoTaskEnabled"
+                  :aria-label="$t('workbenchAiSettingsPanel.autoTaskEnabled')"
+                  size="small"
+                  @change="handleAutoTaskEnabledChange"
+                />
+              </div>
+              <div class="tier-default-grid">
+                <div v-for="tier in tierRows" :key="tier.value" class="tier-default-card">
+                  <label>{{ tier.label }}</label>
+                  <el-select
+                    :model-value="getTierDefaultValue(tier.value)"
+                    :placeholder="$t('workbenchAiSettingsPanel.selectModelPlaceholder')"
+                    :disabled="!draft.autoTaskEnabled"
+                    clearable
+                    @change="value => handleTierDefaultChange(tier.value, String(value || ''))"
+                  >
+                    <template #label="{ label }">
+                      <span>{{ isTierDefaultModelUnavailable(tier.value) ? $t('workbenchAiSettingsPanel.noDefaultModel') : label }}</span>
+                    </template>
+                    <el-option
+                      :label="$t('workbenchAiSettingsPanel.noDefaultModel')"
+                      value=""
+                    />
+                    <el-option-group
+                      v-for="group in getTierDefaultOptionGroups()"
+                      :key="group.key"
+                      :label="group.label"
+                    >
+                      <el-option
+                        v-for="option in group.options"
+                        :key="option.value"
+                        :label="option.label"
+                        :value="option.value"
+                      />
+                    </el-option-group>
+                  </el-select>
+                </div>
+              </div>
+            </section>
+
+            <section class="output-policy-section">
+              <div class="section-header">
+                <div>
+                  <h3>{{ $t('workbenchAiSettingsPanel.outputPolicy') }}</h3>
+                  <p>{{ $t('workbenchAiSettingsPanel.outputPolicyDescription') }}</p>
+                </div>
+              </div>
+              <div class="output-policy-grid">
+                <div class="output-policy-control">
+                  <label for="workbench-output-tokens">{{ $t('workbenchAiSettingsPanel.workbenchOutputTokens') }}</label>
+                  <div class="output-policy-input-row">
+                    <div class="output-policy-input">
+                      <el-input-number
+                        id="workbench-output-tokens"
+                        :model-value="outputPolicyDraft.workbenchDefaultOutputTokens ?? 8192"
+                        :min="1024"
+                        :max="32768"
+                        :step="1024"
+                        :controls="false"
+                        @change="value => updateDefaultOutputTokens('workbenchDefaultOutputTokens', value)"
+                      />
+                      <span>tokens</span>
+                    </div>
+                    <div class="output-policy-slider">
+                      <el-slider
+                        :model-value="outputPolicyDraft.workbenchDefaultOutputTokens ?? 8192"
+                        :min="1024"
+                        :max="32768"
+                        :step="1024"
+                        :show-tooltip="true"
+                        :aria-label="$t('workbenchAiSettingsPanel.workbenchOutputTokens')"
+                        @input="value => previewDefaultOutputTokens('workbenchDefaultOutputTokens', value)"
+                        @change="value => updateDefaultOutputTokens('workbenchDefaultOutputTokens', value)"
+                      />
+                      <div class="output-policy-range"><span>1,024</span><span>32,768</span></div>
+                    </div>
+                  </div>
+                  <p>{{ $t('workbenchAiSettingsPanel.workbenchOutputDefaultHint') }}</p>
+                </div>
+                <div class="output-policy-control">
+                  <label for="editor-output-tokens">{{ $t('workbenchAiSettingsPanel.editorOutputTokens') }}</label>
+                  <div class="output-policy-input-row">
+                    <div class="output-policy-input">
+                      <el-input-number
+                        id="editor-output-tokens"
+                        :model-value="outputPolicyDraft.editorDefaultOutputTokens ?? 16384"
+                        :min="1024"
+                        :max="32768"
+                        :step="1024"
+                        :controls="false"
+                        @change="value => updateDefaultOutputTokens('editorDefaultOutputTokens', value)"
+                      />
+                      <span>tokens</span>
+                    </div>
+                    <div class="output-policy-slider">
+                      <el-slider
+                        :model-value="outputPolicyDraft.editorDefaultOutputTokens ?? 16384"
+                        :min="1024"
+                        :max="32768"
+                        :step="1024"
+                        :aria-label="$t('workbenchAiSettingsPanel.editorOutputTokens')"
+                        @input="value => previewDefaultOutputTokens('editorDefaultOutputTokens', value)"
+                        @change="value => updateDefaultOutputTokens('editorDefaultOutputTokens', value)"
+                      />
+                      <div class="output-policy-range"><span>1,024</span><span>32,768</span></div>
+                    </div>
+                  </div>
+                  <p>{{ $t('workbenchAiSettingsPanel.editorOutputDefaultHint') }}</p>
+                  <el-alert
+                    v-if="(outputPolicyDraft.editorDefaultOutputTokens ?? 16384) < 8192"
+                    class="output-policy-warning"
+                    type="warning"
+                    :title="$t('workbenchAiSettingsPanel.editorOutputLowWarning')"
+                    :closable="false"
+                    show-icon
                   />
                 </div>
               </div>
-              <div v-if="isBuiltinProvider(activeProvider) && isBuiltinAccountAccessLocked" class="login-required-card">
-                <div class="login-required-card__icon"><el-icon><i-ven-logo /></el-icon></div>
-                <div class="login-required-card__text">
-                  <h3>{{ $t('workbenchAiSettingsPanel.loginRequiredTitle') }}</h3>
-                  <p>{{ $t('workbenchAiSettingsPanel.loginRequiredDescription') }}</p>
-                </div>
-                <p v-if="showAdminLoginPrompt" class="login-required-card__admin-only">
-                  {{ $t('workbenchAiSettingsPanel.loginRequiredAdminOnly') }}
-                </p>
-                <el-button v-else type="primary" @click="openLoginDialog">{{ $t('workbenchAiSettingsPanel.login') }}</el-button>
-              </div>
-              <div v-else-if="isBuiltinProvider(activeProvider)" class="builtin-account-panel">
-                <div class="builtin-account-panel__user">
-                  {{ passportState.showUserNickname }}
-                  <el-button v-if="passportState.isMainAccount" text size="small" bg @click="handleSoftwareLogout">
-                    <template #icon>
-                      <el-icon :size="14"><i-icon-park-outline-logout /></el-icon>
-                    </template>
-                    {{ $t('workbenchAiSettingsPanel.logout') }}
-                  </el-button>
-                </div>
-                <div class="toolbar-actions builtin-account-panel__coin-row">
-                  <div class="builtin-account-panel__coin">
-                    <el-icon :size="16"><i-ven-ai-star /></el-icon>
-                    {{ $t('workbenchAiSettingsPanel.points') }}: <span class="builtin-account-panel-coin__number">{{ softwareCoinBalance }}</span>
-                  </div>
-                  <el-button type="primary" @click="rechargeDrawerVisible = true">{{ $t('WorkbenchRechargeManagement.rechargeNow') }}</el-button>
-                </div>
-              </div>
-
-              <div v-else class="external-provider-config">
-                <div v-if="activeProvider.type === 'openai-compatible'" class="field-block field-block--with-action">
-                  <label>{{ $t('workbenchAiSettingsPanel.apiKey') }}</label>
-                  <div class="field-action-row">
-                    <el-input
-                      v-model.trim="activeProvider.apiKey"
-                      type="password"
-                      clearable
-                      :disabled="isProviderBusy(activeProvider)"
-                      placeholder="sk-proj-..."
-                      @change="value => persistProviderFieldChange(activeProvider, 'apiKey', value)"
-                    />
-                    <el-button
-                      :loading="hasPendingModelValidation(activeProvider)"
-                      :type="getProviderValidationButtonType(activeProvider)"
-                      :title="getProviderValidationMessage(activeProvider)"
-                      plain
-                      :disabled="isProviderValidationEntryDisabled(activeProvider)"
-                      @click="openModelValidationDialog(activeProvider)"
-                    >
-                      <template #icon v-if="hasProviderValidationPassed(activeProvider) || hasProviderValidationFailed(activeProvider)">
-                        <el-icon v-if="hasProviderValidationPassed(activeProvider)"><i-ep-check /></el-icon>
-                        <el-icon v-else-if="hasProviderValidationFailed(activeProvider)"><i-ep-refresh-right /></el-icon>
-                      </template>
-                      {{ getProviderValidationButtonLabel(activeProvider) }}
-                    </el-button>
-                  </div>
-                  <p class="field-help-text" v-if="false">{{ $t('workbenchAiSettingsPanel.apiKeySeparatorTip') }}</p>
-                  <p class="field-tip-text">{{ $t('workbenchAiSettingsPanel.apiKeyEncryptedTip') }}</p>
-                </div>
-                <div class="field-block">
-                  <label>{{ $t('workbenchAiSettingsPanel.serviceUrl') }}</label>
-                  <div class="field-action-row">
-                    <el-input
-                      v-model.trim="activeProvider.baseUrl"
-                      :disabled="isProviderBusy(activeProvider)"
-                      :placeholder="activeProvider.type === 'ollama' ? 'http://localhost:11434/v1' : 'https://example.com/v1'"
-                      @change="value => persistProviderFieldChange(activeProvider, 'baseUrl', value)"
-                    />
-                    <el-button
-                      v-if="activeProvider.type === 'ollama'"
-                      :loading="hasPendingModelValidation(activeProvider)"
-                      :type="getProviderValidationButtonType(activeProvider)"
-                      :title="getProviderValidationMessage(activeProvider)"
-                      plain
-                      :disabled="isProviderValidationEntryDisabled(activeProvider)"
-                      @click="openModelValidationDialog(activeProvider)"
-                    >
-                      <template #icon v-if="hasProviderValidationPassed(activeProvider) || hasProviderValidationFailed(activeProvider)">
-                        <el-icon v-if="hasProviderValidationPassed(activeProvider)"><i-ep-check /></el-icon>
-                        <el-icon v-else-if="hasProviderValidationFailed(activeProvider)"><i-ep-refresh-right /></el-icon>
-                      </template>
-                      {{ getProviderValidationButtonLabel(activeProvider) }}
-                    </el-button>
-                  </div>
-                  <p v-if="getProviderEndpointPreview(activeProvider)" class="field-help-text field-help-text--preview">
-                    {{ $t('workbenchAiSettingsPanel.serviceUrlPreview') }}{{ getProviderEndpointPreview(activeProvider) }}
-                  </p>
-                </div>
-                <p v-if="activeProvider.lastHealthMessage" class="provider-feedback-text">{{ activeProvider.lastHealthMessage }}</p>
-              </div>
-            </section>
-
-            <section class="detail-panel model-list-panel">
-              <div class="model-list-header">
-                <h4>{{ $t('workbenchAiSettingsPanel.models') }} <span>{{ getManagedModelDisplayCount(activeProvider) }}</span></h4>
-                <div class="model-list-header__actions">
-                  <el-tooltip :content="$t('WorkbenchAiHealthCheckDialog.title')" placement="top" effect="light">
-                    <el-button
-                      class="health-check-button"
-                      circle
-                      text
-                      :loading="isProviderHealthActionRunning(activeProvider)"
-                      :disabled="isProviderLoginLocked(activeProvider) || !getManagedModelDisplayCount(activeProvider) || isProviderBusy(activeProvider)"
-                      @click="handleProviderHealthAction(activeProvider)"
-                    >
-                      <template #icon>
-                        <el-icon v-if="!isProviderHealthActionRunning(activeProvider)"><i-ven-check-all-ai /></el-icon>
-                      </template>
-                    </el-button>
-                  </el-tooltip>
-                  <el-button
-                    size="small"
-                    :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
-                    @click="openModelPickerDialog(activeProvider.id)"
-                  >{{ $t('workbenchAiSettingsPanel.add') }}</el-button>
-                </div>
-              </div>
-
-              <el-empty
-                v-if="!getManagedModelDisplayCount(activeProvider)"
-                :description="$t('workbenchAiSettingsPanel.emptyAddedModels')"
-                :image-size="56"
-              />
-
-              <el-collapse
-                v-else
-                v-model="expandedManagedModelGroupKeys"
-                class="managed-model-list managed-model-groups"
-              >
-                <el-collapse-item
-                  v-for="group in managedModelGroups"
-                  :key="group.key"
-                  :name="group.key"
-                  class="managed-model-group"
-                >
-                  <template #title>
-                    <div class="managed-model-group__title">
-                      <span>{{ group.name }}</span>
-                      <el-button
-                        circle
-                        text
-                        class="managed-model-group__delete"
-                        :title="$t('workbenchAiSettingsPanel.deleteModelGroup')"
-                        :disabled="isProviderLoginLocked(activeProvider) || isProviderBusy(activeProvider)"
-                        @click.stop="handleDeleteModelGroup(activeProvider, group)"
-                      >
-                        <el-icon><i-ep-minus /></el-icon>
-                      </el-button>
-                    </div>
-                  </template>
-                  <div class="managed-model-group__list">
-                    <div
-                      v-for="model in group.models"
-                      :key="model.id"
-                      class="managed-model-row"
-                    >
-                  <div class="managed-model-row__main">
-                    <span class="model-status-mark" :class="{ 'is-enabled': model.enabled }"></span>
-                    <div>
-                      <div class="model-title__name-line">
-                        <span>{{ getModelDisplayName(activeProvider, model) }}</span>
-                        <el-tag
-                          v-for="label in getSystemDefaultModelTagLabels(activeProvider, model)"
-                          :key="label"
-                          size="small"
-                          type="primary"
-                        >{{ label }}</el-tag>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="managed-model-row__actions">
-                    <div v-if="isModelHealthChecking(activeProvider, model)" class="model-health-status is-checking">
-                      <el-icon class="is-loading"><i-ep-loading /></el-icon>
-                    </div>
-                    <el-tooltip
-                      v-else-if="getModelHealthResult(activeProvider, model)"
-                      placement="top"
-                      :show-after="200"
-                      effect="light"
-                    >
-                      <template #content>
-                        <div class="model-health-tooltip">
-                          <div
-                            v-for="keyResult in getModelHealthResult(activeProvider, model)?.keyResults"
-                            :key="keyResult.keyIndex"
-                            class="model-health-tooltip__item"
-                          >
-                            <strong :class="keyResult.success ? 'is-passed' : 'is-failed'">
-                              {{ keyResult.success ? $t('WorkbenchAiHealthCheckDialog.passed') : $t('WorkbenchAiHealthCheckDialog.failed') }}
-                            </strong>
-                            <span>{{ getHealthCheckKeyLabel(activeProvider, keyResult.keyIndex) }}</span>
-                            <span v-if="keyResult.success">
-                              {{ $t('WorkbenchAiHealthCheckDialog.durationLabel') }}{{ formatModelHealthDuration(keyResult.durationMs) }}
-                            </span>
-                            <span v-else-if="keyResult.message">{{ keyResult.message }}</span>
-                          </div>
-                        </div>
-                      </template>
-                      <div class="model-health-status" :class="`is-${getModelHealthStatus(activeProvider, model)}`">
-                        <span v-if="getModelHealthLatency(activeProvider, model)" class="model-health-latency">
-                          {{ getModelHealthLatency(activeProvider, model) }}
-                        </span>
-                        <el-icon>
-                          <i-ep-circle-check-filled v-if="getModelHealthStatus(activeProvider, model) === 'passed'" />
-                          <i-ep-warning-filled v-else-if="getModelHealthStatus(activeProvider, model) === 'partial'" />
-                          <i-ep-circle-close-filled v-else />
-                        </el-icon>
-                      </div>
-                    </el-tooltip>
-                    <el-button
-                      circle
-                      text
-                      :title="$t('workbenchAiSettingsPanel.modelSettings')"
-                      :disabled="isModelActionLocked(activeProvider, model)"
-                      @click="openModelEditDialog(activeProvider, model)"
-                    >
-                      <el-icon><i-ep-setting /></el-icon>
-                    </el-button>
-                    <el-button
-                      class="model-delete-button"
-                      circle
-                      text
-                      :title="$t('workbenchAiSettingsPanel.delete')"
-                      :disabled="isModelActionLocked(activeProvider, model)"
-                      @click="handleDeleteModel(activeProvider, model)"
-                    ><el-icon><i-ep-minus /></el-icon></el-button>
-                  </div>
-                </div>
-                  </div>
-                </el-collapse-item>
-              </el-collapse>
             </section>
           </div>
-
-          <div v-else class="provider-detail provider-detail--empty">
-            <el-empty :description="$t('workbenchAiSettingsPanel.emptyModelServices')">
-              <el-button type="primary" @click="openProviderDialog">{{ $t('workbenchAiSettingsPanel.addModelService') }}</el-button>
-            </el-empty>
-          </div>
-        </div>
-      </section>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <workbench-ai-provider-dialog
@@ -524,6 +617,8 @@ const createEmptySettings = (): AiSettings => ({
   enabled: true,
   autoTaskEnabled: false,
   allowModelSelection: true,
+  workbenchDefaultOutputTokens: null,
+  editorDefaultOutputTokens: null,
   defaultSelections: {
     fast: null,
     balanced: null,
@@ -546,7 +641,20 @@ const aiConfigStore = useAiConfigStore()
 const passportState = usePassportStore()
 const dialogState = useDialogStore()
 const loading = computed(() => aiConfigStore.configLoading || aiConfigStore.catalogLoading)
+const activeSettingsTab = ref<'modelService' | 'advancedSettings'>('modelService')
 const draft = ref<AiSettings>(createEmptySettings())
+const outputPolicyDraft = ref<Pick<AiSettings, 'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens'>>({
+  workbenchDefaultOutputTokens: null,
+  editorDefaultOutputTokens: null,
+})
+const outputTokenPending: Record<'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens', boolean> = {
+  workbenchDefaultOutputTokens: false,
+  editorDefaultOutputTokens: false,
+}
+const outputPolicyDirty = computed(() => (
+  outputPolicyDraft.value.workbenchDefaultOutputTokens !== (draft.value.workbenchDefaultOutputTokens ?? null)
+  || outputPolicyDraft.value.editorDefaultOutputTokens !== (draft.value.editorDefaultOutputTokens ?? null)
+))
 const isLoggedIn = computed(() => passportState.isLoginUser)
 const showAdminLoginPrompt = computed(() => (
   passportState.isLoginAccount && !passportState.isMainAccount
@@ -608,6 +716,11 @@ const saveQueue = createSingleFlightSaveQueue<AiSettings, AiSettings>({
   persist: async payload => await aiConfigStore.saveConfig(payload),
   getSavedSnapshot: saved => serializeSettings(saved),
 })
+const outputTokenSaveSequences: Record<'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens', number> = {
+  workbenchDefaultOutputTokens: 0,
+  editorDefaultOutputTokens: 0,
+}
+const outputTokenSavePromises: Partial<Record<'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens', Promise<void>>> = {}
 const getModelPendingKey = (providerId?: string | null, modelId?: string | null) => `${String(providerId || '').trim()}::${String(modelId || '').trim()}`
 const getModelToolCapabilities = (model?: AiProviderModel | null) => ({
   auto: Boolean(model?.toolCapabilities?.auto ?? model?.supportsTools),
@@ -881,7 +994,16 @@ const syncActiveProvider = (preferredId?: string | null) => {
 }
 
 const applySavedDraft = (value: AiSettings) => {
+  const preserveOutputPolicyDraft = outputPolicyDirty.value
+    || outputTokenPending.workbenchDefaultOutputTokens
+    || outputTokenPending.editorDefaultOutputTokens
   draft.value = clone(value)
+  if (!preserveOutputPolicyDraft) {
+    outputPolicyDraft.value = {
+      workbenchDefaultOutputTokens: value.workbenchDefaultOutputTokens ?? null,
+      editorDefaultOutputTokens: value.editorDefaultOutputTokens ?? null,
+    }
+  }
   syncActiveProvider(activeProviderId.value)
 }
 
@@ -972,6 +1094,8 @@ const createReadonlySettingsFromCatalog = (): AiSettings => {
     enabled: true,
     autoTaskEnabled: false,
     allowModelSelection: true,
+    workbenchDefaultOutputTokens: null,
+    editorDefaultOutputTokens: null,
     defaultSelections: { fast: null, balanced: null, deep: null },
     defaultProviderId: aiConfigStore.catalog.defaultProviderId || null,
     defaultModelId: aiConfigStore.catalog.defaultModelId || null,
@@ -1088,6 +1212,72 @@ const handleAutoTaskEnabledChange = async (value: boolean | string | number) => 
     draft.value.autoTaskEnabled = Boolean(previousValue)
     ElMessage.error(resolveErrorMessage(error, i18next.t('workbenchAiSettingsPanel.saveFailedRetry')))
   }
+}
+
+const normalizeOutputTokens = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return null
+  const numericValue = Number(value)
+  if (!Number.isInteger(numericValue) || numericValue < 1024 || numericValue > 32768) return null
+  return Math.min(32768, Math.max(1024, Math.round(numericValue / 1024) * 1024))
+}
+
+const previewDefaultOutputTokens = (
+  field: 'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens',
+  value: unknown,
+) => {
+  const nextValue = normalizeOutputTokens(value)
+  if (nextValue === null) return
+  outputPolicyDraft.value[field] = nextValue
+  outputTokenPending[field] = true
+}
+
+const updateDefaultOutputTokens = (
+  field: 'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens',
+  value: unknown,
+) => {
+  const nextValue = normalizeOutputTokens(value)
+  if (nextValue === null) {
+    ElMessage.error(i18next.t('workbenchAiSettingsPanel.outputTokensInvalid'))
+    return
+  }
+  const valueChanged = draft.value[field] !== nextValue
+  outputPolicyDraft.value[field] = nextValue
+  outputTokenPending[field] = false
+  if (!valueChanged) return
+
+  draft.value[field] = nextValue
+  outputTokenPending[field] = true
+  const sequence = ++outputTokenSaveSequences[field]
+  const previousSave = outputTokenSavePromises[field] || Promise.resolve()
+  outputTokenSavePromises[field] = previousSave
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        const saved = await aiConfigStore.updateGlobalConfig({ [field]: nextValue })
+        if (saved && outputTokenSaveSequences[field] === sequence) {
+          outputTokenPending[field] = false
+          applySavedDraft(saved)
+          outputPolicyDraft.value[field] = nextValue
+          draft.value[field] = nextValue
+          return
+        }
+        if (outputTokenSaveSequences[field] === sequence) {
+          outputTokenPending[field] = false
+          const persistedValue = aiConfigStore.config?.[field] ?? null
+          outputPolicyDraft.value[field] = persistedValue
+          draft.value[field] = persistedValue
+          ElMessage.error(i18next.t('workbenchAiSettingsPanel.saveFailedRetry'))
+        }
+      } catch (error) {
+        if (outputTokenSaveSequences[field] === sequence) {
+          outputTokenPending[field] = false
+          const persistedValue = aiConfigStore.config?.[field] ?? null
+          outputPolicyDraft.value[field] = persistedValue
+          draft.value[field] = persistedValue
+          ElMessage.error(resolveErrorMessage(error, i18next.t('workbenchAiSettingsPanel.saveFailedRetry')))
+        }
+      }
+    })
 }
 
 const saveDraftMutationWithRollback = async (
@@ -1803,6 +1993,74 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.settings-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  :deep(.el-tabs__header) {
+    flex: none;
+    margin: 0 0 24px;
+    padding: 0 24px;
+    --el-tabs-header-height: 36px;
+  }
+
+  :deep(.el-tabs__nav-wrap::after) {
+    height: 1px;
+    background-color: #e5e6eb;
+  }
+
+  :deep(.el-tabs__content) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  :deep(.el-tab-pane) {
+    height: 100%;
+  }
+
+  :deep(.el-tabs__item) {
+    padding: 0 20px;
+    font-size: 14px;
+    color: #86909c;
+
+    &.is-active {
+      color: #4e5969;
+      font-weight: 500;
+    }
+  }
+
+  :deep(.el-tabs__item:nth-child(2)) {
+    padding-right: 12px;
+    padding-left: 0;
+  }
+
+  :deep(.el-tabs__item:last-child) {
+    padding-left: 12px;
+    padding-right: 0;
+  }
+}
+
+.settings-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-tab-label__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f53f3f;
+}
+
+.advanced-settings-pane {
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
 .login-required-card {
   min-height: 184px;
   margin-top: 12px;
@@ -1871,23 +2129,94 @@ onBeforeUnmount(() => {
   background: #fff7e8;
 }
 
-.default-model-section .section-header h3 {
-  margin-bottom: 2px;
-  font-size: 14px;
-  line-height: 22px;
-  font-weight: 600;
-}
-
-.default-model-section .section-header p {
-  font-size: 12px;
-  line-height: 18px;
-}
-
 .default-model-section :deep(.el-select__wrapper) {
   min-height: 32px;
   background: #fff;
   border-radius: 2px;
   box-shadow: 0 0 0 1px #c9cdd4 inset;
+}
+
+.output-policy-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+.advanced-settings-pane .output-policy-section {
+  border-bottom: 0;
+}
+
+.output-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.output-policy-control {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.output-policy-control > label {
+  display: block;
+  margin-bottom: 7px;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.output-policy-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.output-policy-input :deep(.el-input-number) {
+  width: 150px;
+}
+
+.output-policy-input-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.output-policy-slider {
+  flex: 1;
+  min-width: 100px;
+}
+
+.output-policy-slider :deep(.el-slider) {
+  margin: 0 8px;
+}
+
+.output-policy-input > span,
+.output-policy-range {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.output-policy-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin: 0 8px;
+}
+
+.output-policy-control > p {
+  margin: 10px 0 0;
+  color: #86909c;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.output-policy-warning {
+  margin-top: 8px;
+  padding: 6px 8px;
 }
 
 .service-management-section {
@@ -1896,11 +2225,10 @@ onBeforeUnmount(() => {
 }
 
 .section-card--fill {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
+  min-height: 400px;
   display: flex;
   flex-direction: column;
-  min-height: 400px;
 }
 
 .section-header {
@@ -1912,8 +2240,9 @@ onBeforeUnmount(() => {
 
 .section-header h3 {
   margin: 0 0 6px;
-  font-size: 18px;
-  line-height: 26px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
 }
 
 .section-header p,
@@ -2582,5 +2911,15 @@ onBeforeUnmount(() => {
 
 @media (max-width: 960px) {
   .section-header { flex-direction: column; align-items: stretch; }
+}
+
+@media (max-width: 760px) {
+  .output-policy-section { padding: 16px; }
+  .output-policy-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .output-policy-input-row { gap: 12px; }
+  .output-policy-input :deep(.el-input-number) { width: 112px; }
 }
 </style>

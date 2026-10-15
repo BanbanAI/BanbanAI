@@ -135,6 +135,35 @@
                       :diagnostics="getMessageDevDiagnostics(message)"
                       :reset-key="currentThreadId"
                     />
+                    <button
+                      v-if="message.metadata?.contextRecoveryAction === 'compact_context' && !readonly && !isSharePage"
+                      type="button"
+                      class="ai-sidebar__context-retry"
+                      :disabled="isAssistantResponding || isAttachmentSubmitting || contextRetryingMessageId === message.id"
+                      @click="handleCompactContextRetry(message)"
+                    >
+                      <el-icon :size="14"><i-ep-refresh-right /></el-icon>
+                      <span>{{ $t('nocodeEditorStreamError.retryWithCompactedContext') }}</span>
+                    </button>
+                    <button
+                      v-if="message.metadata?.contextRecoveryAction === 'compact_context' && hasTurnAttachments(message) && !readonly && !isSharePage"
+                      type="button"
+                      class="ai-sidebar__context-retry"
+                      :disabled="isAssistantResponding || isAttachmentSubmitting || contextRetryingMessageId === message.id"
+                      @click="handleCompactContextRetry(message, true)"
+                    >
+                      <el-icon :size="14"><i-ep-refresh-right /></el-icon>
+                      <span>{{ $t('nocodeEditorStreamError.retryWithoutAttachments') }}</span>
+                    </button>
+                    <button
+                      v-if="message.metadata?.contextRecoveryAction === 'compact_context' && !readonly && !isSharePage"
+                      type="button"
+                      class="ai-sidebar__context-retry"
+                      :disabled="isAssistantResponding || isAttachmentSubmitting || contextRetryingMessageId === message.id"
+                      @click="startNewChat(currentThreadAppIds)"
+                    >
+                      <span>{{ $t('nocodeEditorStreamError.startNewChat') }}</span>
+                    </button>
                     <div
                       v-if="shouldShowAssistantThinking(message) && message.metadata?.contextCompaction?.status !== 'running'"
                       class="ai-sidebar__thinking"
@@ -707,6 +736,7 @@ const workbenchNocodeId = computed(() => String(route.params.nocodeId || '').tri
 provide(NOCODE_ID, workbenchNocodeId.value)
 const workbenchAiFormFillContext = inject(WORKBENCH_AI_FORM_FILL_CONTEXT, null)
 const sidebarTextareaValue = ref('')
+const contextRetryingMessageId = ref('')
 const sidebarAttachments = ref<AiComposerAttachment[]>([])
 const isAttachmentSubmitting = ref(false)
 const editingUserMessageId = ref('')
@@ -1652,6 +1682,18 @@ const ensureMessageMetadata = (message: AiMessage) => {
     message.metadata = {}
   }
   return message.metadata
+}
+
+const hasTurnAttachments = (message: AiThreadMessage) => {
+  const traceId = String(message.traceId || message.metadata?.traceId || '').trim()
+  if (!traceId) return false
+  return curAiMessageList.value.some((item) => {
+    const attachments = item.metadata?.attachments
+    return item.role === AiMessageRole.USER
+      && String(item.traceId || item.metadata?.traceId || '').trim() === traceId
+      && Array.isArray(attachments)
+      && attachments.length > 0
+  })
 }
 
 const ensureMessageToolCalls = (message: AiMessage) => {
@@ -3200,6 +3242,9 @@ const handleStreamPayload = async (
     } else {
       message.content = `${message.content}\n${errorText}`
     }
+    if (data.metadata?.recoveryAction === 'compact_context') {
+      ensureMessageMetadata(message).contextRecoveryAction = 'compact_context'
+    }
     throw new Error(errorText)
   }
 
@@ -3404,6 +3449,7 @@ const openWithMessage = async (
   options?: {
     attachments?: AiComposerAttachment[]
     editedFromMessageId?: string
+    requestMetadata?: Record<string, unknown>
   },
 ) => {
   const content = message.trim()
@@ -3411,8 +3457,9 @@ const openWithMessage = async (
     return 'blocked' as const
   }
   const composerAttachments = Array.isArray(options?.attachments) ? options.attachments : []
+  const isContextRecoveryRequest = options?.requestMetadata?.recoveryAction === 'compact_context'
   const attachmentMetadata = buildWorkbenchAttachmentRequestMetadata(content, composerAttachments)
-  const excelAnalysisFollowupBehavior = !composerAttachments.length
+  const excelAnalysisFollowupBehavior = !composerAttachments.length && !isContextRecoveryRequest
     ? resolveAiExcelAnalysisFollowupBehavior({
       context: activeExcelAnalysisContext.value,
       baseRequestMetadata: attachmentMetadata,
@@ -3428,7 +3475,7 @@ const openWithMessage = async (
     ElMessage.info(excelAnalysisFollowupBehavior.assistantReply)
     return 'blocked' as const
   }
-  const effectiveMetadata = !composerAttachments.length
+  const effectiveMetadata = !composerAttachments.length && !isContextRecoveryRequest
     ? buildWorkbenchExcelAnalysisFollowupMetadata(content, {
       baseMetadata: attachmentMetadata,
     })
@@ -3461,6 +3508,7 @@ const openWithMessage = async (
   const userMessageMetadata: AiMessageMetadata = {
     traceId,
     ...(effectiveMetadata || {}),
+    ...(options?.requestMetadata || {}),
     ...(editMetadata || {}),
   }
 
@@ -3642,6 +3690,35 @@ const handleSend = async () => {
     ElMessage.error(resolveErrorMessage(error, i18next.t('WorkbenchAiChatInput.uploadFailedRetry')))
   } finally {
     isAttachmentSubmitting.value = false
+  }
+}
+
+const handleCompactContextRetry = async (message: AiThreadMessage, withoutAttachments = false) => {
+  if (
+    isAssistantResponding.value
+    || isAttachmentSubmitting.value
+    || contextRetryingMessageId.value
+    || !currentThreadId.value
+  ) return
+  contextRetryingMessageId.value = message.id
+  try {
+    await openWithMessage(
+      i18next.t(withoutAttachments
+        ? 'WorkbenchAiChat.compactContextRetryWithoutAttachmentsUserMessage'
+        : 'WorkbenchAiChat.compactContextRetryUserMessage'),
+      undefined,
+      {
+        requestMetadata: {
+          recoveryAction: 'compact_context',
+          retryOfTraceId: message.traceId || message.metadata?.traceId,
+          ...(withoutAttachments
+            ? { removeAttachmentsForTraceId: message.traceId || message.metadata?.traceId }
+            : {}),
+        },
+      },
+    )
+  } finally {
+    contextRetryingMessageId.value = ''
   }
 }
 
@@ -4288,6 +4365,31 @@ onMounted(() => {
     &:hover {
       color: var(--color-primary);
       border-color: var(--color-primary);
+    }
+  }
+
+  .ai-sidebar__context-retry {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid #c9cdd4;
+    border-radius: 6px;
+    background: #fff;
+    color: #4e5969;
+    font-size: 13px;
+    cursor: var(--cursor-pointer);
+
+    &:hover:not(:disabled) {
+      color: var(--color-primary);
+      border-color: var(--color-primary);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
     }
   }
 

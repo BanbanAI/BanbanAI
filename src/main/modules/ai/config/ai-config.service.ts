@@ -76,7 +76,10 @@ type AiRuntimeConfig = {
   endpointTypes: AiProviderModel['endpointTypes']
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   contextWindow?: number | null
+  workbenchDefaultOutputTokens: number | null
+  editorDefaultOutputTokens: number | null
   supportsStreaming: boolean
   modelKwargs?: Record<string, any>
   baseUrl?: string
@@ -104,6 +107,7 @@ type DiscoverModelOptions = {
   endpointTypes?: AiProviderModel['endpointTypes']
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   contextWindow?: number | null
   supportsStreaming?: boolean
   validationStatus?: AiModelValidationStatus
@@ -211,6 +215,8 @@ export class AiConfigService {
       enabled: nextSettings.enabled,
       autoTaskEnabled: nextSettings.autoTaskEnabled,
       allowModelSelection: nextSettings.allowModelSelection,
+      workbenchDefaultOutputTokens: nextSettings.workbenchDefaultOutputTokens,
+      editorDefaultOutputTokens: nextSettings.editorDefaultOutputTokens,
       defaultSelections: nextSettings.defaultSelections,
       featureFlags: nextSettings.featureFlags,
       migrations: nextSettings.migrations,
@@ -471,7 +477,10 @@ export class AiConfigService {
         endpointTypes: routeResolution.model.endpointTypes,
         maxInputTokens: routeResolution.model.maxInputTokens,
         maxOutputTokens: routeResolution.model.maxOutputTokens,
+        maxRequestBodyBytes: routeResolution.model.maxRequestBodyBytes,
         contextWindow: routeResolution.model.contextWindow,
+        workbenchDefaultOutputTokens: loadedSettings.workbenchDefaultOutputTokens ?? null,
+        editorDefaultOutputTokens: loadedSettings.editorDefaultOutputTokens ?? null,
         supportsStreaming: routeResolution.model.supportsStreaming,
         modelKwargs: routeResolution.modelKwargs,
         baseUrl: builtinRuntime.baseUrl,
@@ -517,7 +526,10 @@ export class AiConfigService {
       endpointTypes: externalReasoningConfig.model.endpointTypes,
       maxInputTokens: externalReasoningConfig.model.maxInputTokens,
       maxOutputTokens: externalReasoningConfig.model.maxOutputTokens,
+      maxRequestBodyBytes: externalReasoningConfig.model.maxRequestBodyBytes,
       contextWindow: externalReasoningConfig.model.contextWindow,
+      workbenchDefaultOutputTokens: loadedSettings.workbenchDefaultOutputTokens ?? null,
+      editorDefaultOutputTokens: loadedSettings.editorDefaultOutputTokens ?? null,
       supportsStreaming: externalReasoningConfig.model.supportsStreaming,
       modelKwargs: externalReasoningConfig.modelKwargs,
       baseUrl,
@@ -1151,6 +1163,14 @@ export class AiConfigService {
       enabled: true,
       autoTaskEnabled: input?.autoTaskEnabled === true,
       allowModelSelection: true,
+      workbenchDefaultOutputTokens: this.normalizeDefaultOutputTokens(
+        input?.workbenchDefaultOutputTokens,
+        'AI_WORKBENCH_OUTPUT_LIMIT_INVALID',
+      ),
+      editorDefaultOutputTokens: this.normalizeDefaultOutputTokens(
+        input?.editorDefaultOutputTokens,
+        'AI_EDITOR_OUTPUT_LIMIT_INVALID',
+      ),
       defaultSelections,
       defaultProviderId: interactiveDefaultSelection?.providerId || null,
       defaultModelId: interactiveDefaultSelection?.modelId || null,
@@ -1193,6 +1213,14 @@ export class AiConfigService {
     }
 
     return nextSettings
+  }
+
+  private normalizeDefaultOutputTokens(value: unknown, errorCode: string): number | null {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1024 || value > 32768) {
+      throw this.createAiConfigError(errorCode, 'Default output tokens must be an integer between 1024 and 32768.')
+    }
+    return value
   }
 
   private mergeProvidersForSave(currentProviders: AiProviderConfig[], inputProviders: Partial<AiProviderConfig>[]): AiProviderConfig[] {
@@ -1741,6 +1769,9 @@ export class AiConfigService {
       endpointTypes,
       maxInputTokens: this.normalizeOptionalNumber(input?.maxInputTokens),
       maxOutputTokens: this.normalizeOptionalNumber(input?.maxOutputTokens),
+      maxRequestBodyBytes: input?.maxRequestBodyBytes === undefined
+        ? previousValue?.maxRequestBodyBytes ?? null
+        : this.normalizeOptionalNumber(input.maxRequestBodyBytes),
       supportsStreaming: input?.supportsStreaming !== false,
       contextWindow: this.normalizeOptionalNumber(input?.contextWindow),
       source: this.normalizeModelSource(input?.source, providerType === 'builtin-cloud' ? 'builtin' : 'manual'),
@@ -1899,6 +1930,7 @@ export class AiConfigService {
       endpointTypes: model.endpointTypes,
       maxInputTokens: model.maxInputTokens,
       maxOutputTokens: model.maxOutputTokens,
+      maxRequestBodyBytes: model.maxRequestBodyBytes,
       supportsStreaming: model.supportsStreaming,
       supportsVision: aiModelSupportsImageInput(model),
       contextWindow: model.contextWindow ?? null,

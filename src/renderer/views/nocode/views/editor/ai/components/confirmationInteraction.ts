@@ -3,6 +3,12 @@ import type {
   NocodeEditorAiConfirmQuestion,
   NocodeEditorAiConfirmQuestionOption,
 } from '@common/types/nocodeEditorConfirmation'
+import type {
+  NocodeEditorConfirmationDecision,
+} from '@common/utils/nocodeEditorConfirmationDecisionProjection'
+import {
+  NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
+} from '@common/utils/nocodeEditorConfirmationDecisionProjection'
 import {
   getNocodeEditorCompletedDefaultsContinueLabel,
   getNocodeEditorCompletedDefaultsResultSummary,
@@ -35,6 +41,15 @@ export type FlowSchemeConfirmationContinuationRequestMetadata = {
   blockedNextAction?: 'editor_stage_flow_blueprint'
 }
 
+export type ConfirmationContinuationRequestMetadata = {
+  confirmationStage: 'app-plan' | 'form-plan' | 'flow-scheme' | 'blueprint'
+  planningContextKey?: string
+  flowSchemeRevision?: number
+  planningConfirmationDecisions?: NocodeEditorConfirmationDecision[]
+  flowConfirmationDecisions?: NocodeEditorConfirmationDecision[]
+  blueprintConfirmationDecisions?: NocodeEditorConfirmationDecision[]
+}
+
 type ParsedConfirmationBatchReplyItem = {
   title: string
   optionLabel?: string
@@ -62,6 +77,133 @@ export const buildFlowSchemeConfirmationContinuationRequestMetadata = (
       ? { blockedNextAction: 'editor_stage_flow_blueprint' }
       : {}),
   }
+}
+
+const BLUEPRINT_CONFIRMATION_DECISION_SUMMARY_MAX_LENGTH = 60
+
+const buildBlueprintDecisionAnswerSummary = (
+  response: NocodeEditorAiConfirmationResponse,
+) => {
+  const optionLabel = normalizeText(response.option?.label || response.option?.value)
+  if (optionLabel) {
+    return optionLabel
+  }
+
+  const note = normalizeConfirmationResponseNote(response.note).replace(/\s+/g, ' ')
+  if (!note) {
+    return ''
+  }
+
+  return note.length > BLUEPRINT_CONFIRMATION_DECISION_SUMMARY_MAX_LENGTH
+    ? `${note.slice(0, BLUEPRINT_CONFIRMATION_DECISION_SUMMARY_MAX_LENGTH)}...`
+    : note
+}
+
+export const buildConfirmationContinuationRequestMetadata = (
+  confirmation?: Pick<NocodeEditorAiConfirmPayload, 'stage' | 'questions' | 'planningContextKey' | 'schemeRevision'> | null,
+  responses?: NocodeEditorAiConfirmationResponse[] | null,
+): ConfirmationContinuationRequestMetadata | undefined => {
+  if (
+    confirmation?.stage !== 'app-plan'
+    && confirmation?.stage !== 'form-plan'
+    && confirmation?.stage !== 'flow-scheme'
+    && confirmation?.stage !== 'blueprint'
+  ) {
+    return undefined
+  }
+
+  const decisionsByKey = new Map<string, NocodeEditorConfirmationDecision>()
+  const resolveDecisionKey = (question: {
+    decisionKey?: unknown
+    id?: unknown
+    title?: unknown
+  }) => (
+    normalizeText(question.decisionKey)
+    || normalizeText(question.id)
+    || normalizeText(question.title)
+  )
+
+  const responseList = Array.isArray(responses) ? responses : []
+  responseList.forEach((response) => {
+    const questionId = normalizeText(response?.question?.id)
+    const questionTitle = normalizeText(response?.question?.title)
+    const explicitDecisionKey = normalizeText(response?.question?.decisionKey)
+    const decisionKey = resolveDecisionKey(response?.question)
+    if (!decisionKey) {
+      return
+    }
+
+    decisionsByKey.set(decisionKey, {
+      questionId: questionId || decisionKey,
+      questionTitle,
+      decisionKey,
+      decisionTarget: response?.question?.decisionTarget,
+      ...(explicitDecisionKey
+        ? { decisionKeySource: 'explicit' as const }
+        : (questionId ? { decisionKeySource: 'legacy_question_id' as const } : {})),
+      selectedOptionValue: normalizeText(response?.option?.value) || undefined,
+      answerSummary: buildBlueprintDecisionAnswerSummary(response) || undefined,
+      answerDetail: buildConfirmationResponseAnswerDetail(response) || undefined,
+    })
+  })
+
+  const questionList = Array.isArray(confirmation.questions) ? confirmation.questions : []
+  questionList.forEach((question) => {
+    if (!isCompletedConfirmationQuestion(question, true)) {
+      return
+    }
+
+    const questionId = normalizeText(question.id)
+    const questionTitle = normalizeText(question.title)
+    const decisionKey = resolveDecisionKey(question)
+    if (!decisionKey || decisionsByKey.has(decisionKey)) {
+      return
+    }
+
+    decisionsByKey.set(decisionKey, {
+      questionId: questionId || decisionKey,
+      questionTitle,
+      decisionKey: normalizeText(question.decisionKey) || decisionKey,
+      decisionTarget: question.decisionTarget,
+      decisionKeySource: question.decisionKeySource || 'explicit',
+      selectedOptionValue: normalizeText(question.selectedOptionValue) || undefined,
+      answerSummary: normalizeText(question.answerSummary) || undefined,
+      answerDetail: normalizeText(question.answerDetail) || undefined,
+    })
+  })
+
+  const decisions = Array.from(decisionsByKey.values())
+    .slice(0, NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT)
+  if (!decisions.length) {
+    return undefined
+  }
+
+  const isPlanningConfirmation = confirmation.stage === 'app-plan' || confirmation.stage === 'form-plan'
+  if (confirmation.stage === 'flow-scheme') {
+    return {
+      confirmationStage: 'flow-scheme',
+      planningContextKey: normalizeText(confirmation.planningContextKey) || undefined,
+      flowSchemeRevision: Number.isSafeInteger(confirmation.schemeRevision) && Number(confirmation.schemeRevision) > 0
+        ? Number(confirmation.schemeRevision) : undefined,
+      flowConfirmationDecisions: decisions.map(decision => ({
+        ...decision,
+        ...(normalizeText(confirmation.planningContextKey)
+          ? { planningContextKey: normalizeText(confirmation.planningContextKey) }
+          : {}),
+      })),
+    }
+  }
+
+  return isPlanningConfirmation
+    ? {
+      confirmationStage: confirmation.stage,
+      planningContextKey: normalizeText(confirmation.planningContextKey) || undefined,
+      planningConfirmationDecisions: decisions,
+    }
+    : {
+      confirmationStage: 'blueprint',
+      blueprintConfirmationDecisions: decisions,
+    }
 }
 
 const resolveQuestionSelectedOption = (
