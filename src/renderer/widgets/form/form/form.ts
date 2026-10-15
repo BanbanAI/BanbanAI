@@ -32,6 +32,7 @@ import { ElMessage } from "element-plus";
 import type { TheWidget as DatePicker } from "../datePicker";
 import { fetchDistinct } from "../_common/distinct";
 import { usePassportStore } from "@renderer/stores/passport";
+import { getSubFormDataFillChangeToken } from "./formula-change-triggers";
 
 const VisiblePermissionDefault = ['all-members'];
 const EditablePermissionDefault = ['all-members'];
@@ -98,7 +99,7 @@ const getSubFormConditionWidget = (widget: FormElement, uid: string) => {
   if (!templateChild) return null;
 
   if (!context.currentRowForm) {
-    return templateChild;
+    return null;
   }
 
   return context.currentRowForm.children.find(child => {
@@ -572,7 +573,7 @@ export class Form extends AbstractForm {
       if (!isSubForm(widget)) return;
       const subWidget = widget?.form?.getChildElement(widgetIds[1]);
       if (!subWidget) return;
-      return widget.tableData?.map(i => i.children.find(f => f.fieldId === subWidget.fieldId)?.status.lastChangeTime).filter(Boolean);
+      return getSubFormDataFillChangeToken(widget, subWidget.fieldId);
     }
     const widget = this.getChildElement(value);
     return widget?.status?.lastChangeTime;
@@ -596,6 +597,7 @@ export class Form extends AbstractForm {
 
   private watchFieldFill(rule: FormLinkageRule) {
     const watchKey = rule.id || md5(JSON.stringify(rule));
+    const pendingRuntimeSubFormConditions = new Set<string>();
     watch(
       () => {
         // 收集所有条件字段的值
@@ -640,10 +642,21 @@ export class Form extends AbstractForm {
         let isChange = false
         // 条件中有空值时不进行填充
         for (const key in value) {
-          const type = rule.conditions.find(c => c.id === key)?.type;
+          const condition = rule.conditions.find(c => c.id === key);
+          const type = condition?.type;
           if (value[key] === undefined && type === FormConditionValueType.FORM) return;
           const valueIsEqual = equals(value[key], lastValue[key])
           const timeIsEqual = equals(lastChangeTime[key], lastLastChangeTime[key])
+          const [subFormUID, subWidgetUID] = condition?.value?.split(".") || [];
+          const subForm = subWidgetUID ? this.getChildElement(subFormUID) : null;
+          const isRuntimeSubFormCondition = isSubForm(subForm) && subForm.hasRuntime;
+          if (isRuntimeSubFormCondition) {
+            if (!valueIsEqual) pendingRuntimeSubFormConditions.add(key);
+            if (!timeIsEqual && pendingRuntimeSubFormConditions.delete(key)) {
+              isChange = true;
+            }
+            continue;
+          }
           const shouldTriggerEditInit =
             hasDataFillTarget
             && value[key] !== undefined
@@ -1341,6 +1354,8 @@ export class Form extends AbstractForm {
 
   isChildShow(widget: FormElement) {
     if (this.isEditable) return true;
+    // 操作编辑弹窗等场景会强制隐藏未配置的字段，不含任何可见字段的布局元素（分组标题、空容器）应一并隐藏
+    if (!super.isChildShow(widget)) return false;
     if (!this.fieldsVisibleRules) return true;
     const widgetId = widget.uid;
 

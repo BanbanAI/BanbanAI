@@ -4,6 +4,7 @@ import { getRuntime } from "@main/runtime";
 import { Preferences } from "../common";
 import { UserWrapper } from "./components/user-wrapper.component";
 import { UserRest } from "../client";
+import { SystemMigrationService } from "../client/system-migration.service";
 import { ProxyOptions, SaasPlan } from "@common/types/user";
 import fs from 'fs'
 import net from "net";
@@ -53,6 +54,7 @@ export class UserService implements OnApplicationBootstrap {
     @Inject(forwardRef(() => WorkbenchService)) private readonly workbenchService: WorkbenchService,
     private readonly dbManager: DbManager,
     private readonly entityManager: EntityManager,
+    private readonly systemMigrationService: SystemMigrationService,
   ) { 
     this.nocodeRepository = this.entityManager.getRepository(NocodeEntity);
   }
@@ -649,6 +651,10 @@ export class UserService implements OnApplicationBootstrap {
         }
       }
     }
+
+    await this.systemMigrationService.clearTempCaches().catch((err) => {
+      this.logger.log("clear system migration cache error", err);
+    });
     //TODO
     // 清除session中的缓存
     // await session.defaultSession.clearStorageData();

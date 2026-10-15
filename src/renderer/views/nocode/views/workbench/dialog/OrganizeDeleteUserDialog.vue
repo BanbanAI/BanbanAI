@@ -12,15 +12,17 @@
       </div>
       <template #footer>
         <el-button class="cancel-button" @click="() => { emit('update:modelValue', false); }">{{ $t('OrganizeDeleteUserDialog.cancel') }}</el-button>
-        <el-button :class="['confirm-button', `is-${confirmType || 'danger'}`]" @click="handleConfirm">{{ confirmText || $t('OrganizeDeleteUserDialog.delete') }}</el-button>
+        <el-button :class="['confirm-button', `is-${confirmType || 'danger'}`]" :loading="loading" :disabled="loading" @click="handleConfirm">{{ confirmText || $t('OrganizeDeleteUserDialog.delete') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script lang='ts' setup>
+import { ref } from 'vue';
 
-defineProps<{
+// eslint-disable-next-line vue/valid-define-props
+const props = defineProps<{
   modelValue: boolean,
   title?: string,
   tipTitle?: string,
@@ -28,16 +30,31 @@ defineProps<{
   descriptionText?: string,
   confirmText?: string,
   confirmType?: 'primary' | 'danger',
+  action?: () => boolean | void | Promise<boolean | void>,
 }>();
 
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean): void
   (event: "confirm");
 }>();
+const loading = ref(false);
 
-const handleConfirm = () => {
-  emit("confirm");
-  emit('update:modelValue', false);
+const handleConfirm = async () => {
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    if (props.action) {
+      const result = await props.action();
+      if (result === false) return;
+    } else {
+      emit("confirm");
+    }
+    emit('update:modelValue', false);
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 }
 
 </script>

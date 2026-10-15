@@ -15,7 +15,7 @@
       </div>
       <template #footer>
         <el-button class="cancel" @click="$emit('update:modelValue', false)">{{ $t('WorkbenchDepartmentDialog.cancel') }}</el-button>
-        <el-button type="primary" class="confirm" @click="commitDepartment()">{{ $t('WorkbenchDepartmentDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="props.loading" :disabled="props.loading" @click="commitDepartment()">{{ $t('WorkbenchDepartmentDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -36,6 +36,7 @@ const props = defineProps<{
   modelValue: boolean;
   department?: DepartmentTree;
   departmentList: DepartmentTree[];
+  loading?: boolean;
 }>()
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)
@@ -95,9 +96,8 @@ const onClosed = () => {
   emit('closed');
 }
 const commitDepartment = () => {
-  if (!formRef.value || !departmentInfo.value.name.trim()) return;
+  if (props.loading || !formRef.value || !departmentInfo.value.name.trim()) return;
   emit('confirm', departmentInfo.value, type.value);
-  emit('update:modelValue', false);
 };
 </script>
 

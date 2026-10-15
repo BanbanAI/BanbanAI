@@ -168,7 +168,7 @@
       </template>
     </el-drawer>
   </div>
-  <table-delete-data-dialog v-model="deleteTipDialogVisible" @deleteTableData="deleteCheckRowsData"
+  <table-delete-data-dialog v-model="deleteTipDialogVisible" :action="deleteCheckRowsData"
     :title="$t('DataFormDialog.delete')" :dataText="$t('DataFormDialog.currentRow')" />
   <form-save-tip-dialog ref="saveTipDialogRef" :title="$t('DataFormDialog.isSave')" />
   <tip-dialog ref="drawerExitTipDialogRef" :title="$t('DataFormDialog.tip')" :content="$t('DataFormDialog.isExit')"
@@ -211,7 +211,7 @@ import { FormMode } from '../types';
 import { formFlowApi, useRuntime, doDownload, formDataApi } from '@renderer/utils';
 import { FormTableRuntime, PrintedTemplateRecord, PrintTemplate, PrintTemplateMode, PrintTemplateType, ViewAction } from '@common/types/nocode';
 import { DataChangeType, ProcessNodeStatus, Row } from '@common/types/project';
-import { collectPrintCurrentOwnerIds, fillPrintProcessSystemFieldValues, getUUIDSystemField } from '@common/utils';
+import { collectPrintCurrentOwnerIds, fillPrintProcessSystemFieldValues, getUUIDSystemField, SystemField } from '@common/utils';
 import { fetchPathAsArrayBuffer } from '@common/utils/print/shared';
 import { projectApi } from '@renderer/utils/api/project';
 import { printDataReplace, systemPrint } from '@renderer/utils/print';
@@ -496,11 +496,16 @@ async function saveDraftBeforeRefresh() {
 
 const handleSubmitDraft = async () => {
   if (!isFormReady.value || isSubmitting.value || !editingFormRef.value) return;
-  const res = await saveDraftBeforeRefresh();
-  if (res) {
-    ElMessage.success(i18next.t('DataFormDialog.saveDraftSuccess'));
-    await nextTick()
-    emit("draft-saved");
+  isSubmitting.value = true;
+  try {
+    const res = await saveDraftBeforeRefresh();
+    if (res) {
+      ElMessage.success(i18next.t('DataFormDialog.saveDraftSuccess'));
+      await nextTick()
+      emit("draft-saved");
+    }
+  } finally {
+    isSubmitting.value = false;
   }
 }
 
@@ -826,8 +831,8 @@ const confirmCloseModifiedForm = async (source: "button" | "drawer-before-close"
   if (props.formMode === FormMode.Edit && !isViewing.value) {
     const isSave = await saveTipDialogRef.value?.confirm();
     if (isSave) {
-      handleSubmit(false, false);
-      return false;
+      const submitted = await handleSubmit(false, false);
+      return submitted !== false && submitted !== undefined && submitted !== null;
     }
     return isSave === false;
   }
@@ -854,26 +859,30 @@ const runtime = useRuntime();
 const deleteCheckRowsData = async () => {
   if (!canDeleteCurrentRow.value) {
     ElMessage.warning(i18next.t('InnerRowShareViewer.noPermission'));
-    return;
+    return false;
   }
   const currentRow = props.modalOnly
     ? currentFormRow.value || mergedRow.value
     : table.selectedRow;
   if (!currentRow) {
-    return;
+    return false;
   }
-  await table.removeRows([currentRow], runtime).then((result) => {
+  const result = await table.removeRows([currentRow], runtime).then((result) => {
     const message = getDeleteResultMessage(result, i18next.t('DataFormDialog.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
-      return;
+      return false;
     }
     ElMessage.success(message);
     emit("deleted");
+    return result;
   }).catch((err) => {
     ElMessage.error(err.message);
-  });;
+    return false;
+  });
+  if (!result || hasDeleteFailures(result)) return false;
   emit("update:modelValue", false)
+  return true;
 }
 
 const updateHiddenColumnIds = (value: string[]) => {
@@ -924,6 +933,7 @@ const handleOpened = () => {
   isShowForm.value = true;
 }
 const todo = ref()
+const detailTodoId = computed(() => mergedRow.value?.[SystemField.TODO_ID]);
 const showSidePanel = computed(() => !isPublicVisit.value && props.formMode !== FormMode.Add && runtime !== FormTableRuntime.FORM_EDITOR);
 const dialogStyle = computed(() => {
   if (props.modalOnly && isFullscreen.value) {
@@ -942,7 +952,8 @@ const getTodo = async () => {
   const data = await formFlowApi.getTodo({
     nocodeId: dialogNocodeId.value,
     tableUID: table.formTableUID,
-    uuid: props.nocodeFormProps.uuid
+    uuid: props.nocodeFormProps.uuid,
+    todoId: mergedRow.value?.[SystemField.TODO_ID],
   });
   todo.value = data
 }
@@ -975,10 +986,19 @@ const handleFinishFlow = async () => {
 watch(() => {
   return {
     visible: props.modelValue,
-    uuid: props.nocodeFormProps.uuid
+    uuid: props.nocodeFormProps.uuid,
+    todoId: detailTodoId.value,
   }
 }, async (newVal, oldVal) => {
-  if (newVal.visible && newVal.uuid && (newVal.uuid !== oldVal?.uuid || !oldVal?.visible)) {
+  if (
+    newVal.visible
+    && newVal.uuid
+    && (
+      newVal.uuid !== oldVal?.uuid
+      || newVal.todoId !== oldVal?.todoId
+      || !oldVal?.visible
+    )
+  ) {
     todo.value = null
     if (oldVal?.visible && newVal.uuid !== oldVal?.uuid) {
       processInfoFolded.value = false;

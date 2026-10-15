@@ -82,6 +82,12 @@ export class WorkbenchController {
   }
 
   @NoAdminPermissionGuard()
+  @Post('update-admin-password')
+  updateAdminPassword(@Body('newPassword') newPassword: string, @Req() req: Request) {
+    return this.workbenchService.updateAdminPassword(newPassword);
+  }
+
+  @NoAdminPermissionGuard()
   @Get('personal-key-secret')
   getPersonalKeySecret(@Req() req: Request) {
     return this.workbenchService.getAccountKeySecret(req.account.id);

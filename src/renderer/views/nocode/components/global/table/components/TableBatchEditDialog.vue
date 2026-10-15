@@ -122,7 +122,7 @@
       <template #footer>
         <div class="wrapper-btns">
           <el-button @click="handleCancel">{{ $t('TableBatchEditDialog.cancel') }}</el-button>
-          <el-button type="primary" @click="handleConfirm">{{ $t('TableBatchEditDialog.confirm') }}</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('TableBatchEditDialog.confirm') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -521,7 +521,10 @@ const buildUpdateTasks = (oldRows: Row[], rows: Row[], options: FieldEditOption[
   return tasks;
 }
 
+const loading = ref(false);
 const handleConfirm = async () => {
+  if (loading.value) return;
+  loading.value = true;
   if (fieldEditOptions.value.some(option => (
     isLinkFormField(option.fieldId) || option.editOption === EditOption.Formula
   ))) {
@@ -529,10 +532,12 @@ const handleConfirm = async () => {
       await table.ensureFormReady();
     } catch (_) {
       ElMessage.warning(i18next.t('TableBatchEditDialog.invalidLinkForm'));
+      loading.value = false;
       return;
     }
   }
-  await formRef.value.validate(async (valid) => {
+  const valid = await formRef.value.validate().then(() => true).catch(() => false);
+  try {
     if (!valid) {
       ElMessage.warning(i18next.t('TableBatchEditDialog.batchEditCondition'));
       return;
@@ -682,7 +687,9 @@ const handleConfirm = async () => {
     table.refreshData()
     emit("update:modelValue", false);
     fieldEditOptions.value = [];
-  });
+  } finally {
+    loading.value = false;
+  }
 }
 
 const handleCancel = () => {

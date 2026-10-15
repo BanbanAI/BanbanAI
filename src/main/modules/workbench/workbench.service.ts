@@ -354,6 +354,17 @@ export class WorkbenchService implements OnApplicationBootstrap {
     this.organizeCache.invalidateUsers("user-password-updated");
   }
 
+  async updateAdminPassword(newPassword: string) {
+    const admin = await this.workbenchUserRepository.findOne({ user: ADMIN_USERNAME });
+    if (!admin) {
+      throw new Error(global.i18next.t('workbenchServiceTs.userNotFound'));
+    }
+    if (__IS_SERVER__ && serverConfig.adminPass) updateConfig("adminPass", newPassword);
+    admin.pass = encodePassword(newPassword);
+    await this.workbenchUserRepository.persistAndFlush(admin);
+    this.organizeCache.invalidateUsers("user-password-updated");
+  }
+
   public async removeUserPermanently(account: Account, id: string) {
     if (!isSystemAdminAccount(account)) {
       throw new Error('Permission denied');

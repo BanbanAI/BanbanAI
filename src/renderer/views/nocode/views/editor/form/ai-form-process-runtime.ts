@@ -2443,6 +2443,9 @@ const resolveSemanticEditDataTargetScope = (value: unknown) => {
   if (['current', 'currentrecord', 'currentdata'].includes(normalized)) {
     return EditDataTargetScope.CURRENT
   }
+  if (['selected', 'selectedrecords', 'selecteddata', 'viewselected'].includes(normalized)) {
+    return EditDataTargetScope.SELECTED
+  }
   return undefined
 }
 
@@ -2729,6 +2732,20 @@ const FLOW_OPTION_CHECK_RULES: FlowOptionCheckRule[] = [
     fieldKey: 'mapping',
     fieldLabel: '更新字段映射',
     isMissing: options => !hasCompiledTargetFieldRules((options as EditDataOptions).targetFields, true),
+  },
+  {
+    type: ProcessNodeType.EDIT_DATA,
+    code: 'edit_data_selected_scope_simple_fields',
+    fieldKey: 'mapping',
+    fieldLabel: i18next.t('EditDataOption.targetFormField'),
+    shouldCheck: options => (options as EditDataOptions).targetTableDataScope === EditDataTargetScope.SELECTED,
+    isMissing: options => asArray<TargetFieldFillRule>((options as EditDataOptions).targetFields)
+      .some(item => ![
+        TargetFieldFillType.CUSTOM,
+        TargetFieldFillType.EMPTY,
+        TargetFieldFillType.DEFAULT,
+      ].includes(item.type)),
+    messageBuilder: location => `${location} ${i18next.t('formFlowService.selectedDataTargetSimpleFields')}`,
   },
   {
     type: ProcessNodeType.DELETE_DATA,

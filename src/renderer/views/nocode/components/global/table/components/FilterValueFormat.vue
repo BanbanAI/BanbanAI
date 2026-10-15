@@ -143,6 +143,7 @@
 
 <script lang='ts' setup>
 import { RuleFuncValue } from '@common/types/nocode';
+import { isEmptyValue } from '@common/utils/aggregateTableShared';
 import { FormElement } from '@renderer/b2/controllers/form';
 import { getChinaAddressData } from '@renderer/utils/township';
 import { computed, ref, reactive, onBeforeMount } from 'vue';
@@ -336,9 +337,10 @@ const remoteMethod = (query: string = '') => {
 }
 
 // 人员、部门字段的选项 label 与 value 不同，需要预加载，否则回显只能显示 id
-const preloadSubTypes = ['account', 'department'];
+const preloadSubTypes = ['account', 'department', 'node'];
 onBeforeMount(() => {
-  if (preloadSubTypes.includes(configurations.value?.subType)) {
+  const subType = configurations.value?.subType;
+  if (preloadSubTypes.includes(subType) && !isEmptyValue(props.modelValue)) {
     setSelectOptions();
   }
 });

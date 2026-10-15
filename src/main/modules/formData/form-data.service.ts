@@ -214,6 +214,7 @@ type ViewActionCreateRowsResult = {
 
 const VIEW_ACTION_TRIGGER_CONFIRM_THRESHOLD = 50;
 const VIEW_ACTION_TRIGGER_MAX_COUNT = 500;
+const VIEW_ACTION_EDIT_MAX_COUNT = 500;
 const VIEW_ACTION_IMAGE_FILE_EXTENSIONS = new Set([
   ".apng",
   ".avif",
@@ -490,10 +491,19 @@ export class FormDataService implements OnApplicationBootstrap {
     ));
   }
 
-  private getSubFormDuplicateMessage(fields: Field[]) {
-    const fieldTitles = fields.map(field => field?.alias || field?.meta?.name).filter(Boolean);
-    return global.i18next.t('form.subFormDuplicateFieldTips', {
-      field: fieldTitles.join(','),
+  private getDuplicateFieldsMessage(fields: Field[], issues: FormValidateDuplicateIssue[]) {
+    const issueCountByField = new Map<string, number>();
+    issues.forEach(issue => {
+      issueCountByField.set(issue.fieldId, (issueCountByField.get(issue.fieldId) ?? 0) + 1);
+    });
+
+    const fieldMessages = fields.map(field => global.i18next.t('form.duplicateFieldCountTips', {
+      field: field?.alias || field?.meta?.name,
+      count: issueCountByField.get(field.uid) ?? 0,
+    }));
+
+    return global.i18next.t('form.duplicateFieldsTips', {
+      fields: fieldMessages.join(global.i18next.t('form.duplicateFieldSeparator')),
     });
   }
 
@@ -1586,7 +1596,13 @@ export class FormDataService implements OnApplicationBootstrap {
       return null;
     }
 
-    const orQuery = await this.ownerGroupToQuery(permissionOwnerGroup, table, stage, {}, account);
+    const orQuery = await this.ownerGroupToQuery(
+      permissionOwnerGroup,
+      table,
+      stage,
+      stage === FormDataStage.DELETED ? { ignoreStageCondition: true } : {},
+      account,
+    );
     if (!isEmpty(orQuery)) {
       return orQuery.length > 1 ? {
         $or: orQuery,
@@ -2335,8 +2351,8 @@ export class FormDataService implements OnApplicationBootstrap {
   ): UniqueValidationError {
     const duplicateFields = table.fields.filter(field => issues.some(issue => issue.fieldId === field.uid));
     const error = new Error(
-      table?.meta?.extra?.primaryTable && duplicateFields.length > 0
-        ? this.getSubFormDuplicateMessage(duplicateFields)
+      duplicateFields.length > 0
+        ? this.getDuplicateFieldsMessage(duplicateFields, issues)
         : fallbackMessage,
     ) as UniqueValidationError;
     error.duplicateIssues = issues;
@@ -3012,6 +3028,7 @@ export class FormDataService implements OnApplicationBootstrap {
         scope,
       });
       const existingRows = buckets?.find(bucket => bucket.tableId === subTableUID[1])?.rows ?? [];
+      const preserveUnsubmittedRows = Array.isArray(updateFieldIds) && updateFieldIds.length > 0;
       if (scope === "main") {
         this.reconcileDeduplicatedSubTableRowsWithExistingRows(
           formData,
@@ -3054,7 +3071,7 @@ export class FormDataService implements OnApplicationBootstrap {
 
       for (const existingRow of existingRows) {
         const rowUUID = existingRow?.[relationUUIDField.uid];
-        if (isUniqueFieldEmpty(rowUUID) || !currentIDs.has(String(rowUUID))) {
+        if (!preserveUnsubmittedRows && (isUniqueFieldEmpty(rowUUID) || !currentIDs.has(String(rowUUID)))) {
           willRemoveRows.push(existingRow);
         }
       }
@@ -5129,6 +5146,144 @@ export class FormDataService implements OnApplicationBootstrap {
     };
   }
 
+  private async executeViewEditByRows(
+    nocodeBody: Awaited<ReturnType<typeof getNocodeBody>>,
+    formData: NocodeFormData,
+    table: Table,
+    action: ViewAction,
+    request: ExecuteViewActionRequest,
+  ): Promise<ExecuteViewActionResult> {
+    if (action.behavior.type !== ViewActionBehaviorType.EDIT_RECORD) {
+      throw new Error(global.i18next.t('formDataService.viewActionEditSelectedOnly'));
+    }
+    if (!isViewActionSelectedTarget(action.target)) {
+      throw new Error(global.i18next.t('formDataService.viewActionEditSelectedOnly'));
+    }
+
+    const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
+    if (!targetUUIDs.length) {
+      throw new Error(global.i18next.t('formDataService.selectDataFirst'));
+    }
+    if (targetUUIDs.length > VIEW_ACTION_EDIT_MAX_COUNT) {
+      return {
+        type: action.behavior.type,
+        affectedCount: targetUUIDs.length,
+        blockedByLimit: true,
+        message: global.i18next.t('formDataService.viewActionEditLimit', {
+          count: targetUUIDs.length,
+          limit: VIEW_ACTION_EDIT_MAX_COUNT,
+        }),
+      };
+    }
+
+    const targetRows = this.getUniqueViewActionRows(
+      table,
+      await this.getRowsByViewActionFilters(
+        nocodeBody,
+        formData,
+        request.nocodeId,
+        table,
+        request,
+      ),
+    );
+    if (targetRows.length !== targetUUIDs.length) {
+      throw new Error(global.i18next.t('formDataService.viewActionSelectedDataChanged'));
+    }
+
+    const resolvedFields = this.resolveEditActionFields(
+      request.nocodeId,
+      formData,
+      table,
+      action,
+    );
+    const hasSubTableFields = resolvedFields.some(item => Boolean(item.targetField.subFieldId));
+    const currentRows = hasSubTableFields
+      ? await this.fillSubmittedRowsSubForms(formData, request.nocodeId, table, targetRows)
+      : targetRows;
+    await this.validateViewActionExecuteCondition(action, table, { currentRows });
+
+    const memberFieldAuth = await this.getMemberFieldAuth(nocodeBody, table.uid);
+    for (const currentRow of currentRows) {
+      const editableFields = await this.filterEditableViewActionFields(
+        request.nocodeId,
+        formData,
+        table,
+        resolvedFields,
+        memberFieldAuth,
+        currentRow,
+      );
+      if (editableFields.length !== resolvedFields.length) {
+        throw new Error(global.i18next.t('formDataService.noEditableFields'));
+      }
+    }
+
+    const uuidField = getUUIDSystemField(table.fields);
+    const updateRows = currentRows.map((currentRow) => {
+      const nextRow = deepClone(currentRow);
+      for (const { fieldConfig, targetField } of resolvedFields) {
+        if (fieldConfig.mode === ViewActionEditFieldMode.CURRENT) {
+          continue;
+        }
+        const value = fieldConfig.customValue === undefined ? null : fieldConfig.customValue;
+        this.applyEditFieldValue(
+          nextRow,
+          targetField.fieldId as FieldUID,
+          targetField.subFieldId,
+          value,
+        );
+      }
+      return nextRow;
+    });
+
+    await this.formFlowService.validateSubmitRows(formData, request.nocodeId, table.uid, updateRows, {
+      fullReplace: hasSubTableFields,
+    });
+
+    await this.validateUpdatePermission(
+      request.nocodeId,
+      table,
+      [],
+      [uuidField.uid],
+      currentRows.map(row => ({ [uuidField.uid]: row[uuidField.uid] })),
+    );
+
+    const updateResult = await this.tryUpdateData(
+      formData,
+      request.nocodeId,
+      table.uid,
+      updateRows,
+      [[formData.uid, table.uid, uuidField.uid]],
+      null,
+      { triggerTodo: true },
+      { skipSubTableSync: !hasSubTableFields },
+      resolvedFields.map(item => item.fieldId),
+    );
+    const submittedRows = await this.getSubmittedRows(formData, request.nocodeId, table, {
+      [uuidField.uid]: { $in: targetUUIDs },
+    }, {
+      applyGetPermission: true,
+    });
+    const updatedRows = hasSubTableFields
+      ? await this.fillSubmittedRowsSubForms(formData, request.nocodeId, table, submittedRows)
+      : submittedRows;
+
+    return {
+      type: action.behavior.type,
+      affectedCount: Array.isArray(updateResult?.data) ? updateResult.data.length : updateRows.length,
+      auditMeta: {
+        tableUID: table.uid,
+        beforeRows: currentRows,
+        rows: updatedRows,
+      },
+    } as ExecuteViewActionResult & {
+      auditMeta: {
+        tableUID: TableUID,
+        beforeRows: Row[],
+        rows: Row[],
+      },
+    };
+  }
+
   private async executeViewTriggerOnce(
     nocodeBody: Awaited<ReturnType<typeof getNocodeBody>>,
     formData: NocodeFormData,
@@ -5165,7 +5320,41 @@ export class FormDataService implements OnApplicationBootstrap {
       },
     );
 
+    if (matchedCount > VIEW_ACTION_TRIGGER_MAX_COUNT) {
+      return {
+        type: action.behavior.type,
+        executionMode: "view_once",
+        matchedCount,
+        blockedByLimit: true,
+        message: this.getViewActionTriggerLimitMessage(matchedCount),
+      };
+    }
+
+    const requestedTargetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
+    const matchedRows = this.getUniqueViewActionRows(
+      table,
+      await this.getSubmittedRows(formData, request.nocodeId, table, viewCondition, {
+        applyGetPermission: true,
+      }),
+    );
+    const matchedUUIDs = matchedRows
+      .map(row => String(row?.[getUUIDSystemField(table.fields).uid] || "").trim())
+      .filter(Boolean);
+    const matchedUUIDSet = new Set(matchedUUIDs);
+    const triggerTargetUUIDs = requestedTargetUUIDs.length
+      ? requestedTargetUUIDs.filter(uuid => matchedUUIDSet.has(uuid))
+      : matchedUUIDs;
+
     await this.validateViewActionExecuteCondition(action, table, { currentCount: matchedCount });
+
+    if (isViewActionSelectedTarget(action.target) && matchedCount <= 0) {
+      return {
+        type: action.behavior.type,
+        executionMode: "view_once",
+        matchedCount: 0,
+        message: this.getViewActionTriggerEmptyMessage(),
+      };
+    }
 
     if (request.previewOnly) {
       return {
@@ -5182,7 +5371,10 @@ export class FormDataService implements OnApplicationBootstrap {
       triggerNodeId: triggerBehavior.config.triggerNodeId,
       operationId: action.id,
       actionDisplayName: this.getViewActionDisplayName(action),
-      triggerContext: this.buildViewActionTriggerContext(request, action, matchedCount),
+      triggerContext: this.buildViewActionTriggerContext({
+        ...request,
+        targetUUIDs: triggerTargetUUIDs,
+      }, action, matchedCount),
       flowWorkerContext: runtimeOptions.flowWorkerContext,
     });
 
@@ -5405,6 +5597,9 @@ export class FormDataService implements OnApplicationBootstrap {
     }
 
     if (isViewActionViewTarget(action.target)) {
+      if (action.behavior.type === ViewActionBehaviorType.EDIT_RECORD) {
+        return await this.executeViewEditByRows(nocodeBody, formData, table, action, request);
+      }
       if (
         isViewActionSelectedTarget(action.target)
         && this.normalizeViewActionTargetUUIDs(request.targetUUIDs).length <= 0
@@ -6118,13 +6313,19 @@ export class FormDataService implements OnApplicationBootstrap {
           continue;
         }
 
-        const childBaseCondition = targetStage === FormDataStage.NORMAL
-          ? this.buildRecycleRestoreRelationCondition(table, rows, relationTable, relationField.uid)
-          : {
+        let childBaseCondition: WhereCondition | undefined;
+        let matchRestoreChildRow: ((row: Row) => boolean) | null = null;
+        if (targetStage === FormDataStage.NORMAL) {
+          const restoreRelation = this.buildRecycleRestoreRelationCondition(table, rows, relationTable, relationField.uid);
+          childBaseCondition = restoreRelation?.condition;
+          matchRestoreChildRow = restoreRelation?.match ?? null;
+        } else {
+          childBaseCondition = {
             [relationField.uid]: {
               $in: uuids,
             },
           };
+        }
         if (!childBaseCondition) {
           continue;
         }
@@ -6141,7 +6342,9 @@ export class FormDataService implements OnApplicationBootstrap {
           enabledStage: false,
           scope,
         });
-        const childRows = childBuckets?.[0]?.rows || [];
+        const childRows = matchRestoreChildRow
+          ? (childBuckets?.[0]?.rows || []).filter(matchRestoreChildRow)
+          : childBuckets?.[0]?.rows || [];
         if (isEmpty(childRows)) {
           continue;
         }
@@ -6184,49 +6387,49 @@ export class FormDataService implements OnApplicationBootstrap {
     const parentUpdateOwnerField = getUpdateOwnerSystemField(parentTable.fields);
     const relationUpdateTimeField = this.getSystemFieldByName(relationTable, SystemField.UPDATE_TIME);
     const relationUpdateOwnerField = getUpdateOwnerSystemField(relationTable.fields);
-    const conditions = parentRows
-      .map((row) => {
-        const uuid = row?.[parentUUIDField.uid];
-        if (!uuid) {
-          return null;
-        }
+    const relationUpdateTimeUID = relationUpdateTimeField?.uid;
+    const relationUpdateOwnerUID = relationUpdateOwnerField?.uid;
+    const parentConditions = new Map<string, { updateTime?: string; updateOwner?: string }>();
+    for (const row of parentRows) {
+      const uuid = row?.[parentUUIDField.uid];
+      if (!uuid) {
+        continue;
+      }
+      parentConditions.set(String(uuid), {
+        updateTime: parentUpdateTimeField?.uid ? row?.[parentUpdateTimeField.uid] : null,
+        updateOwner: parentUpdateOwnerField?.uid ? row?.[parentUpdateOwnerField.uid] : null,
+      });
+    }
 
-        const andConditions: WhereCondition[] = [{
-          [relationFieldUID]: uuid,
-        }];
-        const updateTime = parentUpdateTimeField?.uid ? row?.[parentUpdateTimeField.uid] : null;
-        if (relationUpdateTimeField?.uid && updateTime) {
-          andConditions.push({
-            [relationUpdateTimeField.uid]: {
-              $gte: updateTime,
-            },
-          });
-        }
-        const updateOwner = parentUpdateOwnerField?.uid ? row?.[parentUpdateOwnerField.uid] : null;
-        if (relationUpdateOwnerField?.uid && updateOwner) {
-          andConditions.push({
-            [relationUpdateOwnerField.uid]: updateOwner,
-          });
-        }
-
-        if (andConditions.length === 1) {
-          return andConditions[0];
-        }
-        return {
-          $and: andConditions,
-        } as WhereCondition;
-      })
-      .filter(Boolean);
-
-    if (!conditions.length) {
+    if (!parentConditions.size) {
       return null;
     }
-    if (conditions.length === 1) {
-      return conditions[0];
-    }
+
     return {
-      $or: conditions,
-    } as WhereCondition;
+      condition: {
+        [relationFieldUID]: {
+          $in: Array.from(parentConditions.keys()),
+        },
+      } as WhereCondition,
+      match: (childRow: Row) => {
+        const parentCondition = parentConditions.get(String(childRow?.[relationFieldUID] ?? ''));
+        if (!parentCondition) {
+          return false;
+        }
+        if (relationUpdateTimeUID && parentCondition.updateTime) {
+          const childUpdateTime = childRow?.[relationUpdateTimeUID];
+          if (!(childUpdateTime >= parentCondition.updateTime)) {
+            return false;
+          }
+        }
+        if (relationUpdateOwnerUID && parentCondition.updateOwner) {
+          if (!equals(childRow?.[relationUpdateOwnerUID], parentCondition.updateOwner)) {
+            return false;
+          }
+        }
+        return true;
+      },
+    };
   }
 
   private sanitizeRowsForPromote(formData: NocodeFormData, tableUID: TableUID, rows: Row[]) {
@@ -7759,7 +7962,12 @@ export class FormDataService implements OnApplicationBootstrap {
         
           const primaryTableUID = table?.meta?.extra?.primaryTable?.[1];
           if (!primaryTableUID) {
-            const orQuery = await this.ownerGroupToQuery(res, table, stage);
+            const orQuery = await this.ownerGroupToQuery(
+              res,
+              table,
+              stage,
+              stage === FormDataStage.DELETED ? { ignoreStageCondition: true } : undefined,
+            );
             if (isEmpty(orQuery)) {
               andValue.push({
                 [uuidField ? getDbColumnKey(uuidField) : "_id"]: 1234567890
@@ -7774,6 +7982,9 @@ export class FormDataService implements OnApplicationBootstrap {
               }
             }
           }
+          if (!primaryTableUID && stage !== FormDataStage.DELETED) {
+            group.enabledStage = false;
+          }
 
           if (andValue.length > 1) {
             group.filters[tableUID] = [{
@@ -7782,7 +7993,6 @@ export class FormDataService implements OnApplicationBootstrap {
           } else {
             group.filters[tableUID] = andValue;
           }
-          group.enabledStage = false;
         }));
       }));
     }
@@ -9171,6 +9381,12 @@ export class FormDataService implements OnApplicationBootstrap {
           validatePermission: false,
           allowDataOwnerUpdate: true,
         },
+        {
+          skipValidation: true,
+          skipLock: true,
+          skipSubTableSync: true,
+          skipSubTableDeduplicationRebuild: true,
+        },
       );
       return { previousRows };
     } catch (error) {
@@ -9499,10 +9715,25 @@ export class FormDataService implements OnApplicationBootstrap {
           const previousRows = queries.length
             ? await db.find({ $or: queries })
             : [];
+          const previousRowIndexes = new Map<string, Map<string, number>>();
+          const findPreviousRowIndex = (query: Record<string, unknown>) => {
+            const queryKeys = Object.keys(query);
+            const keySetSignature = JSON.stringify(queryKeys);
+            let index = previousRowIndexes.get(keySetSignature);
+            if (!index) {
+              index = new Map<string, number>();
+              for (let i = 0; i < previousRows.length; i++) {
+                const signature = JSON.stringify(queryKeys.map(key => previousRows[i]?.[key] ?? null));
+                if (!index.has(signature)) {
+                  index.set(signature, i);
+                }
+              }
+              previousRowIndexes.set(keySetSignature, index);
+            }
+            return index.get(JSON.stringify(queryKeys.map(key => query[key] ?? null)));
+          };
           const hasMissingTarget = preparedRows.some(prepared => {
-            return !previousRows.some(previousRow => {
-              return Object.entries(prepared.queryForDb).every(([key, value]) => equals(previousRow?.[key], value));
-            });
+            return findPreviousRowIndex(prepared.queryForDb) === undefined;
           });
           if (hasMissingTarget) {
             throw new Error(global.i18next.t('formDataService.updateDataFail'));
@@ -9521,10 +9752,8 @@ export class FormDataService implements OnApplicationBootstrap {
             if (isEmpty(prepared.queryForDb)) {
               continue;
             }
-            const previousIndex = availablePreviousRows.findIndex(previousRow => {
-              return Object.entries(prepared.queryForDb).every(([key, value]) => equals(previousRow?.[key], value));
-            });
-            if (previousIndex < 0) {
+            const previousIndex = findPreviousRowIndex(prepared.queryForDb);
+            if (previousIndex === undefined) {
               continue;
             }
             const previousRow = availablePreviousRows[previousIndex];
@@ -10988,7 +11217,7 @@ export class FormDataService implements OnApplicationBootstrap {
     if (res === "all") return true;
 
     const orQuery = await this.ownerGroupToQuery(res, table, undefined, {
-      fallbackToPermissionStages: true,
+      ignoreStageCondition: true,
     });
     if (isEmpty(orQuery)) {
       throw new Error(global.i18next.t('formDataService.noPerm'));
@@ -11011,7 +11240,8 @@ export class FormDataService implements OnApplicationBootstrap {
             { $or: queryConditions },
           ]
         }]
-      }
+      },
+      stage: FormDataStage.DELETED,
     }, false);
     const count = value.reduce((prev, item) => prev + item.count, 0);
     if (count < rows.length) {

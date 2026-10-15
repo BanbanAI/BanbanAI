@@ -82,6 +82,7 @@ const formatValueToDisplay = (val: number | null | undefined, applyThousand: boo
     const decimals = widget.decimal ?? 0;
     formatted = num.toFixed(decimals).replace('.', widget.decimalSeparator);
   } else {
+    const decimals = widget.decimal ?? 0;
     formatted = parseFloat(num.toFixed(decimals)).toString().replace('.', widget.decimalSeparator);
   }
 

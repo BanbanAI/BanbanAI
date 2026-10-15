@@ -450,6 +450,7 @@ type NocodeDataManagementTableProps = {
   preFilterRule?: FilterRule;
   preViewFilterRules?: FilterRule[];
   preHiddenColumns?: FieldUID[];
+  preRequiredColumns?: FieldUID[];
   preColumnOrders?: FormTableColumnOrder;
   preSortFields?: FormSortField[];
   prePageSize?: number;
@@ -1537,7 +1538,8 @@ const buildExecuteViewActionRequest = async (
   const targetUUIDs = normalizeTargetUUIDs(options.targetUUIDs?.length ? options.targetUUIDs : selectedTargetUUIDs);
   const hasTargetUUIDs = targetUUIDs.length > 0;
   const isSingleRecordExecution = isViewActionRecordTarget(action.target) || hasTargetUUIDs || !!actionRow?.[widget.rowKey];
-  const shouldIncludeRuntimeViewContext = isViewActionViewTarget(action.target) && !isSingleRecordExecution;
+  const shouldIncludeRuntimeViewContext = isViewActionViewTarget(action.target)
+    && (!isSingleRecordExecution || isViewContextOnceTriggerProcessAction(action));
   const displayFilters = shouldIncludeRuntimeViewContext
     ? (options.filters ? deepClone(options.filters) : await widget.getDisplayFilters())
     : undefined;
@@ -2220,6 +2222,11 @@ const handleExecuteViewAction = async (
       result = await requestExecuteViewAction(request);
     }
 
+    if (result.blockedByLimit) {
+      ElMessage.error(result.message || i18next.t("NocodeTable.viewActionScopeTooLarge"));
+      return;
+    }
+
     const actionRowUUID = actionRow?.[widget.rowKey];
     const shouldRefreshCurrentTableAfterCreate = action.behavior.type === ViewActionBehaviorType.CREATE_RECORD
       && action.behavior.config.targetFormId === props.tableUID;
@@ -2244,6 +2251,17 @@ const handleExecuteViewAction = async (
           formData: actionEditFormContext.formData,
         },
       });
+      return;
+    }
+
+    if (result.type === ViewActionBehaviorType.EDIT_RECORD) {
+      const affectedCount = result.affectedCount || 0;
+      if (affectedCount > 0) {
+        ElMessage.success(i18next.t("NocodeTable.viewActionEditSuccess", { count: affectedCount }));
+        widget.refreshData();
+      } else {
+        ElMessage.warning(i18next.t("NocodeTable.viewActionNoExecutableData"));
+      }
       return;
     }
 

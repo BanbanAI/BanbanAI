@@ -46,7 +46,36 @@
             :sourceTables="props.options.sourceTables"
             ref="dataSourceFormRef"
             :targetFields="props.options.targetFields"
-          />
+          >
+            <template #default-header-extra="{ index }">
+              <div
+                v-if="index === 0 && currentSubTableItems.length > 0"
+                :class="['current-subtable-filter-add-button', { disabled: isCurrentSubTableFilterAddDisabled }]"
+                :title="isCurrentSubTableFilterAddDisabled ? $t('AddDataOption.currentSubTableFilterAddDisabledTip') : ''"
+                @click="addCurrentSubTableFilter"
+              >
+                <el-icon><i-ep-plus/></el-icon>
+                <span>{{ $t('AddDataOption.addCurrentSubTableFilter') }}</span>
+              </div>
+            </template>
+            <template #after-default-item="{ index }">
+              <div v-if="index === 0 && normalizedCurrentSubTableFilters.length" class="current-subtable-filter-list">
+                <current-sub-table-filter
+                  v-for="(filter, filterIndex) in normalizedCurrentSubTableFilters"
+                  :key="`${filter.fieldUID || 'empty'}_${filterIndex}`"
+                  ref="currentSubTableFilterRef"
+                  :filter="filter"
+                  :options="getCurrentSubTableFilterOptions(filterIndex)"
+                  :currentFields="currentSubTableFilterCurrentFields"
+                  :title="$t('AddDataOption.currentSubTableFilterTitle')"
+                  :tip="$t('AddDataOption.currentSubTableFilterTip')"
+                  :currentFieldTitle="$t('AddDataOption.currentFormFieldOrCustom')"
+                  :formFieldTypeLabel="$t('AddDataOption.currentForm')"
+                  @remove="removeCurrentSubTableFilter(filterIndex)"
+                />
+              </div>
+            </template>
+          </data-source-form>
         </el-form-item>
         <hr />
         <el-form-item
@@ -155,12 +184,14 @@
 
 <script lang='ts' setup>
 import { ElMessage, FormInstance } from 'element-plus'
-import { computed, inject, ref } from 'vue'
-import { AddDataOptions, ProcessFlowOptions, Table, TargetFieldFillType, TargetFieldFillRule, getProcessTargetSourceUID } from '@common/types/project'
+import { computed, inject, ref, watch } from 'vue'
+import { TargetFieldFillType, getProcessTargetSourceUID } from '@common/types/project'
+import type { AddDataOptions, CurrentSubTableFilter, Field, ProcessFlowOptions, Table, TargetFieldFillRule } from '@common/types/project'
 import { NOCODE, ORGANIZE_UTIL } from "@renderer/types"
 import { useFormTable } from '../../hooks'
 import { isSystemField, shouldTreatFieldAsStaticRequired } from '@common/utils'
 import { LogicalOperator } from '@common/types/nocode'
+import { deepClone, equals } from '@common/utils/object'
 import { unique } from '@common/utils/unique'
 import i18next from 'i18next'
 import { ProcessNode } from '../process'
@@ -172,6 +203,10 @@ const props = defineProps<{
   options: ProcessFlowOptions & AddDataOptions,
 }>();
 
+type CurrentSubTableFilterInstance = {
+  validate?: () => boolean | Promise<boolean>,
+}
+
 
 const nocode = inject(NOCODE)
 const organizeUtil = inject(ORGANIZE_UTIL, null)
@@ -179,6 +214,7 @@ const table = useFormTable()
 const formRef = ref<FormInstance>()
 const dataSourceFormRef = ref(null)
 const dataSourceSubFormRef = ref(null)
+const currentSubTableFilterRef = ref<CurrentSubTableFilterInstance | CurrentSubTableFilterInstance[] | null>(null)
 const targetFormFieldRef = ref(null)
 const activeTab = ref('baseSetting')
 const batchRuleRef = ref(null)
@@ -270,12 +306,51 @@ const currentSubTableItems = computed(() => {
     }
 
     acc.push({
+      fieldUID: field.uid,
       tableUID: subTable.uid,
-      label: `${i18next.t('AddDataOption.currentForm')}.${field.alias ?? i18next.t('AddDataOption.unnamedTable')}`,
+      label: field.alias ?? subTable.alias ?? i18next.t('AddDataOption.unnamedTable'),
     })
     return acc
-  }, [] as { tableUID: string, label: string }[])
+  }, [] as { fieldUID: string, tableUID: string, label: string }[])
 })
+
+const normalizeCurrentSubTableFilter = (filter?: CurrentSubTableFilter | null): CurrentSubTableFilter | null => {
+  if (!filter) return null
+  const nextFilter = deepClone(filter)
+  const matched = currentSubTableItems.value.find(item => item.fieldUID === nextFilter.fieldUID)
+  return {
+    ...nextFilter,
+    fieldUID: matched?.fieldUID ?? nextFilter.fieldUID,
+    tableUID: matched?.tableUID ?? nextFilter.tableUID,
+    filterRule: {
+      logic: LogicalOperator.AND,
+      conditions: nextFilter.filterRule?.conditions || [],
+    },
+  }
+}
+
+const normalizeCurrentSubTableFilters = (filters?: Array<CurrentSubTableFilter | null | undefined> | null) => {
+  return (filters || []).map(item => normalizeCurrentSubTableFilter(item)).filter((item): item is CurrentSubTableFilter => !!item)
+}
+
+const getCurrentSubTableFiltersFromOptions = () => normalizeCurrentSubTableFilters([
+  ...(props.options.currentSubTableFilters || []),
+  ...(props.options.currentSubTableFilter ? [props.options.currentSubTableFilter] : []),
+])
+const currentSubTableFiltersDraft = ref<CurrentSubTableFilter[]>([])
+const resetCurrentSubTableFiltersDraft = () => {
+  currentSubTableFiltersDraft.value = getCurrentSubTableFiltersFromOptions()
+}
+watch([
+  () => props.options.currentSubTableFilters,
+  () => props.options.currentSubTableFilter,
+], resetCurrentSubTableFiltersDraft, { immediate: true, deep: true })
+
+const normalizedCurrentSubTableFilters = computed(() => currentSubTableFiltersDraft.value)
+const selectedCurrentSubTableFieldUIDSet = computed(() => new Set(normalizedCurrentSubTableFilters.value.map(item => item.fieldUID).filter(Boolean)))
+const availableCurrentSubTableItems = computed(() => currentSubTableItems.value.filter(item => !selectedCurrentSubTableFieldUIDSet.value.has(item.fieldUID)))
+const isCurrentSubTableFilterAddDisabled = computed(() => availableCurrentSubTableItems.value.length === 0)
+const currentSubTableFilterCurrentFields = computed<Field[]>(() => table.value.fields || [])
 
 const targetFormOption = computed(() => {
   const currentTableUID = table.value.uid
@@ -300,7 +375,7 @@ const targetFormOption = computed(() => {
       value: table.value.uid,
     },
     ...currentSubTableItems.value.map(item => ({
-      label: item.label,
+      label: `${i18next.t('AddDataOption.currentForm')}.${item.label}`,
       value: item.tableUID
     })),
     ...otherOptions,
@@ -432,6 +507,39 @@ const changeTargetTable = () => {
   props.options.primarySourceTable = createPrimarySourceTable(props.options.targetTableUID)
 }
 
+const createCurrentSubTableFilter = (): CurrentSubTableFilter | null => {
+  const [firstSubTable] = availableCurrentSubTableItems.value
+  if (!firstSubTable) return null
+  return {
+    fieldUID: firstSubTable.fieldUID,
+    tableUID: firstSubTable.tableUID,
+    filterRule: { logic: LogicalOperator.AND, conditions: [] },
+  }
+}
+
+const addCurrentSubTableFilter = () => {
+  const filter = createCurrentSubTableFilter()
+  if (!filter || isCurrentSubTableFilterAddDisabled.value) return
+  currentSubTableFiltersDraft.value = [...currentSubTableFiltersDraft.value, filter]
+}
+
+const removeCurrentSubTableFilter = (index: number) => {
+  const filters = [...currentSubTableFiltersDraft.value]
+  filters.splice(index, 1)
+  currentSubTableFiltersDraft.value = filters
+}
+
+const getCurrentSubTableFilterOptions = (index: number) => {
+  const currentFilter = normalizedCurrentSubTableFilters.value[index]
+  const selectedSet = new Set(
+    normalizedCurrentSubTableFilters.value
+      .filter((_, filterIndex) => filterIndex !== index)
+      .map(item => item.fieldUID)
+      .filter(Boolean),
+  )
+  return currentSubTableItems.value.filter(item => item.fieldUID === currentFilter?.fieldUID || !selectedSet.has(item.fieldUID))
+}
+
 const onFillTypeDisabled = (field: TargetFieldFillRule) => {
   const item = targetFormFieldRef.value?.targetFields?.find(item => item.fieldUID === field.fieldUID);
   const value = item?.type === TargetFieldFillType.EMPTY;
@@ -451,6 +559,17 @@ const handleBatchEnabledChange = (val) => {
 }
 
 const save = async () => {
+  const nextCurrentSubTableFilters = normalizeCurrentSubTableFilters(currentSubTableFiltersDraft.value)
+  const validFieldUIDs = new Set(currentSubTableItems.value.map(item => item.fieldUID))
+  if (nextCurrentSubTableFilters.some(item => item.fieldUID && !validFieldUIDs.has(item.fieldUID))) {
+    ElMessage.warning(i18next.t('AddDataOption.currentSubTableDeleted'))
+    return false
+  }
+  const selectedFieldUIDs = nextCurrentSubTableFilters.map(item => item.fieldUID).filter(Boolean)
+  if (new Set(selectedFieldUIDs).size !== selectedFieldUIDs.length) {
+    ElMessage.warning(i18next.t('AddDataOption.duplicateCurrentSubTable'))
+    return false
+  }
   const valid = formRef.value
     ? await new Promise((resolve) => {
       formRef.value?.validate((isValid) => {
@@ -479,6 +598,17 @@ const save = async () => {
     return false
   }
 
+  const currentSubTableFilterRefs = Array.isArray(currentSubTableFilterRef.value)
+    ? currentSubTableFilterRef.value
+    : (currentSubTableFilterRef.value ? [currentSubTableFilterRef.value] : [])
+  const currentSubTableFilterResults = await Promise.all(
+    currentSubTableFilterRefs.map(item => item?.validate?.() ?? true),
+  )
+  if (!currentSubTableFilterResults.every(Boolean)) {
+    ElMessage.error(i18next.t('AddDataOption.saveConfigInvalid'))
+    return false
+  }
+
   const targetFormFieldValid = targetFormFieldRef.value?.validate
     ? await targetFormFieldRef.value.validate()
     : true
@@ -495,6 +625,8 @@ const save = async () => {
     return false
   }
 
+  props.options.currentSubTableFilters = nextCurrentSubTableFilters
+  props.options.currentSubTableFilter = null
   return true
 }
 
@@ -522,6 +654,10 @@ const isSelectSubTable = computed(() => {
 
 defineExpose({
   save,
+  hasPendingChanges: () => !equals(
+    normalizeCurrentSubTableFilters(currentSubTableFiltersDraft.value),
+    getCurrentSubTableFiltersFromOptions(),
+  ),
 })
 </script>
 
@@ -659,6 +795,37 @@ defineExpose({
         color: var(--text-color-secondary);
       }
     }
+  }
+
+  .current-subtable-filter-add-button {
+    color: var(--color-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+
+    &.disabled {
+      color: var(--text-color-secondary);
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
+    .el-icon {
+      font-size: 16px;
+    }
+
+    span {
+      font-weight: 400;
+      font-size: 14px;
+      line-height: 20px;
+    }
+  }
+
+  .current-subtable-filter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 12px 8px 8px;
   }
 
   :deep(.batch-number-option) {

@@ -318,7 +318,7 @@ const currentTriggerFormElementOptions = (selfField) => {
   for(const subForm of (props.widget as FormElement).topForm.children) {
     if(isSubForm(subForm) && (props.widget as FormElement).form.uid === subForm.uid) {
       for(const subFormElement of subForm.children) {
-        if(subFormElement.uid === props.widget.uid) continue;
+        // if(subFormElement.uid === props.widget.uid) continue;
         option.push({
           label: `${(subForm as FormElement).title}.${(subFormElement as FormElement).title}`,
           value: `${subForm.uid}.${subFormElement.uid}`,

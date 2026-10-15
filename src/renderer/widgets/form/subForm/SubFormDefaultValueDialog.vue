@@ -11,30 +11,27 @@
       @closed="onClosed"
     >
       <el-container v-if="subForm">
-        <div class="table">
-          <el-table :data="subForm.tableData" empty-text="" row-key="uid"
-            :tree-props="{ children: 'none', hasChildren: 'none' }">
-            <el-table-column type="selection" width="60" v-if="false" :resizable="false" />
-            <el-table-column type="index" label="" :align="'center'" width="60" :resizable="false" />
-            <template v-for="(child, index) in subForm.children" :key="child.uid">
-              <el-table-column v-if="child.isCreateField() || !child.isReadonly" :label="child.title"
-                :resizable="false" :align="'left'" :width="child.widthInSubForm">
-                <template #default="{ row, column }">
-                  <x-widget v-if="!subForm.isReadonly" :widget="row.children[index]" :style="{padding: '0px'}"></x-widget>
-                </template>
-              </el-table-column>
-            </template>
-            <el-table-column className="control-column" :label="i18next.t('operation')" :align="'center'"
-              :resizable="false" width="100">
-              <template #default="scope">
-                <el-button class="control-btn" type="danger" size="small" link
-                  @click="subForm.deleteRow(scope.$index)">{{ i18next.t('delete') }}</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
+        <SubFormGrid
+          v-if="subForm.hasRuntime && subForm.runtimeStore"
+          class="default-value-grid"
+          :store="subForm.runtimeStore"
+          :columns="gridColumns"
+          :height="500"
+          :row-height="gridRowHeight"
+          :action-width="60"
+          :trailing-action-width="80"
+          stretch-columns
+          :option-service="subForm.runtimeOptionService"
+          :related-data-service="subForm.runtimeRelatedDataService"
+        >
+          <template #trailing-action-header>{{ i18next.t('operation') }}</template>
+          <template #trailing-action="{ index }">
+            <el-button class="control-btn" type="danger" size="small" link
+              @click="handleDeleteRow(index)">{{ i18next.t('delete') }}</el-button>
+          </template>
+        </SubFormGrid>
         <div class="btn-list">
-          <span @click="subForm.addRow()">
+          <span :class="{ disabled: !subForm.canAddRows() }" @click="handleAddRow">
             <el-icon class="add-icon">
               <i-ep-plus/>
             </el-icon>
@@ -54,9 +51,10 @@
 import { deepClone } from '@common/utils/object';
 import { SubForm } from './subForm';
 import { unique } from '@common/utils/unique';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import IEpPlus from "~icons/ep/plus";
 import i18next, { $t } from "@renderer/widgets/i18next";
+import SubFormGrid from "./grid/SubFormGrid.vue";
 
 type UID = string
 
@@ -72,6 +70,12 @@ const emit = defineEmits<{
 
 const subForm = ref<SubForm>()
 const uidMap = ref<Record<UID, UID>>({}); // <拷贝新建UID, 原子表单UID>
+const gridColumns = computed(() => (subForm.value?.runtimeColumns || []).filter(
+  column => (column.schema as Record<string, unknown>)?.isReadonly !== true,
+));
+const gridRowHeight = computed(() => (
+  gridColumns.value.some(column => column.type === "widget.form.textarea") ? 100 : 36
+));
 
 const initSubform = async () => {
   const soul = deepClone(props.widget.getSoul());
@@ -96,7 +100,6 @@ const initSubform = async () => {
     })
   });
   subForm.value.isEditingDefaultValue = true;
-  subForm.value.watchRows();
 };
 
 const initData = async () => {
@@ -111,7 +114,7 @@ const initData = async () => {
     }
     processingRows.push(newUIDRow);
   }
-  subForm.value.inputValue = processingRows;
+  await subForm.value.batchReplaceRows(processingRows, "default");
 }
 
 const handleConfirm = () => {
@@ -128,15 +131,29 @@ const handleConfirm = () => {
   emit("update", rows);
 }
 
+const handleAddRow = () => {
+  if (!subForm.value?.canAddRows()) return;
+  subForm.value.addRow();
+}
+
+const handleDeleteRow = (index: number) => {
+  subForm.value?.deleteRow(index);
+}
+
 const onOpen = async () => {
+  if (subForm.value) {
+    subForm.value.destroy();
+    subForm.value = undefined;
+  }
   await initSubform();
-  initData();
+  await initData();
+  await subForm.value?.ensureInputValue();
 }
 
 const onClosed = async () => {
-  subForm.value.detach();
-  subForm.value.destroy();
-  subForm.value = undefined
+  subForm.value?.detach?.();
+  subForm.value?.destroy?.();
+  subForm.value = undefined;
 }
 </script>
 
@@ -165,39 +182,6 @@ const onClosed = async () => {
 
     .el-dialog__body {
       padding: 16px;
-
-      .el-table {
-
-        .el-table__body {
-          border-bottom: 1px solid rgb(220, 223, 230);
-
-          .el-table__row {
-            cursor: pointer;
-
-            .el-table__cell {
-              padding: 0;
-
-              .el-radio__label,
-              .el-checkbox__label {
-                display: none;
-              }
-            }
-          }
-        }
-      }
-
-      .el-scrollbar {
-        .el-scrollbar__view {
-          padding-bottom: 15px;
-        }
-
-        .el-scrollbar__bar {
-          margin-bottom: 4px;
-        }
-        .el-scrollbar__thumb {
-          height: 10px;
-        }
-      }
     }
 
     .el-dialog__footer {
@@ -221,67 +205,25 @@ const onClosed = async () => {
     width: 100%;
     flex-wrap: wrap;
 
-    .table {
-      display: flex;
+    .default-value-grid {
       width: 100%;
+      --el-table-tr-bg-color: #fff;
+
+      :deep(.subform-grid__row:hover),
+      :deep(.subform-grid__row:focus-within) {
+        background: #fff;
+      }
+
+      :deep(.subform-grid__row:hover .subform-grid__action-cell--trailing),
+      :deep(.subform-grid__row:focus-within .subform-grid__action-cell--trailing) {
+        background: #fff;
+      }
     }
 
-    .el-table {
-      --el-table-header-text-color: #000;
-      --el-table-header-bg-color: #F7F7FA;
-      --el-table-tr-bg-color: #fff;
-      --el-table-border-color: var(--el-border-color);
-
-      width: unset;
-      height: unset;
-      max-height: 500px;
-      border: var(--el-table-border);
-      border-radius: 4px;
-
-      :deep(.el-table__header) {
-        height: 36px;
-      }
-
-      :deep(.el-table__empty-block) {
-        display: none;
-      }
-
-      .required {
-        color: #eb5050;
-        font-size: 14px;
-        margin-right: 4px;
-        font-family: "Segoe UI";
-      }
-
-      :deep(thead) {
-        th {
-          font-weight: 100;
-        }
-      }
-
-      :deep(.el-table__inner-wrapper::before) {
-        display: none;
-      }
-
-      :deep(.el-table__row:last-of-type) {
-        .el-table__cell {
-          border-bottom: none;
-        }
-      }
-
-      :deep(.el-table__cell) {
-        border-right: var(--el-table-border);
-
-        &:last-of-type {
-          border-right: none;
-        }
-
-        padding: 0px;
-
-        .cell {
-          padding: 4px;
-        }
-      }
+    .control-btn {
+      padding: 0;
+      height: auto;
+      min-height: 0;
     }
 
     .btn-list {
@@ -294,6 +236,11 @@ const onClosed = async () => {
         align-items: center;
         justify-self: center;
         gap: 3px;
+
+        &.disabled {
+          color: var(--text-color-disabled);
+          cursor: not-allowed;
+        }
       }
 
       .el-button {

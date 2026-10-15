@@ -56,7 +56,7 @@
       :restoreTip="confirmTip"
       :restoreWarningText="confirmWarningText"
       :confirmText="confirmButtonText"
-      @confirm="handleConfirm"
+      :action="handleConfirm"
     />
     <table-delete-data-dialog
       v-model="purgeDialogVisible"
@@ -66,7 +66,7 @@
       :deleteWarningText="confirmWarningText"
       :confirmText="confirmButtonText"
       :confirmType="confirmButtonType"
-      @confirm="handleConfirm"
+      :action="handleConfirm"
     />
   </teleport>
 </template>
@@ -192,10 +192,11 @@ const handleConfirm = async () => {
       ElMessage.success(i18next.t('RecycleBinTableHeader.purgeSuccess'));
     }
     emit('recycleChanged');
+    pendingRows.value = [];
+    return true;
   } catch (err) {
     ElMessage.error(err.message);
-  } finally {
-    pendingRows.value = [];
+    return false;
   }
 };
 </script>

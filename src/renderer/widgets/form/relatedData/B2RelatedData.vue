@@ -400,6 +400,7 @@ const refreshData = async ({
   const uuidKey = widget.uuidKey;
   if (!uuidKey) return;
   const res = await widget.getData().getPagingRows([cUid, tUid], {
+    fillSubTable: true,
     filters: {
       [tUid]: [{ [uuidKey]: { $in: value } }],
     },

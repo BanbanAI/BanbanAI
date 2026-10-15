@@ -18,7 +18,7 @@
       </div>
       <template #footer>
         <el-button @click="cancel">{{ $t('WorkbenchDeleteDialog.cancel') }}</el-button>
-        <el-button type="danger" class="confirm" @click="confirm">{{ $t('WorkbenchDeleteDialog.confirm') }}</el-button>
+        <el-button type="danger" class="confirm" :loading="props.loading" :disabled="props.loading" @click="confirm">{{ $t('WorkbenchDeleteDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -33,6 +33,7 @@ const props = defineProps<{
   modelValue: boolean;
   title: string;
   category: OrganizeCategory
+  loading?: boolean
 }>();
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)  
@@ -44,8 +45,8 @@ const targetType = computed(() => {
 })
 
 const confirm = ()=> {
+  if (props.loading) return;
   emit('confirm')
-  emit('update:modelValue', false)
 }
 
 const cancel = ()=> {

@@ -16,7 +16,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button class="cancel-btn" @click="showDialog = false">{{ $t("folderRenameDialog.cancelLabel") }}</el-button>
-          <el-button class="confirm-btn" type="primary" @click="doRename">{{ $t("folderRenameDialog.confirmLabel") }}</el-button>
+          <el-button class="confirm-btn" type="primary" :loading="loading" :disabled="loading" @click="doRename">{{ $t("folderRenameDialog.confirmLabel") }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -32,6 +32,12 @@ import i18next from 'i18next';
 const showDialog = ref(false);
 const currentName = ref("");
 const type = ref<NocodeStructureType>();
+const loading = ref(false);
+
+// eslint-disable-next-line vue/valid-define-props
+const props = defineProps<{
+  action?: (name: string) => boolean | void | Promise<boolean | void>;
+}>();
 
 const label = computed(() => {
   if (type.value === NocodeStructureType.GROUP) return i18next.t('folderRenameDialog.groupLabel');
@@ -50,12 +56,14 @@ defineExpose({
   }
 });
 
+// eslint-disable-next-line vue/valid-define-emits
 const emit = defineEmits<{
   (event: "confirm", name: string),
 }>();
 const newName = ref<HTMLInputElement>(null);
 
 const doRename = async () => {
+  if (loading.value) return;
   const name = currentName.value;
   if(!name || !name.trim()){
     if (type.value === NocodeStructureType.GROUP) {
@@ -65,8 +73,19 @@ const doRename = async () => {
     }
     return;
   }
-  emit("confirm", name);
-  showDialog.value = false;
+  loading.value = true;
+  try {
+    if (props.action) {
+      const result = await props.action(name);
+      if (result === false) return;
+    } else {
+      emit("confirm", name);
+    }
+    showDialog.value = false;
+  } catch {
+  } finally {
+    loading.value = false;
+  }
 };
 
 </script>

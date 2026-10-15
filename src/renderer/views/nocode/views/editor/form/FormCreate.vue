@@ -43,8 +43,8 @@
               <el-icon size="16"><i-ven-form-preview /></el-icon>
               <span>{{ $t('formCreate.preview') }}</span>
             </el-button>
-            <el-button class="save" size="small" @click="save()">{{ $t('formCreate.save') }}</el-button>
-            <el-button class="publish" type="success" size="small" @click="handlePublish">{{ $t('formCreate.published') }}</el-button>
+            <el-button class="save" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handleSaveButton">{{ $t('formCreate.save') }}</el-button>
+            <el-button class="publish" type="success" size="small" :loading="saveButtonLoading" :disabled="saveButtonLoading" @click="handlePublish">{{ $t('formCreate.published') }}</el-button>
           </div>
         </el-header>
         <vn-stack-layer class="layer" :class="{ embedded: props.embedded }" name="form-design" :lazy="true">
@@ -54,6 +54,7 @@
             :field-catalog-visible="props.fieldCatalogVisible"
             :property-panel-visible="props.propertyPanelVisible"
             :blueprint-applying-readonly="props.blueprintApplyingReadonly"
+            :save-action="() => save(true, true)"
             @update:field-catalog-visible="emit('update:field-catalog-visible', $event)"
             @update:property-panel-visible="emit('update:property-panel-visible', $event)"
           />
@@ -65,7 +66,7 @@
             :ai-flow-issue-state="props.aiFlowIssueState || null"
           ></form-process>
         </vn-stack-layer>
-        <vn-stack-layer class="layer" :class="{ 'displayReminder': displayReminder, embedded: props.embedded }" name="data-management" :lazy="true">
+        <vn-stack-layer class="layer" :class="{ 'data': true, embedded: props.embedded }" name="data-management" :lazy="true">
           <div class="kind-reminder" v-if="displayReminder">
             <div class="kind-reminder-container">
               <span class="text">{{ $t('formCreate.dataManageTip') }}</span>
@@ -79,6 +80,7 @@
           <DataManagementV2
             :active="activeTab === 'data-management'"
             :uid="table?.uid || ''"
+            :style="{ height: displayReminder ? 'calc(100% - 60px)' : '100%' }"
           />
         </vn-stack-layer>
       </vn-stack>
@@ -485,11 +487,26 @@ const restoreSavedFormDraftPersistenceState = async () => {
 }
 
 const handlePublish = async () => {
-  const result = await save(true);
-  if (!isFormalSaveAllowed(result)) {
-    return
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    const result = await save(true);
+    if (!isFormalSaveAllowed(result)) return;
+    emit('open-setting', SettingTab.PUBLISH);
+  } finally {
+    saveButtonLoading.value = false;
   }
-  emit('open-setting', SettingTab.PUBLISH)
+}
+
+const saveButtonLoading = ref(false);
+const handleSaveButton = async () => {
+  if (saveButtonLoading.value) return;
+  saveButtonLoading.value = true;
+  try {
+    await save();
+  } finally {
+    saveButtonLoading.value = false;
+  }
 }
 
 const closeKindReminder = async () => { 
@@ -625,6 +642,12 @@ const save = async (noMessage = false, noLoading = false): Promise<FormSaveResul
     }
     return result;
 
+}
+
+const saveInitialFormOptions = async () => {
+  if (!formData.value || !table.value) return false;
+  formData.value.formOptions = getOptions();
+  return await props.save(formData.value, table.value, true) !== false;
 }
 
 const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
@@ -1073,6 +1096,7 @@ defineExpose({
 
   preview,
   save,
+  saveInitialFormOptions,
   saveAiDraft,
   refreshAiDraftPersistenceState,
   persistForNavigation,
@@ -1229,7 +1253,6 @@ watch(activeTab, async (value, previousValue) => {
 
 <style lang='scss' scoped>
 .form-create {
-  background-color: var(--bg-color-page);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1436,30 +1459,27 @@ watch(activeTab, async (value, previousValue) => {
         height: 100%;
       }
 
-      &.displayReminder {
-        height: calc(100% - 100px);
+      &.data {
+        background-color: var(--bg-color-page);
+        .kind-reminder {
+          padding: 16px 16px 0 16px;
+          .kind-reminder-container {
+            width: 100%;
+            height: 44px;
+            padding: 0 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba($color: #FAAD14, $alpha: 0.15);
+            .text {
+              font-size: 14px;
+              color: var(--el-color-danger);
+            }
+          }
+        }
+      }
 
-        &.embedded {
-          height: calc(100% - 60px);
-        }
-      }
-    }
-    .kind-reminder {
-      padding: 16px 16px 0 16px;
-      .kind-reminder-container {
-        width: 100%;
-        height: 44px;
-        padding: 0 8px;
-        border-radius: 4px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: rgba($color: #FAAD14, $alpha: 0.15);
-        .text {
-          font-size: 14px;
-          color: var(--el-color-danger);
-        }
-      }
     }
   }
 }

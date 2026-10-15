@@ -51,6 +51,10 @@ type ColorOptions = {
 type TreeFilterRule = Omit<FilterRule, "conditions"> & {
   conditions: FormLinkageCondition[]
 }
+type RuntimeRelatedDataField = FormElement & {
+  connectionTable: OptionTableUID;
+  getValue: (fieldId: string) => unknown;
+};
 const defaultColoredArray = {
   get options() {
     return [
@@ -132,6 +136,10 @@ export class TreeSelect extends FormElement {
     return this.choicesType === "from-table";
   }
 
+  get usesRuntimeOptionService() {
+    return this.form instanceof SubForm && this.form.hasRuntime;
+  }
+
   private getOtherTableMeta() {
     return resolveDataSourceSelectionMeta(
       this.getBoard(),
@@ -170,7 +178,7 @@ export class TreeSelect extends FormElement {
   }
 
   async initSelectChoices() {
-    if (!this.isChoicesFromTableData || isEmpty(this.otherTableFieldUID)) return;
+    if (this.usesRuntimeOptionService || !this.isChoicesFromTableData || isEmpty(this.otherTableFieldUID)) return;
     await nextTick();
     if (this.topForm?.isViewing) return;
     this.effectScope.run(() => {
@@ -245,13 +253,19 @@ export class TreeSelect extends FormElement {
 
   private isInitOption = ref(false)
 
-  async handleGetSelectOption(value) {
-    if (this.topForm?.isViewing) return;
+  async handleGetSelectOption(value, apply = true, signal?: AbortSignal): Promise<TreeSelectOption[]> {
+    if (this.topForm?.isViewing) return [];
+    const applyChoices = (choices: TreeSelectOption[]) => {
+      if (apply) this._otherTableChoices.value = choices;
+      return choices;
+    };
+    const loadDistinct = (tableUID: TableUID, fieldUID: FieldUID, options?: Record<string, unknown>) => {
+      return this.otherTableFieldValue(tableUID, fieldUID, { ...options, signal });
+    };
     const [ cUID, tUID, fUID ] = this.otherTableFieldUID;
     const linkageTable = this.getOtherTableTable();
     if (!linkageTable) {
-      this._otherTableChoices.value = [];
-      return;
+      return applyChoices([]);
     }
     if (this.form instanceof AbstractForm) { // 下拉选择在主表上
       // 当前使用主表字段还是子表字段的值作为填充
@@ -269,7 +283,7 @@ export class TreeSelect extends FormElement {
           const orderBy = this.transformOrderBy(mainTable.uid as TableUID);
           const uuidField = mainTable.fields.find(f => f.meta.name === "_uuid")
           const subUUIDField = table.fields.find(f => f.meta.uid === uuidField.meta.uid)
-          const mainDistinct = await this.otherTableFieldValue(mainTable.uid as TableUID, uuidField.uid as FieldUID, { filters, orderBy });
+          const mainDistinct = await loadDistinct(mainTable.uid as TableUID, uuidField.uid as FieldUID, { filters, orderBy });
           if (!isEmpty(filters)) {
             uuidTransformCondition = transformCondition({uid: subUUIDField.uid, func: RuleFunc.IN, value: mainDistinct})
           } else {
@@ -296,14 +310,13 @@ export class TreeSelect extends FormElement {
             }];
           }
         }
-        const distinctRes = await this.otherTableFieldValue(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
+        const distinctRes = await loadDistinct(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
 
         if (distinctRes.length === 0) {
-          this._otherTableChoices.value = [];
-          return;
+          return applyChoices([]);
         }
         const items = Array.from(new Set(distinctRes));
-        this._otherTableChoices.value = items.map(item => ({ label: item, value: item })) as TreeSelectOption[];
+        return applyChoices(items.map(item => ({ label: item, value: item })) as TreeSelectOption[]);
       } else {
         // 使用主表字段值填充
         const table = this.getTable([cUID, tUID] as OptionTableUID);
@@ -329,7 +342,7 @@ export class TreeSelect extends FormElement {
             const filters = this.transformLinkageFilters(subTable.uid, linkageSubFieldFilter, value) || {};
             const orderBy = this.transformOrderBy(subTable.uid as TableUID);
             const keyField = subTable.fields.find(f => f.meta.name === "_key");
-            const subDistinct = await this.otherTableFieldValue(subTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
+            const subDistinct = await loadDistinct(subTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
             if (!isEmpty(filters)) {
               subUUIDTransformCondition.push(...subDistinct);
               subField++
@@ -378,16 +391,15 @@ export class TreeSelect extends FormElement {
             }];
           }
         }
-        const distinctRes = await this.otherTableFieldValue(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
+        const distinctRes = await loadDistinct(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
         if (distinctRes.length === 0) {
-          this._otherTableChoices.value = [];
-          return;
+          return applyChoices([]);
         }
         const items = Array.from(new Set(distinctRes));
-        if (this.isInitOptions) {
+        if (apply && this.isInitOptions) {
           if (!items.includes(this.inputValue)) this.cleanSelected();
         }
-        this._otherTableChoices.value = items.map(item => ({ label: item, value: item })) as TreeSelectOption[];
+        return applyChoices(items.map(item => ({ label: item, value: item })) as TreeSelectOption[]);
       }
     } else { // 下拉选择在子表上
       // 当前使用主表字段还是子表字段的值作为填充
@@ -410,7 +422,7 @@ export class TreeSelect extends FormElement {
           }
           const orderBy = this.transformOrderBy(mainTable.uid as TableUID);
           if (!isEmpty(filters)) {
-            mainDistinct = await this.otherTableFieldValue(mainTable.uid as TableUID, uuidField.uid as FieldUID, { filters, orderBy });
+            mainDistinct = await loadDistinct(mainTable.uid as TableUID, uuidField.uid as FieldUID, { filters, orderBy });
           }
         }
         let allDistinct: any[] = [];
@@ -433,7 +445,7 @@ export class TreeSelect extends FormElement {
             const filters = this.transformSubFormFilters(otherSubTable.uid, otherLinkageSubFieldFilter, value) || {};
             const orderBy = this.transformOrderBy(otherSubTable.uid as TableUID);
             const keyField = otherSubTable.fields.find(f => f.meta.name === "_key");
-            const subDistinct = await this.otherTableFieldValue(otherSubTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
+            const subDistinct = await loadDistinct(otherSubTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
             if (!isEmpty(filters)) {
               allDistinct.push(...subDistinct)
               subField++
@@ -486,15 +498,13 @@ export class TreeSelect extends FormElement {
             }];
           }
         }
-        const distinctRes = await this.otherTableFieldValue(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
+        const distinctRes = await loadDistinct(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
 
         if (distinctRes.length === 0) {
-          this._otherTableChoices.value = [];
-          return;
+          return applyChoices([]);
         }
-        const values = this._otherTableChoices.value = distinctRes;
-        const items = Array.from(new Set(values));
-        this._otherTableChoices.value = items.map(item => ({ label: item, value: item })) as TreeSelectOption[];
+        const items = Array.from(new Set(distinctRes));
+        return applyChoices(items.map(item => ({ label: item, value: item })) as TreeSelectOption[]);
       } else {
         // 使用主表字段值填充
         const table = this.getTable([cUID, tUID] as OptionTableUID);
@@ -521,7 +531,7 @@ export class TreeSelect extends FormElement {
             const filters = this.transformSubFormFilters(subTable.uid, linkageSubFieldFilter, value) || {};
             const orderBy = this.transformOrderBy(subTable.uid as TableUID);
             const keyField = subTable.fields.find(f => f.meta.name === "_key");
-            const subDistinct = await this.otherTableFieldValue(subTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
+            const subDistinct = await loadDistinct(subTable.uid as TableUID, keyField.uid as FieldUID, { filters, orderBy });
             if (!isEmpty(filters)) {
               subUUIDTransformCondition.push(...subDistinct)
               subField++
@@ -569,22 +579,24 @@ export class TreeSelect extends FormElement {
             }];
           }
         }
-        const distinctRes = await this.otherTableFieldValue(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
+        const distinctRes = await loadDistinct(tUID as TableUID, fUID as FieldUID, { filters, orderBy });
         if (distinctRes.length === 0) {
-          this._otherTableChoices.value = [];
-          return;
+          return applyChoices([]);
         }
         const items = Array.from(new Set(distinctRes));
-        this._otherTableChoices.value = items.map(item => ({ label: item, value: item })) as TreeSelectOption[];
+        return applyChoices(items.map(item => ({ label: item, value: item })) as TreeSelectOption[]);
       }
     }
+    return [];
   }
 
   // fieldId转换elementId
   private findElementByField(field, tableUID) {
     let element: string = ""
-    const connection = this.getOtherTableConnection();
-    const table = connection?.tables?.find(t => t.uid === tableUID);
+    const currentTable = this.form.tableUID ? this.getTable(this.form.tableUID) : undefined;
+    const table = currentTable?.fields?.some(item => item.uid === field)
+      ? currentTable
+      : this.getOtherTableConnection()?.tables?.find(t => t.uid === tableUID);
 
     if (table) {
       element = table.fields.find(f => f.uid === field)?.meta?.uid
@@ -1384,8 +1396,64 @@ export class TreeSelect extends FormElement {
     return this.getOption<TreeFilterRule>("option-filter");
   }
 
+  getRuntimeOptionSnapshot(rowData: Readonly<Record<string, unknown>>) {
+    const row: Record<string, unknown> = {};
+    const form: Record<string, unknown> = {};
+    const legacyValue: unknown[] = [];
+    for (const condition of this.optionFilter?.conditions || []) {
+      if (condition.type !== FormConditionValueType.FORM || !condition.comparisonUid) {
+        legacyValue.push({});
+        continue;
+      }
+      const ids = condition.comparisonUid.split(".").filter(Boolean);
+      if (ids.length > 1) {
+        const fieldId = ids[1];
+        const value = rowData[fieldId];
+        row[fieldId] = value;
+        legacyValue.push([{ [fieldId]: value }]);
+        continue;
+      }
+
+      const fieldId = ids[0];
+      let value: unknown;
+      if (condition.comparisonOfForm === SelectIdOfForm.LINKAGE) {
+        value = [...new Set(this.topForm.children
+          .filter(child => child.getSoul().type === "widget.form.relatedData")
+          .flatMap((relatedData: RuntimeRelatedDataField) => {
+            try {
+              const relatedTable = this.getTable(relatedData.connectionTable);
+              return relatedTable?.fields?.some(field => field.uid === fieldId)
+                ? relatedData.getValue(fieldId) || []
+                : [];
+            } catch {
+              return [];
+            }
+          })
+          .flat())];
+      } else {
+        const element = this.topForm.children.find(child => child.fieldId === fieldId || child.uid === fieldId);
+        value = (element as FormElement)?.inputValue;
+      }
+      form[fieldId] = value;
+      legacyValue.push({ [fieldId]: value });
+    }
+    return { row, form, legacyValue };
+  }
+
+  async loadRuntimeOptions(
+    snapshot: { legacyValue?: unknown[] },
+    signal?: AbortSignal,
+  ): Promise<TreeSelectOption[]> {
+    if (signal?.aborted) throw new Error("Dynamic option request was cancelled");
+    const options = await this.handleGetSelectOption(snapshot.legacyValue || [], false, signal);
+    if (signal?.aborted) throw new Error("Dynamic option request was cancelled");
+    return options;
+  }
+
   async otherTableFieldValue(tableUID: TableUID, columnId: FieldUID, options?) {
     const otherFieldValue = ref([]);
+    const { signal, ...queryOptions } = options || {};
+    if (signal?.aborted) return otherFieldValue.value;
     const dataSourceMeta = this.getOtherTableMeta();
     const nocodeId = dataSourceMeta.nocodeId;
     if (!nocodeId || (!dataSourceMeta.isCurrentConnection && !dataSourceMeta.hasViewPermission)) {
@@ -1396,8 +1464,8 @@ export class TreeSelect extends FormElement {
         nocodeId,
         tableUID: tableUID,
         columnId: columnId,
-        options: options
-      }, axios).catch((err) => {
+        options: queryOptions
+      }, axios, signal ? { signal } : undefined).catch((err) => {
         console.log("error", err);
         return null;
       });
@@ -1427,6 +1495,9 @@ export class TreeSelect extends FormElement {
         choices: options.options,
         defaultValueType: "custom",
         defaultValue: this.checkedValue,
+        isMultiple: this.isMultiple,
+        optionLimit: this.getOption<boolean>("option-count") === true,
+        optionCountRange: this.getOption<[number, number]>("option-count-range"),
       },
     };
   }

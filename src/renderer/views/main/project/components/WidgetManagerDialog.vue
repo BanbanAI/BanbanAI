@@ -21,7 +21,7 @@
         <div class="dialog-footer">
           <span class="tipInfo" v-if="args==='copy'">{{ $t('widgetManagerDialog.copyTip')}}</span>
           <span class="tipInfo" v-else :class="!isSameBoard ? 'sameBoard' : 'invisible'">{{ $t('widgetManagerDialog.warningTip')}}</span>
-          <el-button type="primary" :disabled="!isSameBoard" @click=" args==='copy'? cloneWidgetFn() : moveWidgetFn()">{{ $t("widgetManagerDialog.confirmLabel") }}</el-button>
+          <el-button type="primary" :loading="actionLoading" :disabled="actionLoading || !isSameBoard" @click="handleConfirm">{{ $t("widgetManagerDialog.confirmLabel") }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -55,6 +55,7 @@ const activeBoardId = inject(ACTIVE_BOARD_ID);
 
 
 const dialogRef = ref();
+const actionLoading = ref(false);
 
 
 const cloneToBoard = ref(null);
@@ -128,6 +129,20 @@ const moveWidgetFn = async () => {
   selectWidgets.forEach((widget) => {
     widget.remove();
   });
+}
+
+const handleConfirm = async () => {
+  if (actionLoading.value || !isSameBoard.value) return;
+  actionLoading.value = true;
+  try {
+    if (args.value === 'copy') {
+      await cloneWidgetFn();
+    } else {
+      await moveWidgetFn();
+    }
+  } finally {
+    actionLoading.value = false;
+  }
 }
 
 const labelCopy = ref('');

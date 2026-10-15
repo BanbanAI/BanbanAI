@@ -44,6 +44,7 @@ import {
   getPendingSystemMigrationApplyStatus,
   cleanupPendingSystemMigration,
   PendingSystemMigrationState,
+  readPendingSystemMigrationState,
   retryPendingSystemMigration,
   writePendingSystemMigrationState,
 } from "./system-migration.pending";
@@ -93,8 +94,9 @@ type ManagedSystemMigrationExportTask = SystemMigrationExportTaskStatus & {
 
 const EXPORT_CANCELED_ERROR = "SYSTEM_MIGRATION_EXPORT_CANCELED";
 const FORM_DATA_EXPORT_CHUNK_ROW_LIMIT = 200;
-const MANAGED_IMPORT_PACKAGE_DIR_NAME = "banban-system-migration-upload";
-const MANAGED_EXPORT_PACKAGE_DIR_PREFIX = "banban-system-migration-download-";
+const MANAGED_TEMP_DIR_PREFIX = "banban-system-migration-";
+const MANAGED_IMPORT_PACKAGE_DIR_NAME = `${MANAGED_TEMP_DIR_PREFIX}upload`;
+const MANAGED_EXPORT_PACKAGE_DIR_PREFIX = `${MANAGED_TEMP_DIR_PREFIX}download-`;
 const MANAGED_IMPORT_PACKAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const MANAGED_EXPORT_PACKAGE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -286,7 +288,7 @@ export class SystemMigrationService {
 
   private async runPreparedExportPackageTask(task: ManagedSystemMigrationExportTask, options?: SystemMigrationExportOptions) {
     const fileName = this.buildExportPackageFileName();
-    const tempDir = join(os.tmpdir(), `banban-system-migration-download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const tempDir = join(os.tmpdir(), `${MANAGED_EXPORT_PACKAGE_DIR_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const filePath = join(tempDir, fileName);
     try {
       await mkdir(tempDir, { recursive: true });
@@ -396,6 +398,33 @@ export class SystemMigrationService {
     }
   }
 
+  async clearTempCaches() {
+    const userDataPath = await getRuntime().getUserDataPath();
+    const pendingState = await readPendingSystemMigrationState(userDataPath);
+    const keepDir = pendingState?.cleanupDir && existsSync(pendingState.cleanupDir)
+      ? resolve(pendingState.cleanupDir)
+      : "";
+
+    const tempRoot = os.tmpdir();
+    const entries = await readdir(tempRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.name.startsWith(MANAGED_TEMP_DIR_PREFIX)) {
+        continue;
+      }
+      const entryPath = join(tempRoot, entry.name);
+      if (keepDir && resolve(entryPath) === keepDir) {
+        continue;
+      }
+      await rm(entryPath, { recursive: true, force: true }).catch((err) => {
+        this.logger.log("clear system migration temp error", err);
+      });
+    }
+
+    if (!keepDir) {
+      await cleanupPendingSystemMigration(userDataPath, pendingState);
+    }
+  }
+
   async storeUploadedImportPackage(file: { path?: string, originalname?: string } | undefined | null) {
     if (!file?.path || !existsSync(file.path)) {
       throw new Error(global.i18next.t("SystemMigration.packageRequired"));
@@ -437,7 +466,7 @@ export class SystemMigrationService {
     this.ensureExportNotCanceled(exportTask);
     exportTask.savePath = savePath;
 
-    const tempRoot = join(os.tmpdir(), `banban-system-migration-${Date.now()}`);
+    const tempRoot = join(os.tmpdir(), `${MANAGED_TEMP_DIR_PREFIX}${Date.now()}`);
     try {
       await mkdir(tempRoot, { recursive: true });
       this.ensureExportNotCanceled(exportTask);
@@ -640,7 +669,7 @@ export class SystemMigrationService {
       }
     }
 
-    const tempRoot = join(os.tmpdir(), `banban-system-migration-import-${Date.now()}`);
+    const tempRoot = join(os.tmpdir(), `${MANAGED_TEMP_DIR_PREFIX}import-${Date.now()}`);
     let stagedImport: PendingSystemMigrationState | null = null;
     let importPrepared = false;
     try {

@@ -77,7 +77,7 @@
       </template>
       <template #footer>
         <el-button @click="visible = false">{{ $t('AddTemplateDialog.cancel') }}</el-button>
-        <el-button type="primary" @click="handleSave">{{ $t('AddTemplateDialog.save') }}</el-button>
+        <el-button type="primary" :loading="saveLoading" :disabled="saveLoading" @click="handleSave">{{ $t('AddTemplateDialog.save') }}</el-button>
       </template>
     </el-dialog>
     <office-print-preview 
@@ -171,6 +171,7 @@ const uploadTemplateName = ref('');
 const printSettingRef = ref();
 const compareTableRef = ref();
 const previewLoading = ref(false);
+const saveLoading = ref(false);
 const fileList = ref([]);
 const uploadRef = ref();
 let formData = null;
@@ -234,18 +235,21 @@ const previewPath = computed(() => {
   return previewPathStr.value ? previewPathStr.value : printTemplateData.file?.path;
 })
 const handleSave = async () => {
+  if (saveLoading.value) return;
   if (fileList.value.length === 0) {
     if (props.templateType === PrintTemplateType.EXCEL) ElMessage.error(i18next.t('AddTemplateDialog.uploadExcelTemp'));
     if (props.templateType === PrintTemplateType.WORD) ElMessage.error(i18next.t('AddTemplateDialog.uploadWordTemp'));
     return;
   }
 
+  saveLoading.value = true;
   try {
     if (isChangeFile.value) {
       await uploadTempFile();
       isChangeFile.value = false;
     }
-    await saveTempTabData();
+    const saved = await saveTempTabData();
+    if (!saved) return;
     visible.value = false;
     if (props.isEditable) {
       ElMessage.success(i18next.t('AddTemplateDialog.updateSuccess'));
@@ -253,29 +257,15 @@ const handleSave = async () => {
       ElMessage.success(i18next.t('AddTemplateDialog.createSuccess'));
     }
   } catch (error) {
-    nocode.value.body.printTemplate[props.tableUID].filter(item => item.uid !== printTemplateData.uid)
     ElMessage.error(error.message);
+  } finally {
+    saveLoading.value = false;
   }
 }
 
 // 新增打印模板
 const saveTempTabData = async () => {
-  if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
-  if (props.isEditable) {
-    const templateIndex = nocode.value.body.printTemplate[props.tableUID].findIndex(item => item.uid === editTemplate.value.uid);
-    nocode.value.body.printTemplate[props.tableUID].splice(templateIndex, 1, printTemplateData);
-  } else {
-    if (!isEmpty(nocode.value.body.printTemplate)) {
-      if (!nocode.value.body.printTemplate[props.tableUID]) {
-        nocode.value.body.printTemplate[props.tableUID] = []
-      }
-      nocode.value.body.printTemplate[props.tableUID].push(printTemplateData);
-    } else {
-      nocode.value.body.printTemplate = {
-        [props.tableUID]: [printTemplateData]
-      }
-    }
-  }
+  if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return false;
   const res = await axios.post("/project/update-nocode-print-template", {
     nocodeId: nocode.value.meta.id,
     tableId: props.tableUID,
@@ -291,11 +281,28 @@ const saveTempTabData = async () => {
     }
   })
   .catch((error) => {
-    if (handleNocodeSyncConflictError(error, nocodeSignIsLatest)) return;
+    if (handleNocodeSyncConflictError(error, nocodeSignIsLatest)) return false;
     ElMessage.error(error.message);
+    return false;
   });
+  if (res === false) return false;
+
+  if (props.isEditable) {
+    const templateIndex = nocode.value.body.printTemplate[props.tableUID].findIndex(item => item.uid === editTemplate.value.uid);
+    nocode.value.body.printTemplate[props.tableUID].splice(templateIndex, 1, printTemplateData);
+  } else if (!isEmpty(nocode.value.body.printTemplate)) {
+    if (!nocode.value.body.printTemplate[props.tableUID]) {
+      nocode.value.body.printTemplate[props.tableUID] = []
+    }
+    nocode.value.body.printTemplate[props.tableUID].push(printTemplateData);
+  } else {
+    nocode.value.body.printTemplate = {
+      [props.tableUID]: [printTemplateData]
+    }
+  }
 
   emit("update")
+  return true;
 }
 
 const getTemplateRender = async () => {

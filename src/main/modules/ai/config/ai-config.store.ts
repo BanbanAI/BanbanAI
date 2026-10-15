@@ -587,8 +587,14 @@ export class AiConfigStore {
   }
 
   private decryptFirstEnabledCredential(credentials: AiProviderCredentialEntity[]) {
-    const credential = credentials.find(item => item.enabled)
-    return credential ? this.credentialStore.decrypt(credential.encryptedValue) : null
+    for (const credential of credentials) {
+      if (!credential.enabled) continue
+      try {
+        return this.credentialStore.decrypt(credential.encryptedValue)
+      } catch {
+      }
+    }
+    return null
   }
 
   private maskCredential(_value: string) {

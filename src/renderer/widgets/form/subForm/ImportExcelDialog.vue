@@ -86,7 +86,7 @@
                       <div class="scrollable-table">
                         <table class="data-table2">
                           <tbody>
-                            <tr v-for="(row, rowIndex) in table2Data" :key="rowIndex"
+                            <tr v-for="(row, rowIndex) in previewRows" :key="rowIndex"
                               :class="[{ 'title-row': isTitleRow(rowIndex) }, { disabled: rowIndex < titleRowIndex }]"
                             >
                               <td v-if="titleRadioColMerge[rowIndex].rowspan !== 0 && titleRadioColMerge[rowIndex].colspan !== 0"
@@ -106,7 +106,7 @@
                                 >{{ formatDisplayCellData(cell, rowIndex, colIndex) }}</td>
                               </template>
                             </tr>
-                            <tr v-if="table2Data.length >= 30">
+                            <tr v-if="table2Data.length > PREVIEW_ROW_LIMIT">
                               <td colspan="100%" style="text-align: center; white-space: nowrap; color: #999999;">
                                 {{ i18next.t("importExcelPreviewLimit") }}
                               </td>
@@ -295,7 +295,7 @@
             <el-button v-if="currentStep === 1" @click="handleCloseExcel">{{ i18next.t("cancel") }}</el-button>
             <el-button class="next-btn" v-if="currentStep > 1 && currentStep < 4" @click="preStep" :disabled="loading">{{ i18next.t("prevStep") }}</el-button>
             <el-button type="primary" class="next-btn" v-if="currentStep < 3" @click="nextStep" :disabled="!step2HaveTableData">{{ i18next.t("nextStep") }}</el-button>
-            <el-button type="primary" v-if="currentStep === 3" @click="importStep" :disabled="importFieldsNum === 0 || loading">{{ i18next.t("import") }}</el-button>
+            <el-button type="primary" v-if="currentStep === 3" @click="importStep" :loading="loading" :disabled="importFieldsNum === 0 || loading">{{ i18next.t("import") }}</el-button>
             <el-button type="primary" v-if="currentStep === 4" @click="completeStep">{{ i18next.t("complete") }}</el-button>
           </div>
         </div>
@@ -315,7 +315,7 @@ import { customDayjs, dataRegex, getWidgets, importExcelData, parseExcelData } f
 import { isSystemField } from '@common/utils/connection';
 import { unique } from '@common/utils/unique';
 import { FormElement } from '@renderer/b2/controllers/form';
-import { SubForm } from './subForm';
+import { SubForm, SUB_FORM_ROW_LIMIT, UUID } from './subForm';
 import IVenIconImportSuccess from "~icons/ven-icon/widget-form-sub-form-import-success";
 import IVenIconImportWarning from "~icons/ven-icon/widget-form-sub-form-import-warning";
 import type { Column, Worksheet } from 'exceljs';
@@ -355,6 +355,8 @@ const sheetsNames = computed<string[]>(() => readExcelFileData.value?.sheets);
 const table2Data = computed<SheetData['rows']>(() =>
   readExcelFileData.value?.originSheetsData?.[worksheet.value]?.rows ?? []
 );
+const PREVIEW_ROW_LIMIT = 30;
+const previewRows = computed<SheetData['rows']>(() => table2Data.value.slice(0, PREVIEW_ROW_LIMIT));
 const excelTypeData = computed<SheetData['typeData']>(() =>
   readExcelFileData.value?.originSheetsData?.[worksheet.value]?.typeData ?? []
 );
@@ -363,7 +365,7 @@ const excelMergeData = computed<CellMerge[][]>(() =>
 );
 const titleRadioColMerge = computed<CellMerge[]>(() => {
   let cellMergeArr: CellMerge[] = [];
-  excelMergeData.value.forEach((row, rowIndex) => {
+  excelMergeData.value.slice(0, PREVIEW_ROW_LIMIT).forEach((row, rowIndex) => {
     const rowspanArr = row.map(cell => cell.rowspan);
     const minRowspan = Math.min(...rowspanArr);
     if (minRowspan <= 0) {
@@ -393,9 +395,10 @@ const table2Headers = computed<any[]>(() =>
 
 // 计算excel表每列的数据类型
 const excelColumnType = computed<string[]>(() => {
-  let colTypes: string[] = excelTypeData.value[titleRowIndex.value + titleRowHeight.value] ?? [];
-  // 考虑空单元格，遍历全表类型，直至填满colType
-  for (let i = titleRowIndex.value + titleRowHeight.value + 1; i < excelTypeData.value.length; i++) {
+  const firstDataRow = titleRowIndex.value + titleRowHeight.value;
+  let colTypes: string[] = excelTypeData.value[firstDataRow] ?? [];
+  const scanEnd = Math.min(excelTypeData.value.length, firstDataRow + PREVIEW_ROW_LIMIT);
+  for (let i = firstDataRow + 1; i < scanEnd; i++) {
     if (!colTypes.includes(null)) break;
     const row = excelTypeData.value[i];
     colTypes.forEach((type, colIndex) => { if (!type) colTypes[colIndex] = row[colIndex]; });
@@ -492,51 +495,70 @@ const shouldTreatFieldAsRequired = (field?: Field | null) => {
   return !!field?.meta?.extra?.isRequired;
 }
 
+const SUB_FORM_ROW_INTERNAL_KEYS = new Set([UUID, 'isManualAdd', '__rowId']);
+
+const isEmptyRowValue = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length === 0;
+  return false;
+};
+
+const isBlankSubFormRow = (row: Record<string, unknown> | undefined) =>
+  Object.entries(row || {}).every(([key, value]) =>
+    SUB_FORM_ROW_INTERNAL_KEYS.has(key) || isEmptyRowValue(value)
+  );
+
 // 导入Excel数据
 async function importStep() {
-  let curTable: Table;
-  let colToUidMap: ExcelFormColMap = {};
   loading.value = true;
-
-  if (props.contentSource === 'nocodeCreateDataDialogValue') {
-    let curFormData: NocodeFormData;
-    ({ newTable: curTable, curFormData } = await createForm());
-
-    // 构建数据映射关系
-    const formTable = curFormData.tables.find(item => item.uid === curTable.uid);
-    const formFields = formTable.fields.filter(field => !isSystemField(field));
-
-    importFields.value.forEach((item, index) => {
-      colToUidMap[item.excelField] = formFields[index].uid;
-    });
-  } else if (props.contentSource === 'tableHeaderValue') {
-    // 导入Excel表数据
-    // curTable = props.table;
-    importFields.value.forEach(item => {
-      colToUidMap[item.excelField] = item.formField;
-    });
-  }
-
-  // 将数据添加到表单中
   try {
+    let curTable: Table;
+    const colToUidMap: ExcelFormColMap = {};
+    if (props.contentSource === 'nocodeCreateDataDialogValue') {
+      let curFormData: NocodeFormData;
+      ({ newTable: curTable, curFormData } = await createForm());
+
+      // 构建数据映射关系
+      const formTable = curFormData.tables.find(item => item.uid === curTable.uid);
+      const formFields = formTable.fields.filter(field => !isSystemField(field));
+      importFields.value.forEach((item, index) => {
+        colToUidMap[item.excelField] = formFields[index].uid;
+      });
+    } else if (props.contentSource === 'tableHeaderValue') {
+      importFields.value.forEach(item => {
+        colToUidMap[item.excelField] = item.formField;
+      });
+    }
+
+    // 将数据添加到表单中
     const sheetData: SheetData = readExcelFileData.value?.originSheetsData?.[worksheet.value];
     let maxTitleRowIndex = Math.max(...(importFields.value.map(item => item.titleRowIndex)));
     const res = await importExcelData(sheetData, formFields.value, colToUidMap, maxTitleRowIndex, props.subForm);
 
-    importExcelSuccessLength.value = res.successImportCount;  // 导入Excel工作表的数据条数
+    const blankRowIndexes = props.subForm.rows
+      .map((row, index) => (isBlankSubFormRow(row) ? index : -1))
+      .filter(index => index >= 0);
+    const remainingRowCount = Math.max(SUB_FORM_ROW_LIMIT - (props.subForm.rows.length - blankRowIndexes.length), 0);
+    const importedRows = res.rows.slice(0, remainingRowCount);
+    importExcelSuccessLength.value = Math.min(res.successImportCount, importedRows.length);  // 导入Excel工作表的数据条数
     importExcelTotalLength.value = res.total;
-    res.rows.forEach(row => {
-      props.subForm.addRow(undefined, row, true);
-    });
+    if (importedRows.length && blankRowIndexes.length) {
+      await props.subForm.deleteRows(blankRowIndexes);
+    }
+    const appended = await props.subForm.batchAppendRows(importedRows, "import", true);
+    if (!appended) {
+      importExcelSuccessLength.value = 0;
+    }
+
+    if (currentStep.value < 4) {
+      currentStep.value++;
+    }
   } catch (error) {
     ElMessage.error(i18next.t("importExcelImportFailed"));
     console.error(error);
-  }
-
-  loading.value = false;
-
-  if (currentStep.value < 4) {
-    currentStep.value++;
+  } finally {
+    loading.value = false;
   }
 }
 

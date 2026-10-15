@@ -27,6 +27,7 @@
       }" 
       ref="addAdminDialogRef" 
       @confirm="handleAdminConfirm"
+      :loading="addAdminLoading"
       :isOnlyAdd="true"
     ></organize-manager-dialog>
     <workbench-dialog class="delete-dialog" v-model="deleteDialog" :title="$t('WorkbenchAdminList.delAdmin')" width="480px">
@@ -37,7 +38,7 @@
       </template>
       <template #button>
         <el-button class="quit" @click="deleteDialog=false">{{ $t("WorkbenchAdminList.cancel") }}</el-button>
-        <el-button class="confirm" type="primary" @click="deleteStaff">{{ $t("WorkbenchAdminList.confirm") }}</el-button>
+        <el-button class="confirm" type="primary" :loading="actionLoading" :disabled="actionLoading" @click="deleteStaff">{{ $t("WorkbenchAdminList.confirm") }}</el-button>
       </template>
     </workbench-dialog>
   </div>
@@ -87,18 +88,29 @@ const currentChange = async (newVal)=>{
 }
 
 const addAdminDialogRef = ref(null);
+const isRequestFailureResult = (result: unknown) => {
+  return !!result && typeof (result as { close?: unknown }).close === 'function';
+};
 const handleAdd = () => {
   addAdminDialogRef.value.show();
 }
 
 
 const handleAdminConfirm = async(value) => {
+  if (addAdminLoading.value) return;
   const { users } = value;
   const userIds = users.map(item => item.id);
-  await organizeUtil.setAdmins({
-    ids: [...userIds],
-  });
-  emit('updatePageInfo', currentPage.value, pageSize.value);
+  addAdminLoading.value = true;
+  try {
+    const result = await organizeUtil.setAdmins({
+      ids: [...userIds],
+    });
+    if (isRequestFailureResult(result)) return;
+    addAdminDialogRef.value?.close();
+    emit('updatePageInfo', currentPage.value, pageSize.value);
+  } finally {
+    addAdminLoading.value = false;
+  }
 }
 
 let deleteRow = null;
@@ -108,11 +120,20 @@ const handleDelete = (row) => {
 }
 
 const deleteDialog = ref(false)
+const actionLoading = ref(false)
+const addAdminLoading = ref(false)
 
 const deleteStaff = async ()=>{
-  await organizeUtil.removeUserAsAdmin({ id: deleteRow.id });
-  deleteDialog.value = false;
-  emit('updatePageInfo', currentPage.value, pageSize.value);
+  if (actionLoading.value || !deleteRow) return;
+  actionLoading.value = true;
+  try {
+    const result = await organizeUtil.removeUserAsAdmin({ id: deleteRow.id });
+    if (isRequestFailureResult(result)) return;
+    deleteDialog.value = false;
+    emit('updatePageInfo', currentPage.value, pageSize.value);
+  } finally {
+    actionLoading.value = false;
+  }
 }
 </script>
 <style scoped lang='scss'>

@@ -138,6 +138,7 @@
         :category="activeCategory"
         :hideFormData="shouldHideSingleOnceFormData(dialogState.getArgs('todoDialogVisible'))"
         @submit="handleRefresh"
+        @continue="handleRefresh"
         @stash="handleRefresh"
         @back="handleRefresh"
         @cancel="handleRefresh"
@@ -183,12 +184,14 @@ import { useDialogStore, usePassportStore } from '@renderer/stores';
 import dayjs from 'dayjs';
 import { isSystemField, getFlowById, isTriggerNode, getCreateOwnerSystemField, SystemField } from '@common/utils';
 import { ProcessNodeStatus, ProcessNodeType } from '@common/types/project';
-import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo } from '@renderer/views/nocode/utils';
+import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo, isViewContextOnceNoFormDataTodo } from '@renderer/views/nocode/utils';
 import ProcessInitiateDialog from '@renderer/views/nocode/views/editor/form/dialogs/ProcessInitiateDialog.vue';
 import { elementPlusLocale } from '@renderer/utils/elementPlusLocale';
 import { ElMessage } from 'element-plus';
 import i18next from 'i18next';
 import { useLocalizedDocumentTitle } from '@renderer/hooks/useLocalizedDocumentTitle';
+import { provideFormMode } from '@renderer/views/nocode/components/global/table/hooks';
+import { FormMode } from '@renderer/types/base';
 
 const props = defineProps({
   isShowSearch: {
@@ -230,7 +233,8 @@ const totalCount = computed(() => {
 });
 const currentPage = ref(1);
 const pageSize = ref(20);
-
+const formMode = computed(() => FormMode.Edit);
+provideFormMode(formMode);
 const nocodeSelectTransferUserDialogRef = ref(null)
 const usePaddingOperators = ref([])
 const reInitiateDialogVisible = ref(false)
@@ -483,7 +487,9 @@ const renderData = (todo: TODO) => {
 }
 
 const shouldHideSingleOnceFormData = (todo?: TODO) => {
-  return isOperationEmptyRowDisplayTodo(todo) || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo))
+  return isViewContextOnceNoFormDataTodo(todo)
+    || isOperationEmptyRowDisplayTodo(todo)
+    || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo))
 }
 
 const getSingleOnceNoFormDataText = (todo: TODO) => {

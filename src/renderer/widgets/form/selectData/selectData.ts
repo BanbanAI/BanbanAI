@@ -11,7 +11,7 @@ import i18next from "@renderer/widgets/i18next";
 import { ref, watch } from "vue";
 import { deepClone, equals, isEmpty } from "@common/utils/object";
 import { unique } from "@common/utils/unique";
-import { FillRules, FilterRule, FormCondition, SelectDataFillTrace } from "./types";
+import { CurrentFieldWrapperOperator, FillRules, FilterRule, FormCondition, SelectDataFillTrace, SelectIdOfForm } from "./types";
 import { DEFERRED_SELECT_DATA, SubForm } from "../subForm/subForm";
 import { Field, FieldUID, OptionValue, QueryOptions, Table, WhereCondition } from "@common/types/project";
 import FillRulesDialog from "./FillRulesDialog.vue";
@@ -398,6 +398,20 @@ export class SelectData extends FormElement {
     return [...result];
   }
 
+  getFillRuleSourceMainFieldUIDs() {
+    const subTableFieldUIDSet = new Set(this.subFormTableFields.map(item => item.fieldUID));
+    const result = new Set<FieldUID>();
+
+    for (const rule of this.fillRules) {
+      const fieldUID = rule.sourceUID?.split(".")?.[0] as FieldUID | undefined;
+      if (fieldUID && !subTableFieldUIDSet.has(fieldUID)) {
+        result.add(fieldUID);
+      }
+    }
+
+    return [...result];
+  }
+
   get index() {
     return this.parent.widgets.findIndex(w => w.uid === this.uid);
   }
@@ -464,6 +478,39 @@ export class SelectData extends FormElement {
     this.setOption("form-data-filter", value)
   }
 
+  private resolveConditionRuntimeValue(condition: FormCondition) {
+    if (condition.fieldType !== CurrentFieldWrapperOperator.FIELD || !condition.comparisonUid) {
+      return condition.value;
+    }
+
+    if (condition.comparisonOfForm === SelectIdOfForm.LINKAGE) {
+      const relatedValues = this.topForm.children
+        .filter(child => child.getSoul().type === "widget.form.relatedData")
+        .filter((relatedForm: any) => {
+          const relatedTable = this.getTable(relatedForm.connectionTable);
+          return relatedTable?.fields?.some(field => field.uid === condition.comparisonUid);
+        })
+        .map((relatedForm: any) => relatedForm.getValue(condition.comparisonUid))
+        .flat(Infinity);
+
+      return relatedValues.length > 0 ? [...new Set(relatedValues)] : condition.value;
+    }
+
+    const comparisonForm = this.form ? this.getComparisonFormElement(condition.comparisonUid) : undefined;
+    return comparisonForm ? comparisonForm.inputValue : condition.value;
+  }
+
+  get runtimeFormDataFilter(): FilterRule {
+    const filterRule = this.formDataFilter;
+    return {
+      ...filterRule,
+      conditions: filterRule.conditions.map(condition => ({
+        ...condition,
+        value: this.resolveConditionRuntimeValue(condition),
+      })),
+    };
+  }
+
   async addField(fieldId: string, index: number) {
     if (isEmpty(this.connectionTable)) return;
     const uid = [...this.connectionTable, fieldId] as OptionFieldUID;
@@ -482,6 +529,44 @@ export class SelectData extends FormElement {
     }
     return this.topForm?.getChildElement(uid);
     // return (this.parent.widgets as FormElement[]).find(w => w.uid === uid);
+  }
+
+  getRuntimeFillData(selectedRows: typeof this.selectedRows) {
+    const rows = Object.values(selectedRows || {}).flat();
+    const rowData: Record<string, any> = {};
+    const widgets = [
+      ...(((this.parent as any)?.widgets || []) as FormElement[]),
+      ...(((this.parent as any)?.children || []) as FormElement[]),
+      ...(((this.form as any)?.children || []) as FormElement[]),
+      ...(((this.topForm as any)?.children || []) as FormElement[]),
+    ];
+    const findTarget = (uid: string) => widgets.find(widget => (
+      widget.uid === uid || widget.field?.meta?.uid === uid || widget.fieldId === uid
+    )) as FormElement | undefined;
+
+    for (const rule of this.fillRules) {
+      const targetWidget = findTarget(rule.targetUID);
+      if (!targetWidget?.fieldId) continue;
+
+      const fieldIds = rule.sourceUID.split(".");
+      let value = rows?.[0]?.[fieldIds[0]];
+      if (fieldIds.length > 1) value = rows.map(row => row?.[fieldIds[1]]);
+
+      if (isSelect(targetWidget)) {
+        rowData[targetWidget.fieldId] = (targetWidget as any).isMultiple
+          ? deepClone(value ?? [])
+          : deepClone(Array.isArray(value) ? value[0] ?? "" : value ?? "");
+      } else if (isSubForm(targetWidget)) {
+        const nestedRows = this.transformSubRowVaue(value, rule.linkageSubFields, targetWidget as SubForm);
+        rowData[targetWidget.fieldId] = deepClone(nestedRows);
+      } else if (isUploader(targetWidget)) {
+        rowData[targetWidget.fieldId] = [];
+      } else {
+        rowData[targetWidget.fieldId] = deepClone(value ?? "");
+      }
+    }
+
+    return { rowData };
   }
 
   private getCurrentSubFormComparisonElement(comparisonUid?: string): FormElement | undefined {
@@ -725,6 +810,9 @@ export class SelectData extends FormElement {
 
   private getSubFormSelectDataWidget(index: number) {
     const subForm = this.parent.parent as SubForm;
+    if (this.inSubFormRow && index === this.rowIndex) {
+      return this;
+    }
     const row = subForm.rows[index];
     if (!row) return;
     const subFormRow = subForm.getSubFormRow(row[UUID]);
@@ -875,6 +963,8 @@ export class SelectData extends FormElement {
 
     if (!pendingFillData.length) return;
     await subForm.batchApplyRows(nextRows, trace);
+
+    if (subForm.hasRuntime) return;
 
     // The selected rows are the only rows whose controls must participate in
     // linkage/formula watchers. Initialize those rows before applying the

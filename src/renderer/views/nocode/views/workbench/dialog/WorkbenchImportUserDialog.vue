@@ -1,6 +1,6 @@
 <template>
   <div class="workbench-import-user-dialog">
-    <el-dialog class="import-user-dialog" v-model="dialogVisible" :close-on-click-modal="false" :title="$t('WorkbenchImportUserDialog.importExcelAddMember')" 
+    <el-dialog class="import-user-dialog" v-model="dialogVisible" :close-on-click-modal="false" :title="$t('WorkbenchImportUserDialog.importExcelAddMember')"
       align-center destroy-on-close :show-close="false" :style="isFullscreen ? { '--width': '100%', '--height': '100%', } : {}" @closed="onClosed">
       <template #header>
         <div class="title">{{ $t('WorkbenchImportUserDialog.importExcelAddMember') }}</div>
@@ -74,7 +74,7 @@
             <div class="footer-right">
               <div class="import-step-button" v-if="!isCompleted">
                 <el-button class="cancel" @click="dialogVisible = false">{{ $t('WorkbenchImportUserDialog.cancel') }}</el-button>
-                <el-button type="primary" class="next-step" @click="handleNextStep" :disabled="!excelFile">{{ $t('WorkbenchImportUserDialog.nextStep') }}</el-button>
+                <el-button type="primary" class="next-step" @click="handleNextStep" :loading="loading" :disabled="loading || !excelFile">{{ $t('WorkbenchImportUserDialog.nextStep') }}</el-button>
               </div>
               <div class="complete-step-button" v-if="isCompleted">
                 <el-button type="primary" class="complete" @click="dialogVisible = false">{{ $t('WorkbenchImportUserDialog.complete') }}</el-button>
@@ -106,6 +106,7 @@ const dialogVisible = ref(false);
 const isCompleted = ref(false);
 const createdUserCount = ref(0);
 const failedCreatedUserCount = ref(0);
+const loading = ref(false);
 const isAllUsersCreated = computed(() => failedCreatedUserCount.value === 0);
 
 const handleDownloadTemplate = async() => {
@@ -145,8 +146,7 @@ const handleSubmit = async () => {
     const worksheet = workbook.Sheets[firstSheetName];
     // 直接将工作表转换为数组格式
     const excelData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-    await importUserInfo(excelData);
-    return true;
+    return await importUserInfo(excelData);
   } catch (error) {
     console.error(`${i18next.t('WorkbenchImportUserDialog.parseExcelFileFail')}:`, error);
     ElMessage.error(`${i18next.t('WorkbenchImportUserDialog.parseExcelFileFail')}: ` + (error.message || i18next.t('WorkbenchImportUserDialog.unknownError')));
@@ -154,9 +154,15 @@ const handleSubmit = async () => {
 }
 
 const handleNextStep = async () => {
-  const res = await handleSubmit();
-  if (res) {
-    isCompleted.value = true;
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    const res = await handleSubmit();
+    if (res) {
+      isCompleted.value = true;
+    }
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -165,7 +171,7 @@ const onClosed = () => {
   isFullscreen.value = false;
 }
 
-const importUserInfo = async (usersInfoData) => {
+const importUserInfo = async (usersInfoData): Promise<boolean> => {
   const res = await axios.post("/workbench/import-users", {
     usersInfoData: usersInfoData,
   }).catch(({ response }) => {
@@ -175,8 +181,10 @@ const importUserInfo = async (usersInfoData) => {
     emit('completed');
     createdUserCount.value = res.data;
     failedCreatedUserCount.value = usersInfoData.length - res.data;
+    return true;
   } else {
     console.log("成员导入接口调用失败！")
+    return false;
   }
 }
 

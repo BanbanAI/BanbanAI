@@ -357,7 +357,7 @@ export class Board extends Element {
     return this.projectContext.getDataConditions?.() || [];
   }
   getConnections() {
-    return this.projectContext.getConnections();
+    return this.projectContext?.getConnections();
   }
   setActiveBoardById(boardUID: string){
     this.projectContext.setActiveBoardById(boardUID);

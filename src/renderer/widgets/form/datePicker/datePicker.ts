@@ -421,7 +421,8 @@ export class DatePicker extends FormElement {
       "year": ['YYYY', (d) => d.year().toString()],
       "month": ['YYYY-MM', (d) => d.format('YYYY-MM')],
       "date": ['YYYY-MM-DD', (d) => d.toDate()],
-      "datetime": ['YYYY-MM-DD HH:mm:ss', (d) => d.toDate()]
+      "datetime": ['YYYY-MM-DD HH:mm:ss', (d) => d.toDate()],
+      "datetime-minute": ['YYYY-MM-DD HH:mm', (d) => d.toDate()]
     }
 
     const type = this.precision;
@@ -443,10 +444,38 @@ export class DatePicker extends FormElement {
     }
 
     if (typeof val === "string") {
-      let date = smartDayjs(val).locale(locale);
+      const weekdayPattern = "(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Wed|Thu|Fri|Sat|(?:星期|周)[一二三四五六日天])";
+      const dateValue = val
+        .replace(new RegExp(`^${weekdayPattern}\\s*,?\\s*`, "i"), "")
+        .replace(new RegExp(`\\s+${weekdayPattern}(?=\\s|$)\\s*`, "i"), " ")
+        .trim();
+
+      let date = smartDayjs(dateValue).locale(locale);
       if (date.isValid()) return mapper(date);
 
-      date = dayjs(val, this.format).locale(locale);
+      const hasTime = /\d{1,2}:\d{2}(?::\d{2})?$/.test(dateValue);
+      const hasSeconds = /:\d{2}:\d{2}$/.test(dateValue);
+      const hasMeridiem = /(?:上午|下午|\bAM\b|\bPM\b)/i.test(dateValue);
+      const timeFormat = hasTime
+        ? `${hasMeridiem ? " A h" : " HH"}:mm${hasSeconds ? ":ss" : ""}`
+        : "";
+      const dateFormats = Object.values(DATE_PART_MAP).map(formatMap => formatMap.date);
+      const parseLocales = locale === "en" ? ["en", "zh-cn"] : ["zh-cn", "en"];
+      for (const dateFormat of dateFormats) {
+        for (const parseLocale of parseLocales) {
+          date = dayjs(dateValue, `${dateFormat}${timeFormat}`, parseLocale, true).locale(locale);
+          if (!date.isValid() && /(?:上午|下午)/.test(dateValue)) {
+            date = dayjs(dateValue, `${dateFormat}${timeFormat}`, parseLocale).locale(locale);
+          }
+          if (date.isValid()) break;
+        }
+        if (date.isValid()) break;
+      }
+      if (date.isValid() && /(?:下午|\bPM\b)/i.test(dateValue) && date.hour() < 12) {
+        date = date.add(12, "hour");
+      } else if (date.isValid() && /(?:上午|\bAM\b)/i.test(dateValue) && date.hour() === 12) {
+        date = date.subtract(12, "hour");
+      }
       return date.isValid() ? mapper(date) : undefined;
     } else if(typeof val === "number") {
       return dayjs(val).locale(locale).format(format);
@@ -485,7 +514,15 @@ export class DatePicker extends FormElement {
   }
 
   set inputValue(value) {
-    this._calendarRange.value = value;
+    if (Array.isArray(value)) {
+      this._calendarRange.value = value;
+      this.updateLastChangeTime();
+      return;
+    }
+    const normalizedValue = this.normalizeInputDateValue(value);
+    this._calendarRange.value = normalizedValue === undefined && value
+      ? ""
+      : normalizedValue;
     this.updateLastChangeTime();
   }
 

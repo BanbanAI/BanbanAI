@@ -1,6 +1,6 @@
 import { FormElement } from "@renderer/b2/controllers/form";
 import { QuickFillColumn, QuickFillDraftRow, QuickFillSupportedWidgetType } from "./quickFillTypes";
-import { SubForm, UUID } from "./subForm";
+import { SubForm, SUB_FORM_ROW_LIMIT, UUID } from "./subForm";
 
 const SUPPORTED_WIDGET_TYPES = new Set<QuickFillSupportedWidgetType>([
   "widget.form.textInput",
@@ -68,7 +68,9 @@ export function buildQuickFillDraftRows(subForm: SubForm, columns: QuickFillColu
   while (rows.length < minRowCount) {
     rows.push(createEmptyDraftRow(columns));
   }
-  ensureTrailingBlankRow(rows, columns);
+  if (rows.length < SUB_FORM_ROW_LIMIT) {
+    ensureTrailingBlankRow(rows, columns);
+  }
   return rows;
 }
 

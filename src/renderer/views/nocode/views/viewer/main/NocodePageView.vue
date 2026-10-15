@@ -124,7 +124,6 @@
                   :hide-after="0"
                   :show-arrow="false"
                   :persistent="false"
-                  :teleported="false"
                   width="160"
                   @update:visible="visible => handleTreeNodePopoverVisibleChange(data.id, visible)"
                   v-if="getAppPermissions('editable') || (data.type === NocodeStructureType.PAGE && data.id === activePageId && !isHomeActive)"
@@ -281,9 +280,9 @@
         {{ $t('NocodePageView.noContent') }}
       </div>
     </div>
-    <nocode-node-rename-dialog ref="nodeRenameDialogRef" @confirm="handleNodeRenamed"></nocode-node-rename-dialog>
-    <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" @confirm="deleteConfirmContext.confirm"  />
-    <form-draft-list v-model="draftBoxListVisible" :drafts="drafts" :table="table" :enable-clear="true" @delete="handleDeleteDraft" @clear="handleClearDrafts" @submitted="handleDraftSubmitted" @updated="handleDraftSaved" />
+    <nocode-node-rename-dialog ref="nodeRenameDialogRef" :action="handleNodeRenamed"></nocode-node-rename-dialog>
+    <delete-confirm-dialog :text="deleteConfirmContext.text" :tip="deleteConfirmContext.tip" v-model="deleteConfirmContext.visible" :action="deleteConfirmContext.confirm" />
+    <form-draft-list v-model="draftBoxListVisible" :drafts="drafts" :table="table" :enable-clear="true" :delete-action="handleDeleteDraft" :clear-action="handleClearDrafts" @submitted="handleDraftSubmitted" @updated="handleDraftSaved" />
     <el-dialog
       v-model="expiredDialogVisible"
       class="nocode-expired-dialog"
@@ -346,7 +345,7 @@ export type DeleteConfirmContext = {
   text: string,
   tip: string,
   visible: boolean,
-  confirm: Function,
+  confirm: (() => Promise<boolean | void> | boolean | void) | undefined,
 }
 
 type CopiedFormPayload = {
@@ -1111,22 +1110,28 @@ const deleteConfirmContext = reactive<DeleteConfirmContext>({
   text: "",
   tip: "",
   visible: false,
-  confirm: null as Function,
+  confirm: undefined,
 })
 
 const handleDeleteTable = async (table: Table) => {
+  const previousFormData = nocode.value.body.formData;
   const _formData = await formDataApi.deleteTable({
     nocodeId,
     formData: formData.value,
     table,
   })
-  if (!_formData) return;
+  if (!_formData) return false;
   nocode.value.body.formData = _formData;
-  await saveNocodeConnections();
+  const saved = await saveNocodeConnections();
+  if (!saved) {
+    nocode.value.body.formData = previousFormData;
+    return false;
+  }
   if (activeID.value === table.uid) {
     openFirstPage();
   }
   ElMessage.success(i18next.t('NocodePageView.deleteSuccess'));
+  return true;
 }
 
 const handleDelete = async (data: NocodeStructure, node)=>{
@@ -1135,17 +1140,48 @@ const handleDelete = async (data: NocodeStructure, node)=>{
     if (!allowLeave) return;
   }
   const _delete = async () => {
+    const deletedData = node.data;
+    const parentNode = node.parent;
+    const nodeIndex = parentNode?.childNodes?.indexOf(node) ?? -1;
+    const nextSibling = nodeIndex >= 0 ? parentNode.childNodes[nodeIndex + 1] : undefined;
+    const restoreNode = () => {
+      if (nextSibling) treeRef.value.insertBefore(deletedData, nextSibling);
+      else treeRef.value.append(deletedData, parentNode);
+    };
     treeRef.value.remove(node);
     const res = await delStructureNode(node.data.id)
+    if (!res) {
+      restoreNode();
+      return false;
+    }
     if (data.type === NocodeStructureType.FORM) {
       const delTable = formData.value?.tables?.find(table => table.uid === data.id);
-      handleDeleteTable(delTable)
+      if (!delTable) {
+        restoreNode();
+        nocode.value.body.structure = treeRef.value.data;
+        if (!await saveStructureToTarget(nocode.value, nocode.value.body.structure, true)) {
+          ElMessage.error(i18next.t('NocodePageView.saveFailed'));
+        }
+        return false;
+      }
+      const deleted = await handleDeleteTable(delTable);
+      if (!deleted) {
+        restoreNode();
+        nocode.value.body.structure = treeRef.value.data;
+        if (!await saveStructureToTarget(nocode.value, nocode.value.body.structure, true)) {
+          ElMessage.error(i18next.t('NocodePageView.saveFailed'));
+        }
+        return false;
+      }
+      return true;
     } else if (res) {
       ElMessage.success(i18next.t('NocodePageView.deleteSuccess'));
       if (activeID.value === data.id) {
         openFirstPage()
       }
+      return true;
     }
+    return false;
   }
   if (data.type === NocodeStructureType.GROUP) {
     if (!isEmpty(data?.children)) {
@@ -1172,9 +1208,8 @@ const renameData = ref<NocodeStructure>()
 
 
 const handleNodeRenamed = async (name: string) => {
-  renameData.value.name = name;
   if(renameData.value.type === NocodeStructureType.FORM) {
-    if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
+    if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return false;
     const data = await axios.post("project/rename-nocode-form", {
       nocodeId,
       tableUID: renameData.value.id,
@@ -1191,13 +1226,17 @@ const handleNodeRenamed = async (name: string) => {
       return data;
     }).catch((error) => {
       handleNocodeSyncConflictError(error, nocodeSignIsLatest)
+      return null;
     });
     if (data) {
+      renameData.value.name = name;
       ElMessage.success(i18next.t('NocodePageView.modifySuccess'));
       activeName.value = name;
+      return true;
     }
+    return false;
   } else {
-    if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return;
+    if (!checkNocodeSyncBeforeRequest(nocodeSignIsLatest)) return false;
     const res = await axios.post('/project/rename-nocode-structure', {
       nocodeId: nocodeId,
       name: name,
@@ -1218,11 +1257,14 @@ const handleNodeRenamed = async (name: string) => {
       ElMessage.error(response?.data?.message);
     });
     if(res) {
+      renameData.value.name = name;
       if (renameData.value.type !== NocodeStructureType.GROUP) {
         activeName.value = name;
       }
       ElMessage.success(i18next.t('NocodePageView.modifySuccess'));
+      return true;
     }
+    return false;
   }
 }
 
@@ -2095,6 +2137,7 @@ const handleDeleteDraft = async (row: Row) => {
     if (!drafts.value.length) draftBoxListVisible.value = false;
     scheduleTodoCountRefresh();
   }
+  return !!res;
 }
 
 const handleClearDrafts = async () => {
@@ -2105,6 +2148,7 @@ const handleClearDrafts = async () => {
     draftBoxListVisible.value = false;
     scheduleTodoCountRefresh();
   }
+  return !!res;
 }
 
 // 切换全部展开和全部收起状态

@@ -408,6 +408,7 @@
         :fullscreen="isFullscreen"
         :processInfoFolded="processInfoFolded"
         @submit="handleRefresh"
+        @continue="handleRefresh"
         @stash="handleRefresh"
         @back="handleRefresh"
         @cancel="handleRefresh"
@@ -430,6 +431,7 @@
         :fullscreen="isFullscreen"
         :processInfoFolded="processInfoFolded"
         @submit="handleRefresh"
+        @continue="handleRefresh"
         @stash="handleRefresh"
         @back="handleRefresh"
         @cancel="handleRefresh"
@@ -460,7 +462,7 @@
     />
     <nocode-todo-box-dialog ref="todoBoxDialogRef" :title="nocodeTodoBoxDialogStaticText.title" :tipText="nocodeTodoBoxDialogStaticText.tipText" :btnColor="nocodeTodoBoxDialogStaticText.btnColor"></nocode-todo-box-dialog>
     <!-- <delete-confirm-dialog v-model="deleteConfirmDialogVisible" :text="$t('NocodeTodoBox.confirmDeleteRecord')" :tip="$t('NocodeTodoBox.deleteRecordWarn')" @confirm="onDeleteConfirm"></delete-confirm-dialog> -->
-    <delete-confirm-dialog v-model="deleteConfirmDialogVisible" :text=singleDeleteInfo.text :tip=singleDeleteInfo.tip @confirm="onDeleteConfirm"></delete-confirm-dialog>
+    <delete-confirm-dialog v-model="deleteConfirmDialogVisible" :text="singleDeleteInfo.text" :tip="singleDeleteInfo.tip" :action="onDeleteConfirm"></delete-confirm-dialog>
   </div>
 </template>
 
@@ -475,7 +477,7 @@ import { useDialogStore, usePassportStore } from '@renderer/stores';
 import dayjs from 'dayjs';
 import { canRollbackFlow, isSystemField, getFlowById, SystemField, getSystemColumnConfigurations, transformCondition } from '@common/utils';
 import { ProcessNodeStatus, ProcessNodeType } from '@common/types/project'
-import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo } from '@renderer/views/nocode/utils';
+import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo, isViewContextOnceNoFormDataTodo } from '@renderer/views/nocode/utils';
 import { FormMode } from '@renderer/types/base';
 import { provideFormMode } from '@renderer/views/nocode/components/global/table/hooks';
 import ProcessInitiateDialog from '../form/dialogs/ProcessInitiateDialog.vue';
@@ -885,7 +887,9 @@ const renderData = (todo: TODO) => {
 }
 
 const shouldHideSingleOnceFormData = (todo?: TODO) => {
-  return isOperationEmptyRowDisplayTodo(todo) || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo));
+  return isViewContextOnceNoFormDataTodo(todo)
+    || isOperationEmptyRowDisplayTodo(todo)
+    || (activeCategory.value === TodoCategory.CC_ME && isSingleOnceTimeTaskDisplayTodo(todo));
 }
 
 const getSingleOnceNoFormDataText = (todo: TODO) => {
@@ -1029,6 +1033,7 @@ const onBeforeDelete = async (todo: TODO) => {
   deleteConfirmDialogVisible.value = true;
 }
 const onDeleteConfirm = async () => {
+  let result;
   if (showBatchOperation.value) {
     const deleteRows = selectedRows.value.map(row => {
       return {
@@ -1040,18 +1045,20 @@ const onDeleteConfirm = async () => {
         id: row.id,
       }
     })
-    await formFlowApi.deleteTodos({ options: deleteRows });
+    result = await formFlowApi.deleteTodos({ options: deleteRows });
   } else {
-    await formFlowApi.deleteTodo({
+    result = await formFlowApi.deleteTodo({
       nocodeId: deletingRow.nocodeId,
       tableId: deletingRow.tableId,
       todoId: deletingRow.todoId,
       uuid: deletingRow.uuid,
       flowId: deletingRow.currentFlowId || deletingRow.flowId,
       id: deletingRow.id,
-    })
+    });
   }
-  getTodos()
+  if (Array.isArray(result)) return false;
+  await getTodos();
+  return true;
 }
 
 const handleSortMenu = (value) => {

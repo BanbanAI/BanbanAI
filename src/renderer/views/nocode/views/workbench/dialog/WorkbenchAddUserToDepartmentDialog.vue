@@ -14,7 +14,7 @@
       </div>
       <template #footer>
         <el-button class="cancel" @click="dialogVisible = false">{{ $t('WorkbenchAddUserToDepartmentDialog.cancel') }}</el-button>
-        <el-button type="primary" class="confirm" @click="handleConfirm">{{ $t('WorkbenchAddUserToDepartmentDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="loading" :disabled="loading" @click="handleConfirm">{{ $t('WorkbenchAddUserToDepartmentDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -27,13 +27,14 @@ const organizeUtil = inject(ORGANIZE_UTIL);
 
 const emit = defineEmits<{
   (event: 'add-user-to-department', userInfo?: Record<string, string[] | string>, type?: string, resolve?: (value: boolean) => void),
-  (event: "select-user-to-department", userIds: string[])
+  (event: "select-user-to-department", userIds: string[], resolve: (value: boolean) => void)
 }>();
 
 const dialogVisible = ref(false);
 const userInfoCoreRef = ref();
 const selectUserCoreRef = ref();
 const activeName = ref("new");
+const loading = ref(false);
 
 const nocodeId = inject(NOCODE_ID);
 
@@ -50,21 +51,30 @@ const handleClosed = () => {
   userInfoCoreRef.value.reset();
 }
 
-const handleConfirm = () => {
+const handleConfirm = async () => {
+  if (loading.value) return;
   if (activeName.value === 'new') {
     userInfoCoreRef.value.validate(async (valid: boolean) => {
       if (valid) {
+        loading.value = true;
         const success = await new Promise((resolve) => {
           emit('add-user-to-department', userInfoCoreRef.value.serialize(), 'add', resolve);
         })
         if (success) {
           dialogVisible.value = false;
         }
+        loading.value = false;
       }
     });
   } else {
-    emit('select-user-to-department', selectUserCoreRef.value.serialize());
-    dialogVisible.value = false;
+    loading.value = true;
+    await new Promise((resolve) => {
+      emit('select-user-to-department', selectUserCoreRef.value.serialize(), resolve);
+    }).then((success) => {
+      if (success) dialogVisible.value = false;
+    }).finally(() => {
+      loading.value = false;
+    });
   }
 }
 

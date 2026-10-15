@@ -95,8 +95,8 @@
         <div class="footer edit-footer" v-else>
           <div class="buttons edit-buttons" v-if="formMode === FormMode.Edit">
             <el-button class="cancel" v-if="formMode === FormMode.Edit" @click="handleCancel">{{ $t('MobileDataFormDialog.cancel') }}</el-button>
-            <el-button v-if="showStashButton" :loading="isSubmitting" class="submit-draft" @click="handleStash">{{ $t('MobileDataFormDialog.stash') }}</el-button>
-            <el-button class="submit" type="primary" @click="handleSubmit">{{ $t('MobileDataFormDialog.submit') }}</el-button>
+            <el-button v-if="showStashButton" :loading="isSubmitting" :disabled="isSubmitting" class="submit-draft" @click="handleStash">{{ $t('MobileDataFormDialog.stash') }}</el-button>
+            <el-button class="submit" type="primary" :loading="isSubmitting" :disabled="isSubmitting" @click="handleSubmit">{{ $t('MobileDataFormDialog.submit') }}</el-button>
           </div>
           <div class="buttons add-buttons" v-if="formMode !== FormMode.Edit">
             <div class="left">
@@ -104,9 +104,9 @@
               <el-checkbox v-show="isSubmitContinuous" v-model="isSaveCurrentContent">{{ $t('MobileDataFormDialog.saveCurrentContent') }}</el-checkbox>
             </div>
             <div class="right">
-              <el-button :loading="isSubmitting" class="submit-draft" @click="handleSubmitDraft">{{ isSubmitContinuous ? $t('MobileDataFormDialog.saveDraft') : $t('MobileDataFormDialog.baocunDraft') }}</el-button>
-              <el-button v-if="showStashButton" :loading="isSubmitting" class="submit-draft" @click="handleStash">{{ $t('MobileDataFormDialog.stash') }}</el-button>
-              <el-button :loading="isSubmitting" class="submit" type="primary" @click="handleSubmit">{{ $t('MobileDataFormDialog.submit') }}</el-button>
+              <el-button :loading="isSubmitting" :disabled="isSubmitting" class="submit-draft" @click="handleSubmitDraft">{{ isSubmitContinuous ? $t('MobileDataFormDialog.saveDraft') : $t('MobileDataFormDialog.baocunDraft') }}</el-button>
+              <el-button v-if="showStashButton" :loading="isSubmitting" :disabled="isSubmitting" class="submit-draft" @click="handleStash">{{ $t('MobileDataFormDialog.stash') }}</el-button>
+              <el-button :loading="isSubmitting" :disabled="isSubmitting" class="submit" type="primary" @click="handleSubmit">{{ $t('MobileDataFormDialog.submit') }}</el-button>
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@
 
     <table-delete-data-dialog
       v-model="deleteTipDialogVisible"
-      @deleteTableData="deleteCheckRowsData"
+      :action="deleteCheckRowsData"
       :title="$t('MobileDataFormDialog.delete')"
       :dataText="$t('MobileDataFormDialog.currentData')"
     ></table-delete-data-dialog>
@@ -144,7 +144,7 @@ import i18next from 'i18next';
 import { isEmpty } from '@common/utils/object';
 import { FieldAuthValue, FormTableRuntime, NocodeBody, NocodeFormData, ViewAction } from '@common/types/nocode';
 import { OptionTableUID, Row, Table as ProjectTable } from '@common/types/project';
-import { getUUIDSystemField } from '@common/utils';
+import { getUUIDSystemField, SystemField } from '@common/utils';
 import { getDeleteResultMessage, hasDeleteFailures } from '../delete-result-message';
 import { isDataChangeTriggerStashEnabled } from '@common/utils';
 import { DataChangeType, ProcessNodeStatus } from '@common/types/project';
@@ -340,7 +340,7 @@ const handleFormReady = (payload: {
   runtimeFormData.value = payload.formData;
   runtimeOtherDataSources.value = payload.otherDataSources || [];
 };
-const todoRecordKey = computed(() => `${detailRuntimeContext.value.nocodeId || ''}:${detailRuntimeContext.value.tableUID || ''}:${props.nocodeFormProps?.uuid || ''}`);
+const todoRecordKey = computed(() => `${detailRuntimeContext.value.nocodeId || ''}:${detailRuntimeContext.value.tableUID || ''}:${props.nocodeFormProps?.uuid || ''}:${mergedRow.value?.[SystemField.TODO_ID] || ''}`);
 
 const closeDialog = () => {
   emit('update:modelValue', false);
@@ -352,25 +352,26 @@ const isFormModified = () => {
 }
 
 const handleSubmit = async ()=>{
-  if(!editingFormRef.value) return;
-  const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.(
-    props.formMode !== FormMode.Edit
-      ? {
-        onSignSyncConflict: saveDraftBeforeRefresh,
-      }
-      : undefined
-  );
-  if (!confirmed) {
-    editingFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
+  if(!editingFormRef.value || isSubmitting.value) return;
   isSubmitting.value = true;
-  const loadingInstance = ElLoading.service({
-    target: ".iframe-wrap",
-    text: i18next.t('MobileDataFormDialog.submiting'),
-    background: "rgba(0, 0, 0, 0.2)"
-  });
+  let loadingInstance: ReturnType<typeof ElLoading.service> | undefined;
   try {
+    const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.(
+      props.formMode !== FormMode.Edit
+        ? {
+          onSignSyncConflict: saveDraftBeforeRefresh,
+        }
+        : undefined
+    );
+    if (!confirmed) {
+      editingFormRef.value?.clearSubmitValidationNotice?.();
+      return;
+    }
+    loadingInstance = ElLoading.service({
+      target: ".iframe-wrap",
+      text: i18next.t('MobileDataFormDialog.submiting'),
+      background: "rgba(0, 0, 0, 0.2)"
+    });
     const result = await editingFormRef.value.submit({ skipSubmitValidationNoticeConfirm: true, skipSubmitSignSyncConfirm: true });
     if(result){
       if (props.formMode === FormMode.Add) {
@@ -396,8 +397,9 @@ const handleSubmit = async ()=>{
         closeDialog();
       }
     }
+    return result;
   } finally {
-    loadingInstance.close();
+    loadingInstance?.close();
     isSubmitting.value = false;
   }
 }
@@ -418,40 +420,46 @@ async function saveDraftBeforeRefresh() {
 }
 
 const handleSubmitDraft = async () => { 
-  if(!editingFormRef.value) return;
+  if(!editingFormRef.value || isSubmitting.value) return;
+  isSubmitting.value = true;
   const loadingInstance = ElLoading.service({
     target: ".form-wrapper",
     text: i18next.t('MobileDataFormDialog.saveDraftLoading'),
     background: "rgba(0, 0, 0, 0.2)"
   });
-  const res = await editingFormRef.value.saveDraft().then(() => true).catch((err) => {
-    ElMessage.error(err?.message || i18next.t('MobileDataFormDialog.saveFail'));
-    return false;
-  });
-  loadingInstance.close();
-  if (res) {
-    ElMessage.success(i18next.t('MobileDataFormDialog.saveDraftSuccess'));
-    await nextTick()
-    emit("draft-saved");
+  try {
+    const res = await editingFormRef.value.saveDraft().then(() => true).catch((err) => {
+      ElMessage.error(err?.message || i18next.t('MobileDataFormDialog.saveFail'));
+      return false;
+    });
+    if (res) {
+      ElMessage.success(i18next.t('MobileDataFormDialog.saveDraftSuccess'));
+      await nextTick()
+      emit("draft-saved");
+    }
+  } finally {
+    loadingInstance.close();
+    isSubmitting.value = false;
   }
 }
 
 const handleStash = async () => {
-  if(!editingFormRef.value) return;
-  const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.({
-    onSignSyncConflict: saveDraftBeforeRefresh,
-  });
-  if (!confirmed) {
-    editingFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
-  const loadingInstance = ElLoading.service({
-    target: ".form-wrapper",
-    text: i18next.t('MobileDataFormDialog.stashLoading'),
-    background: "rgba(0, 0, 0, 0.2)"
-  });
+  if(!editingFormRef.value || isSubmitting.value) return;
   isSubmitting.value = true;
+  let loadingInstance: ReturnType<typeof ElLoading.service> | undefined;
   try {
+    const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.({
+      onSignSyncConflict: saveDraftBeforeRefresh,
+    });
+    if (!confirmed) {
+      editingFormRef.value?.clearSubmitValidationNotice?.();
+      return;
+    }
+    loadingInstance = ElLoading.service({
+      target: ".form-wrapper",
+      text: i18next.t('MobileDataFormDialog.stashLoading'),
+      background: "rgba(0, 0, 0, 0.2)"
+    });
     const res = await editingFormRef.value.stash?.();
     if (res) {
       ElMessage.success(i18next.t('MobileDataFormDialog.stashSuccess'));
@@ -459,7 +467,7 @@ const handleStash = async () => {
       closeDialog();
     }
   } finally {
-    loadingInstance.close();
+    loadingInstance?.close();
     isSubmitting.value = false;
     editingFormRef.value?.clearSubmitValidationNotice?.();
   }
@@ -473,7 +481,8 @@ const handleClose = async () => {
   if (props.formMode === FormMode.Edit && isFormModified()) {
     const isSave = await saveTipDialogRef.value?.confirm();
     if (isSave) {
-      await handleSubmit();
+      const submitted = await handleSubmit();
+      if (!submitted) return;
       return;
     }
   }
@@ -526,29 +535,34 @@ const getTodo = async () => {
     nocodeId: detailRuntimeContext.value.nocodeId,
     tableUID: detailRuntimeContext.value.tableUID,
     uuid: props.nocodeFormProps.uuid,
+    todoId: mergedRow.value?.[SystemField.TODO_ID],
   });
 }
 const deleteCheckRowsData = async () => {
   if (!canDeleteCurrentRow.value) {
     ElMessage.warning(i18next.t('InnerRowShareViewer.noPermission'));
-    return;
+    return false;
   }
   const deletePromise = resolveDeletePromise();
   if (!deletePromise) {
-    return;
+    return false;
   }
-  await deletePromise.then((result) => {
+  const result = await deletePromise.then((result) => {
     const message = getDeleteResultMessage(result, i18next.t('MobileDataFormDialog.delSuccess'));
     if (hasDeleteFailures(result)) {
       ElMessage.warning(message);
-      return;
+      return false;
     }
     ElMessage.success(message);
     emit("deleted");
+    return result;
   }).catch((err) => {
     ElMessage.error(err.message);
+    return false;
   });
+  if (!result || hasDeleteFailures(result)) return false;
   emit("update:modelValue", false)
+  return true;
 }
 
 const updateHiddenColumnIds = (value: string[]) => {
@@ -657,7 +671,7 @@ watch(() => ({
   visible: props.modelValue,
   recordKey: todoRecordKey.value,
 }), async (value, oldValue) => {
-  if (value.visible && value.recordKey && value.recordKey !== '::' && (value.recordKey !== oldValue?.recordKey || !oldValue?.visible)) {
+  if (value.visible && props.nocodeFormProps?.uuid && (value.recordKey !== oldValue?.recordKey || !oldValue?.visible)) {
     activeName.value = 'data';
     todo.value = null;
     await getTodo();

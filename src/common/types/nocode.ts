@@ -1148,6 +1148,9 @@ export type BackTodoOptions = SubmitTodoOptions & {
 export type RejectTodoOptions = Omit<SubmitTodoOptions, "row">;
 export type CancelTodoOptions = Omit<SubmitTodoOptions, "row" | "comment">;
 export type FinishTodoOptions = CancelTodoOptions;
+export type ContinueTodoOptions = Omit<CancelTodoOptions, "todoId"> & {
+  todoId: string,
+};
 export type TransferTodoOptions = CancelTodoOptions & {
   transferOwner: string,
 }
@@ -1343,10 +1346,12 @@ export type TODO = {
   fields?: Field[],
   canViewCurrentData?: boolean,
   singleOnceTimeTask?: boolean,
+  viewContextOnceNoFormData?: boolean,
   deleted?: boolean,
   processingTime?: {
     deadlineAt?: number | null,
   },
+  canHandleStuckDataProcessing?: boolean,
   upstream?: {
     todoId: string,
     termination?: "canceled" | "rejected",
@@ -1394,11 +1399,22 @@ export type ProjectNode = {
   children?: ProjectNode[],
 }
 
+export type NocodeProcessTimingTrigger = {
+  uid: string,
+  name: string,
+}
+
+export type NocodeProcessTableItem = Table & {
+  canInitiate: boolean,
+  timingTriggers: NocodeProcessTimingTrigger[],
+}
+
 export type NocodeProcessItem = {
   id: string,
   name: string,
   connectionId: ConnectionUID,
-  tables: Table[],
+  formDataUID: string,
+  tables: NocodeProcessTableItem[],
 }
 
 export type KeyValue = {

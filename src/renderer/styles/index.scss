@@ -3,6 +3,11 @@
 @use "element-plus/theme-chalk/src/index.scss" as *;
 @use "element-plus/theme-chalk/src/dark/css-vars.scss" as *;
 
+.el-tag.el-zoom-in-center-enter-active,
+.el-tag.el-zoom-in-center-leave-active {
+  transition: none !important;
+  animation: none !important;
+}
 
 @font-face {
   font-family: "lcd";

@@ -1151,8 +1151,10 @@ const getDynamicName = (type) => {
     align-content: flex-start;
     justify-content: flex-start;
     gap: 8px;
+    overflow-y: auto;
 
     :deep(.el-tag) {
+      max-width: 100%;
       height: 32px;
       padding: 6px 8px 6px 8px;
       border: none;
@@ -1160,6 +1162,9 @@ const getDynamicName = (type) => {
 
       .el-tag__content {
         font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .el-tag__close {

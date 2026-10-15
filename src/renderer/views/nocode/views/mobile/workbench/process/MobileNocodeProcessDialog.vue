@@ -66,10 +66,11 @@
 
       <template #footer>
         <div class="button-container" v-if="editable || buttonData.length">
-          <ul>
-            <li v-for="button in buttonData" :key="button.name" :class="button.className" @click="button.click">
+          <ul :class="{ 'is-continuing': continueLoading }">
+            <li v-for="button in buttonData" :key="button.name" :class="[button.className, { 'is-disabled': actionLoading }]" @click="!actionLoading && button.click()">
               <el-icon>
-                <component :is="button.icon" />
+                <i-ep-loading v-if="actionLoading" class="is-loading" />
+                <component v-else :is="button.icon" />
               </el-icon>
               <span>{{ button.name }}</span>
             </li>
@@ -84,7 +85,8 @@
             <span class="form-action-tooltip-trigger">
               <el-button
                 class="button-reject"
-                :disabled="!isFormActionReady"
+                :loading="actionLoading"
+                :disabled="!isFormActionReady || actionLoading"
                 @click="reject"
               >
                 {{ $t('MobileNocodeProcessDialog.reject') }}
@@ -100,7 +102,8 @@
             <span class="form-action-tooltip-trigger">
               <el-button
                 class="button-reject"
-                :disabled="!isFormActionReady"
+                :loading="actionLoading"
+                :disabled="!isFormActionReady || actionLoading"
                 @click="stash"
               >
                 {{ $t('MobileNocodeProcessDialog.stash') }}
@@ -117,7 +120,8 @@
               <el-button
                 type="primary"
                 class="button-submit"
-                :disabled="!isFormActionReady"
+                :loading="actionLoading"
+                :disabled="!isFormActionReady || actionLoading"
                 @click="submit"
               >
                 {{ todo.type === ProcessNodeType.APPROVAL ? $t('MobileNocodeProcessDialog.approve') : $t('MobileNocodeProcessDialog.submit')}}
@@ -158,7 +162,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { OptionTableUID, ProcessNodeType, ProcessNodeStatus, Row } from '@common/types/project';
 import { TODO, TodoCategory } from '@common/types/nocode';
 import { formFlowApi, getOperationEmptyRowDisplayText } from '../../../../utils';
-import { canRollbackFlow, getFlowById } from "@common/utils";
+import { canRollbackFlow, getFlowById, isDataProcessingNode } from "@common/utils";
 import i18next from 'i18next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { canShowProcessSubmitButton } from '../../../../utils/process-submit-button';
@@ -183,6 +187,7 @@ const emit = defineEmits<{
   (event: "closed"),
   (event: "opened"),
   (event: "submit"),
+  (event: "continue"),
   (event: "stash"),
   (event: "back"),
   (event: "deleteTodo"),
@@ -196,11 +201,14 @@ const emit = defineEmits<{
 const nocodeFormRef = ref();
 const approvalOpinionDialogRef = ref();
 const finishFlowTipDialogRef = ref();
+const continueLoading = ref(false);
 const passportState = usePassportStore();
 const title = ref("");
 const isBackNode = ref(false);
 const requireComment = ref(false);
 const nocodeSelectTransferUserDialogShow = ref(false);
+const actionLoading = ref(false);
+const isSuccessfulFlowResult = (result: unknown) => result !== null && !Array.isArray(result);
 const isReportData = computed(() => {
   return props.todo?.type === ProcessNodeType.REPORT_DATA;
 });
@@ -212,6 +220,9 @@ const flow = computed(() => {
 const activeName = ref('data');
 const singleOnceNoFormDataText = computed(() => {
   if (!props.hideFormData) return '';
+  if (props.todo?.viewContextOnceNoFormData) {
+    return i18next.t('MobileNocodeProcessDialog.timeTaskSingleNoData');
+  }
   if (props.todo?.operationTriggerActionName) {
     return getOperationEmptyRowDisplayText(
       props.todo,
@@ -233,7 +244,14 @@ const formPlaceholderText = computed(() => {
   return singleOnceNoFormDataText.value;
 });
 const canSubmitTodo = computed(() => {
-  return canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+  return !isDataProcessingNode(props.todo?.type)
+    && canShowProcessSubmitButton(props.todo, props.editable, transferOnly.value);
+});
+const isShowContinueFlow = computed(() => {
+  return !transferOnly.value
+    && props.editable
+    && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
+    && props.todo?.canHandleStuckDataProcessing === true;
 });
 const reportRow = computed(() => {
   return props.todo?.reportData || null;
@@ -312,32 +330,27 @@ const prepareSubmitRow = async() => {
 }
 
 const submit = async() => {
-  const row = await prepareSubmitRow();
-  if (!row) return;
-  const confirmed = formPlaceholderText.value
-    ? true
-    : await nocodeFormRef.value?.confirmSubmitBeforeMutation?.();
-  if (!confirmed) {
-    nocodeFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
-  title.value = i18next.t('MobileNocodeProcessDialog.approvalOpn');
-  if (props.todo.type === ProcessNodeType.TRANSACT) {
-    title.value = i18next.t('MobileNocodeProcessDialog.handleOpn');
-  }
-  isBackNode.value = false;
-  requireComment.value = !!props.todo?.requireComments;
-  await nextTick();
-  let resolve = null;
-  if ([ProcessNodeType.TRANSACT, ProcessNodeType.APPROVAL].includes(props.todo?.type)) {
-    resolve = await approvalOpinionDialogRef.value.confirm()
-    if (!resolve?.state) {
-      nocodeFormRef.value?.clearSubmitValidationNotice?.();
-      return;
-    }
-  }
-
+  if (actionLoading.value) return;
+  actionLoading.value = true;
   try {
+    const row = await prepareSubmitRow();
+    if (!row) return;
+    const confirmed = formPlaceholderText.value
+      ? true
+      : await nocodeFormRef.value?.confirmSubmitBeforeMutation?.();
+    if (!confirmed) return;
+    title.value = i18next.t('MobileNocodeProcessDialog.approvalOpn');
+    if (props.todo.type === ProcessNodeType.TRANSACT) {
+      title.value = i18next.t('MobileNocodeProcessDialog.handleOpn');
+    }
+    isBackNode.value = false;
+    requireComment.value = !!props.todo?.requireComments;
+    await nextTick();
+    let resolve = null;
+    if ([ProcessNodeType.TRANSACT, ProcessNodeType.APPROVAL].includes(props.todo?.type)) {
+      resolve = await approvalOpinionDialogRef.value.confirm()
+      if (!resolve?.state) return;
+    }
     const res = await formFlowApi.submitTodo({
       nocodeId: props.todo.nocodeId,
       tableId: props.todo.tableId,
@@ -350,7 +363,7 @@ const submit = async() => {
       commentImages: resolve?.commentImages,
       commentFiles: resolve?.commentFiles,
     })
-    if (!res) {
+    if (!isSuccessfulFlowResult(res)) {
       return;
     }
     if (res?.errorMsg) {
@@ -364,56 +377,65 @@ const submit = async() => {
     closeDialog();
     emit("submit");
   } finally {
+    actionLoading.value = false;
     nocodeFormRef.value?.clearSubmitValidationNotice?.();
   }
 }
 
 const stash = async() => {
-  const row = await prepareSubmitRow();
-  if (!row) return;
-  const confirmed = formPlaceholderText.value
-    ? true
-    : await nocodeFormRef.value?.confirmSubmitBeforeMutation?.();
-  if (!confirmed) {
-    nocodeFormRef.value?.clearSubmitValidationNotice?.();
-    return;
-  }
+  if (actionLoading.value) return;
+  actionLoading.value = true;
   try {
+    const row = await prepareSubmitRow();
+    if (!row) return;
+    const confirmed = formPlaceholderText.value
+      ? true
+      : await nocodeFormRef.value?.confirmSubmitBeforeMutation?.();
+    if (!confirmed) return;
     const result = await nocodeFormRef.value?.stash?.({ todo: props.todo, row: buildSubmitPayloadRow(row) });
     if (!result) return;
     closeDialog();
     emit("stash");
   } finally {
+    actionLoading.value = false;
     nocodeFormRef.value?.clearSubmitValidationNotice?.();
   }
 }
 
 const back = async() => {
-  title.value = i18next.t('MobileNocodeProcessDialog.rollback');
-  isBackNode.value = true;
-  requireComment.value = false;
-  await nextTick();
-  const resolve = await approvalOpinionDialogRef.value.confirm();
-  if (!resolve?.state) return;
+  if (actionLoading.value) return;
+  actionLoading.value = true;
+  try {
+    title.value = i18next.t('MobileNocodeProcessDialog.rollback');
+    isBackNode.value = true;
+    requireComment.value = false;
+    await nextTick();
+    const resolve = await approvalOpinionDialogRef.value.confirm();
+    if (!resolve?.state) return;
 
-  const row = nocodeFormRef.value?.serialize();
-  await formFlowApi.backTodo({
-    nocodeId: props.todo.nocodeId,
-    tableId: props.todo.tableId,
-    uuid: props.todo.uuid,
-    flowId: resolvedFlowId.value,
-    id: props.todo.id,
-    todoId: props.todo.todoId,
-    row,
-    backId: resolve.backNode,
-    comment: resolve.suggestion,
-    commentImages: resolve.commentImages,
-    commentFiles: resolve.commentFiles,
-  })
-  closeDialog();
-  emit("back");
+    const row = nocodeFormRef.value?.serialize();
+    const result = await formFlowApi.backTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      flowId: resolvedFlowId.value,
+      id: props.todo.id,
+      todoId: props.todo.todoId,
+      row,
+      backId: resolve.backNode,
+      comment: resolve.suggestion,
+      commentImages: resolve.commentImages,
+      commentFiles: resolve.commentFiles,
+    });
+    if (!isSuccessfulFlowResult(result)) return;
+    closeDialog();
+    emit("back");
+  } finally {
+    actionLoading.value = false;
+  }
 }
 const deleteFlow = async () => {
+  if (actionLoading.value) return;
   ElMessageBox({
     title: i18next.t("nocodeDeleteFlow.title"),
     message: i18next.t("nocodeDeleteFlow.message"),
@@ -423,59 +445,86 @@ const deleteFlow = async () => {
     cancelButtonText: i18next.t("nocodeDeleteFlow.cancelButtonText"),
     confirmButtonText: i18next.t("nocodeDeleteFlow.confirmButtonText"),
   }).then(async () => {
-    await formFlowApi.deleteTodo({
-      nocodeId: props?.todo?.nocodeId,
-      tableId: props?.todo?.tableId,
-      uuid: props?.todo?.uuid,
-      todoId: props.todo.todoId,
-      flowId: resolvedFlowId.value,
-      id: props?.todo?.id,
-    })
-
-    closeDialog();
-    emit("deleteTodo");
+    actionLoading.value = true;
+    try {
+      const result = await formFlowApi.deleteTodo({
+        nocodeId: props?.todo?.nocodeId,
+        tableId: props?.todo?.tableId,
+        uuid: props?.todo?.uuid,
+        todoId: props.todo.todoId,
+        flowId: resolvedFlowId.value,
+        id: props?.todo?.id,
+      });
+      if (!isSuccessfulFlowResult(result)) {
+        ElMessage.error(i18next.t('formFlowService.statusChangedRefreshTips'));
+        return;
+      }
+      closeDialog();
+      emit("deleteTodo");
+    } finally {
+      actionLoading.value = false;
+    }
   })
 }
 const transfer = () => {
   nocodeSelectTransferUserDialogShow.value = true
 }
 const nocodeSelectTransferUserDialogShowConfirm = async (resolve) => {
+  if (actionLoading.value) return;
   if (!resolve || !resolve.state || !resolve.transferOwner) return;
 
-  await formFlowApi.transferTodo({
-    nocodeId: props.todo.nocodeId,
-    tableId: props.todo.tableId,
-    uuid: props.todo.uuid,
-    flowId: resolvedFlowId.value,
-    todoId: props.todo.todoId,
-    id: props.todo.id,
-    transferOwner: resolve.transferOwner
-  });
-
-  closeDialog();
-  emit("transfer");
+  actionLoading.value = true;
+  try {
+    const result = await formFlowApi.transferTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      flowId: resolvedFlowId.value,
+      todoId: props.todo.todoId,
+      id: props.todo.id,
+      transferOwner: resolve.transferOwner
+    });
+    if (!isSuccessfulFlowResult(result)) {
+      ElMessage.error(i18next.t('formFlowService.statusChangedRefreshTips'));
+      return;
+    }
+    closeDialog();
+    emit("transfer");
+  } finally {
+    actionLoading.value = false;
+  }
 }
 
 const reject = async() => {
-  title.value = i18next.t('MobileNocodeProcessDialog.reject');
-  isBackNode.value = false;
-  requireComment.value = false;
-  await nextTick();
-  const resolve = await approvalOpinionDialogRef.value.confirm();
-  if (!resolve?.state) return;
-  await formFlowApi.rejectTodo({
-    nocodeId: props.todo.nocodeId,
-    tableId: props.todo.tableId,
-    uuid: props.todo.uuid,
-    todoId: props.todo.todoId,
-    flowId: resolvedFlowId.value,
-    id: props.todo.id,
-    comment: resolve?.suggestion,
-    commentImages: resolve?.commentImages,
-    commentFiles: resolve?.commentFiles,
-  })
-  closeDialog();
-  emit("back");
+  if (actionLoading.value) return;
+  actionLoading.value = true;
+  try {
+    title.value = i18next.t('MobileNocodeProcessDialog.reject');
+    isBackNode.value = false;
+    requireComment.value = false;
+    await nextTick();
+    const resolve = await approvalOpinionDialogRef.value.confirm();
+    if (!resolve?.state) return;
+    const result = await formFlowApi.rejectTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      todoId: props.todo.todoId,
+      flowId: resolvedFlowId.value,
+      id: props.todo.id,
+      comment: resolve?.suggestion,
+      commentImages: resolve?.commentImages,
+      commentFiles: resolve?.commentFiles,
+    });
+    if (!isSuccessfulFlowResult(result)) {
+      ElMessage.error(i18next.t('formFlowService.statusChangedRefreshTips'));
+      return;
+    }
+    closeDialog();
+    emit("back");
+  } finally {
+    actionLoading.value = false;
+  }
 }
 
 const isShowBack = computed(() => {
@@ -522,6 +571,7 @@ const reInitiate = () => {
 }
 
 const cancelFlow = async () => {
+  if (actionLoading.value) return;
   ElMessageBox({
     title: i18next.t('MobileNocodeProcessDialog.revoke'),
     message: i18next.t('MobileNocodeProcessDialog.confirmRevoke'),
@@ -531,6 +581,7 @@ const cancelFlow = async () => {
     cancelButtonText: i18next.t('MobileNocodeProcessDialog.cancel'),
     confirmButtonText: i18next.t('MobileNocodeProcessDialog.revoke'),
   }).then(async () => {
+    actionLoading.value = true;
     try {
       await formFlowApi.cancelTodo({
         nocodeId: props.todo.nocodeId,
@@ -544,15 +595,19 @@ const cancelFlow = async () => {
       emit("cancel");
     } catch (err) {
       ElMessage.error(err?.message || i18next.t('formFlowService.statusChangedRefreshTips'));
+    } finally {
+      actionLoading.value = false;
     }
   })
 }
 
 const finishFlow = async () => {
+  if (actionLoading.value) return;
   const confirmed = await finishFlowTipDialogRef.value?.confirm();
   if (!confirmed) {
     return;
   }
+  actionLoading.value = true;
   try {
     await formFlowApi.finishTodo({
       nocodeId: props.todo.nocodeId,
@@ -567,6 +622,31 @@ const finishFlow = async () => {
     emit("cancel");
   } catch (err) {
     ElMessage.error(err?.message || i18next.t('formFlowService.statusChangedRefreshTips'));
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+const continueFlow = async () => {
+  if (continueLoading.value) {
+    return;
+  }
+  continueLoading.value = true;
+  try {
+    await formFlowApi.continueTodo({
+      nocodeId: props.todo.nocodeId,
+      tableId: props.todo.tableId,
+      uuid: props.todo.uuid,
+      flowId: resolvedFlowId.value,
+      id: props.todo.id,
+      todoId: props.todo.todoId,
+    });
+    closeDialog();
+    emit("continue");
+  } catch (err) {
+    ElMessage.error(err?.message || i18next.t('formFlowService.statusChangedRefreshTips'));
+  } finally {
+    continueLoading.value = false;
   }
 }
 
@@ -587,11 +667,14 @@ const isShowCanceled = computed(() => {
 })
 
 const isShowFinishFlow = computed(() => {
-  const flow = getFlowById(props.todo?.flows || [], props.todo?.flowId || '');
+  const flow = getFlowById(props.todo?.flows || [], resolvedFlowId.value);
   return !transferOnly.value
     && props.editable
     && props.todo?.status === ProcessNodeStatus.IN_PROGRESS
-    && !!flow?.options?.allowFinishFlow;
+    && (
+      props.todo?.canHandleStuckDataProcessing === true
+      || (!isDataProcessingNode(props.todo?.type) && !!flow?.options?.allowFinishFlow)
+    );
 })
 
 const buttonData = computed(() => {
@@ -641,6 +724,15 @@ const buttonData = computed(() => {
       className: 'danger',
       click: () => {
         finishFlow()
+      },
+    },
+    {
+      name: i18next.t('MobileNocodeProcessDialog.continueFlow'),
+      icon: INocodeProcessFlowGoOn,
+      visible: isShowContinueFlow.value,
+      className: 'primary',
+      click: () => {
+        continueFlow()
       },
     },
     {
@@ -881,6 +973,15 @@ watch(() => ({
             &.danger {
               color: #f9484e;
             }
+
+            &.primary {
+              color: var(--color-primary);
+            }
+          }
+
+          &.is-continuing {
+            pointer-events: none;
+            opacity: 0.6;
           }
         }
       }
@@ -985,6 +1086,12 @@ watch(() => ({
 
             &:hover {
               background-color: var(--bg-color-overlay);
+            }
+
+            &.is-disabled {
+              cursor: not-allowed;
+              opacity: 0.6;
+              pointer-events: none;
             }
           }
         }

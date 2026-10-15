@@ -76,11 +76,11 @@ const formMode = computed(() => FormMode.Edit);
 provideFormMode(formMode);
 
 const handleSubmit = async () => {
-  if (!editingFormRef.value) return;
+  if (!editingFormRef.value) return false;
   const confirmed = await editingFormRef.value.confirmSubmitBeforeMutation?.();
   if (!confirmed) {
     editingFormRef.value?.clearSubmitValidationNotice?.();
-    return;
+    return false;
   }
   isSubmitting.value = true;
   const loadingInstance = ElLoading.service({
@@ -92,11 +92,12 @@ const handleSubmit = async () => {
   try {
     const result = await editingFormRef.value.submit({ skipSubmitValidationNoticeConfirm: true, skipSubmitSignSyncConfirm: true });
     if (!result) {
-      return;
+      return false;
     }
     ElMessage.success(i18next.t('DataFormDialog.editSuccess'));
     emit("submitted");
     emit("update:modelValue", false);
+    return true;
   } finally {
     loadingInstance.close();
     isSubmitting.value = false;
@@ -108,7 +109,8 @@ const handleClose = async () => {
   if (isModified) {
     const isSave = await saveTipDialogRef.value?.confirm();
     if (isSave) {
-      await handleSubmit();
+      const submitted = await handleSubmit();
+      if (!submitted) return;
       return;
     }
   }

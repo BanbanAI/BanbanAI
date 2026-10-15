@@ -28,6 +28,12 @@ export const isSingleOnceTimeTaskDisplayTodo = (todo?: Pick<TODO, "singleOnceTim
   return isSingleOnceTimeTaskTodo(todo?.flows || []);
 };
 
+export const isViewContextOnceNoFormDataTodo = (
+  todo?: Pick<TODO, "viewContextOnceNoFormData"> | null,
+) => {
+  return todo?.viewContextOnceNoFormData === true;
+};
+
 export const isOperationEmptyRowDisplayTodo = (todo?: Pick<TODO, "operationTriggerActionName"> | null) => {
   return Boolean(String(todo?.operationTriggerActionName || "").trim());
 };

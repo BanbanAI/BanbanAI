@@ -10,7 +10,7 @@
         </el-form-item>
       </el-form>
     </div>
-    <el-button class="btn-confirm" @click="saveProxy">{{ $t("nocodeLoginDialog.confirm") }}</el-button>
+    <el-button class="btn-confirm" :loading="saving" :disabled="saving" @click="saveProxy">{{ $t("nocodeLoginDialog.confirm") }}</el-button>
   </div>
 </template>
 
@@ -69,6 +69,7 @@ const formItems = [
 const form = reactive<ProxyOptions>({
   ...settingState.proxy,
 })
+const saving = ref(false);
 
 const checkHost = (rule: any, value: any, callback: any) => {
   if (form.on && !value) {
@@ -89,13 +90,19 @@ const rules = reactive<FormRules<typeof form>>({
 });
 
 const saveProxy = async () => {
-  const valid = await formRef.value.validate().then(() => true).catch(() => false);
-  if (!valid) return;
-  const res = await settingState.setProxyOptions({ ...form });
-  if (res) {
-    ElMessage.success(i18next.t("proxySetting.saveSuccess"));
-  } else {
-    ElMessage.error(i18next.t("proxySetting.proxyConnectionFailed"));
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    const valid = await formRef.value.validate().then(() => true).catch(() => false);
+    if (!valid) return;
+    const res = await settingState.setProxyOptions({ ...form });
+    if (res) {
+      ElMessage.success(i18next.t("proxySetting.saveSuccess"));
+    } else {
+      ElMessage.error(i18next.t("proxySetting.proxyConnectionFailed"));
+    }
+  } finally {
+    saving.value = false;
   }
 }
 

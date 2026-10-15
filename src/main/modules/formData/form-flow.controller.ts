@@ -1,13 +1,14 @@
 import { Body, Controller, Get, Post, Query, Req, Inject } from '@nestjs/common';
 import { FormFlowService } from './form-flow.service';
-import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, DeleteTodoOptions, FinishTodoOptions, GetAllCategoryTodoCountParams, GetAllProcessParams, GetFlowRecordsParams, GetTodosParams, GetTodoParams, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TransferTodoOptions, TodoCategory, DeleteTodosOptions } from '@common/types/nocode';
+import { BackTodoOptions, CancelTodoOptions, CheckProcessVersionDeletableParams, ContinueTodoOptions, DeleteTodoOptions, FinishTodoOptions, GetAllCategoryTodoCountParams, GetAllProcessParams, GetFlowRecordsParams, GetTodosParams, GetTodoParams, GetTransferTodoUsersOptions, RejectTodoOptions, StashTodoOptions, SubmitTodoOptions, TransferTodoOptions, TodoCategory, DeleteTodosOptions } from '@common/types/nocode';
 import { isSystemAdminAccount } from '@common/types/account';
 import { Request } from 'express';
 import { getNocodeBody } from '@main/utils';
 import { ProjectService } from '../project/project.services';
 import { NOCODES_DIR } from "@main/constants";
 import { isEmpty } from '@common/utils/object';
-import { hasProcessBranches } from '@common/utils';
+import { getFlows, hasProcessBranches } from '@common/utils';
+import { DataChangeType, ProcessNodeType } from '@common/types/project';
 
 @Controller("form-flow")
 export class FormFlowController {
@@ -65,6 +66,11 @@ export class FormFlowController {
     return await this.formFlowService.finishTodo(options, req.account.id, isAdmin);
   }
 
+  @Post("/continue-todo")
+  async continueTodo(@Body() options: ContinueTodoOptions, @Req() req: Request) {
+    return await this.formFlowService.continueTodo(options, req.account.id);
+  }
+
   @Post("/transfer-todo")
   async transferTodo(@Body() options: TransferTodoOptions, @Req() req: Request) {
     return await this.formFlowService.transferTodo(options, req.account.id);
@@ -114,12 +120,37 @@ export class FormFlowController {
           return null;
         }
 
+        const branches = getFlows(formOption.process)?.[0]?.branches || [];
+        const canInitiate = branches.some((branch) => {
+          const triggerNode = branch.flows?.[0];
+          return triggerNode?.type === ProcessNodeType.TRIGGER_DATA_CHANGE
+            && triggerNode.options?.changeType?.includes(DataChangeType.ADD)
+            && branch.flows.length >= 2;
+        });
+        const timingTriggers = branches.flatMap((branch) => {
+          const triggerNode = branch.flows?.[0];
+          if (triggerNode?.type !== ProcessNodeType.TRIGGER_TIME_TASK) {
+            return [];
+          }
+          return [{
+            uid: triggerNode.uid,
+            name: triggerNode.options?.name || "",
+          }];
+        });
+        if (!canInitiate && isEmpty(timingTriggers)) {
+          return null;
+        }
+
         const canViewTable = await this.projectService.canViewTargetTable(
           item.body,
           table.uid,
           context,
         );
-        return canViewTable ? table : null;
+        return canViewTable ? {
+          ...table,
+          canInitiate,
+          timingTriggers,
+        } : null;
       }))).filter(Boolean);
 
       return {

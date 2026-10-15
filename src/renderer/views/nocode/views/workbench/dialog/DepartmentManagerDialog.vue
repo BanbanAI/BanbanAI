@@ -7,7 +7,7 @@
         <select-user-core :onlyUsers="true" :readonly="true" ref="selectUserCoreRef" />
       </div>
       <template #footer>
-        <el-button type="primary" class="confirm" @click="confirm">{{ $t('DepartmentManagerDialog.confirm') }}</el-button>
+        <el-button type="primary" class="confirm" :loading="props.loading" :disabled="props.loading" @click="confirm">{{ $t('DepartmentManagerDialog.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -24,6 +24,7 @@ const props = defineProps<{
   modelValue: boolean;
   departmentId: string;
   managerIds: string[];
+  loading?: boolean;
 }>();
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean)  
@@ -45,7 +46,7 @@ const getAllUsers = async ()=> {
 getAllUsers();
 
 const confirm = ()=> {
-  emit('update:modelValue', false);
+  if (props.loading) return;
   emit('confirm', { 
     id: props.departmentId, 
     managers: selectUserCoreRef.value?.serialize(),

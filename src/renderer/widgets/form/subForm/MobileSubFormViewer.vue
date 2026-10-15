@@ -6,7 +6,7 @@
     :element-loading-text="i18next.t('loading')"
   >
     <div v-if="!subForm.isReadonly" class="table-editor">
-      <div class="add-btn-wrapper" @click="subForm.addRow(undefined, {}, true)">
+      <div class="add-btn-wrapper" :class="{ disabled: isRowLimitReached }" @click="handleAddRow">
         <el-icon class="add-btn" :size="20"><CirclePlusFilled /></el-icon>
       </div>
     </div>
@@ -131,6 +131,7 @@ const selectedRows = ref<any[]>([]);
 const subformViewerRef = ref();
 const clickWidgetEditorIndex = ref(null);
 const widgetEditorVisible = ref(null);
+const isRowLimitReached = computed(() => !props.subForm.canAddRows());
 const showColumns = computed(() => {
   return props.subForm.children.filter(item => !item.isHidden)
 })
@@ -181,6 +182,11 @@ const showLinkForm = async (tableId: string, filterPath: string) => {
 const handleSelectionChange = (rows: any[]) => {
   selectedRows.value = rows;
   widgetEditorVisible.value = false;
+}
+
+const handleAddRow = () => {
+  if (isRowLimitReached.value) return;
+  props.subForm.addRow(undefined, {}, true);
 }
 
 const rowPreviewClick = (row: any, index: number) => {
@@ -238,7 +244,8 @@ const handleNextScanCode = async (currentWidgetUid: string) => {
 
   // 新增一行
   if (nextRowIndex >= tableData.length) {
-    await props.subForm.addRowAsync(undefined, {}, true);
+    const added = await props.subForm.addRowAsync(undefined, {}, true);
+    if (!added) return;
     await nextTick();
   }
 
@@ -319,6 +326,14 @@ provide('subform-scanner-registry', {
       display: flex;
       align-items: center;
       justify-content: center;
+
+      &.disabled {
+        cursor: not-allowed;
+
+        .add-btn {
+          color: var(--text-color-disabled);
+        }
+      }
 
       .add-btn {
         font-size: 20px;

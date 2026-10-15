@@ -57,6 +57,8 @@ export const useSettingStore = defineStore("setting", () => {
   const isAutoSaveProject = ref(false);
   const autoSaveInterval = ref(1);
   const isShowUserInfo = ref(true);
+  const isBootStart = ref(false);
+  const isBootStartSupported = ref(false);
   const projectsDir = ref("");
   const share = ref({
     domain: defaultDomain,
@@ -189,6 +191,16 @@ export const useSettingStore = defineStore("setting", () => {
       const proxyOptions = await axios.post('/user/get-proxy', undefined, { signal }).then(({data}) => data);
       Object.assign(proxy.value, proxyOptions || {});
       return proxy.value;
+    }, force);
+  }
+
+  const getBootStart = async (force = false) => {
+    return loadSetting('bootStart', () => ({ isBootStart: isBootStart.value, isBootStartSupported: isBootStartSupported.value }), async (signal) => {
+      return await axios.get("/user/get-boot-start", { signal }).then(({ data }) => {
+        isBootStart.value = data.isBootStart;
+        isBootStartSupported.value = data.isBootStartSupported;
+        return data;
+      });
     }, force);
   }
 
@@ -356,6 +368,8 @@ export const useSettingStore = defineStore("setting", () => {
     };
     _dbInfo.value = {};
     isShowUserInfo.value = true;
+    isBootStart.value = false;
+    isBootStartSupported.value = false;
     isShowTour.value = undefined;
   };
 
@@ -382,6 +396,9 @@ export const useSettingStore = defineStore("setting", () => {
     setProjectsDir,
     getDomainPort,
     getIsShowUserInfo,
+    getBootStart,
+    isBootStart,
+    isBootStartSupported,
     getProxyOptions,
     setProxyOptions,
     getIsShowTour,

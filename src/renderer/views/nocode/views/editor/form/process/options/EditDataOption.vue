@@ -39,7 +39,7 @@
     </el-form-item>
     <el-tabs v-model="activeTab" v-if="props.options.targetTableUID">
       <el-tab-pane :label="$t('EditDataOption.basicSetting')" name="baseSetting">
-        <el-form-item class="filter-condition-form">
+        <el-form-item v-if="!isSelectedDataTarget" class="filter-condition-form">
           <filter-condition-setting-item
             ref="filterConditionRef"
             :filterRule="props.options.targetTableFilterRule"
@@ -47,10 +47,11 @@
             :targetTitle="$t('EditDataOption.targetFormField')"
             :isRequired="isTargetFilterRequired"
             :disableAddCondition="shouldDisableMainTableAddCondition"
+            :validateDeletedField="true"
           />
         </el-form-item>
-        <hr />
-        <el-form-item class="data-source-form">
+        <hr v-if="!isSelectedDataTarget" />
+        <el-form-item v-if="!isSelectedDataTarget" class="data-source-form">
           <data-source-form
             :sourceTables="props.options.sourceTables"
             ref="dataSourceFormRef"
@@ -89,10 +90,10 @@
             </template>
           </data-source-form>
         </el-form-item>
-        <hr />
+        <hr v-if="!isSelectedDataTarget" />
         <el-form-item
           class="data-source-form"
-          v-if="!!isSelectSubTable"
+          v-if="!!isSelectSubTable && !isSelectedDataTarget"
         >
           <data-source-subform
             :primarySourceTable="props.options.primarySourceTable"
@@ -100,14 +101,15 @@
             :disableAddCondition="shouldDisableSubTablePrimaryAddCondition"
           />
         </el-form-item>
-        <hr v-if="!!isSelectSubTable"/>
+        <hr v-if="!!isSelectSubTable && !isSelectedDataTarget"/>
         <el-form-item class="target-form-field">
           <target-form-field
             :tableUID="props.options.targetTableUID"
             :targetFields="props.options.targetFields"
-            :defaultTables="defaultTables"
-            :sourceTables="props.options.sourceTables"
+            :defaultTables="isSelectedDataTarget ? [] : defaultTables"
+            :sourceTables="isSelectedDataTarget ? [] : props.options.sourceTables"
             :pluginFields="lastPluginNodeFields"
+            :allowedFillTypes="isSelectedDataTarget ? selectedDataFillTypes : undefined"
             :allowDataOwnerField="true"
             :table="table"
             mode="edit"
@@ -124,6 +126,7 @@
               <el-checkbox
                 v-model="props.options.allowLinkageFill"
                 :label="$t('EditDataOption.allowLinkageFill')"
+                :disabled="isSelectedDataTarget"
               />
               <el-tooltip :content="$t('EditDataOption.allowLinkageFillTip')" placement="top">
                 <el-icon class="permission-tip"><i-ep-question-filled /></el-icon>
@@ -148,7 +151,10 @@ import { ElMessage, FormInstance } from 'element-plus'
 import { computed, inject, ref, watch } from 'vue'
 import {
   EditDataTargetScope,
+  OperationTriggerMode,
+  ProcessNodeType,
   TargetFieldFillType,
+  getOperationTriggerMode,
   getProcessTargetSourceUID
 } from '@common/types/project'
 import type {
@@ -194,10 +200,19 @@ const activeTab = ref('baseSetting')
 
 const historyDataLabel = () => i18next.t('EditDataOption.historyData')
 const getScopeLabel = (scope: EditDataTargetScope) => {
+  if (scope === EditDataTargetScope.SELECTED) {
+    return i18next.t('EditDataOption.selectedData')
+  }
   return scope === EditDataTargetScope.CURRENT
     ? i18next.t('EditDataOption.thisData')
     : historyDataLabel()
 }
+
+const isViewContextOnceOperation = computed(() => {
+  const sourceNode = props.node.findSourceNode()
+  return sourceNode?.type === ProcessNodeType.TRIGGER_OPERATION
+    && getOperationTriggerMode(sourceNode.options) === OperationTriggerMode.VIEW_CONTEXT_ONCE
+})
 
 const currentTables = computed(() => {
   return nocode.value.body?.formData?.tables ?? []
@@ -255,11 +270,24 @@ const isCrossAppTarget = computed(() => {
 })
 
 const targetTableScope = computed(() => {
+  if (
+    isViewContextOnceOperation.value
+    && props.options.targetTableUID === table.value.uid
+    && props.options.targetTableDataScope === EditDataTargetScope.SELECTED
+  ) {
+    return EditDataTargetScope.SELECTED
+  }
   return !isCrossAppTarget.value && props.options.targetTableDataScope === EditDataTargetScope.CURRENT
     ? EditDataTargetScope.CURRENT
     : EditDataTargetScope.HISTORY
 })
 
+const isSelectedDataTarget = computed(() => targetTableScope.value === EditDataTargetScope.SELECTED)
+const selectedDataFillTypes = [
+  TargetFieldFillType.CUSTOM,
+  TargetFieldFillType.EMPTY,
+  TargetFieldFillType.DEFAULT,
+]
 const isCurrentDataTarget = computed(() => {
   return targetTableScope.value === EditDataTargetScope.CURRENT
 })
@@ -306,7 +334,11 @@ const parseTargetFormSelectOptionValue = (value?: string) => {
   const [tableUID, scope] = value.split(TARGET_FORM_SCOPE_SEPARATOR)
   return {
     tableUID,
-    scope: scope === EditDataTargetScope.CURRENT ? EditDataTargetScope.CURRENT : EditDataTargetScope.HISTORY,
+    scope: scope === EditDataTargetScope.CURRENT
+      ? EditDataTargetScope.CURRENT
+      : scope === EditDataTargetScope.SELECTED
+        ? EditDataTargetScope.SELECTED
+        : EditDataTargetScope.HISTORY,
   }
 }
 
@@ -460,6 +492,10 @@ const targetFormOption = computed<TargetFormSelectOption[]>(() => {
       label: `${i18next.t('EditDataOption.currentForm')}-${getScopeLabel(EditDataTargetScope.CURRENT)}`,
       value: getTargetFormSelectOptionValue(currentTableUID, EditDataTargetScope.CURRENT),
     },
+    ...(isViewContextOnceOperation.value ? [{
+      label: `${i18next.t('EditDataOption.currentForm')}-${getScopeLabel(EditDataTargetScope.SELECTED)}`,
+      value: getTargetFormSelectOptionValue(currentTableUID, EditDataTargetScope.SELECTED),
+    }] : []),
     ...currentSubTableItems.value.map(item => ({
       label: `${i18next.t('EditDataOption.currentForm')}.${item.label}-${getScopeLabel(EditDataTargetScope.CURRENT)}`,
       value: getTargetFormSelectOptionValue(item.tableUID, EditDataTargetScope.CURRENT),
@@ -557,10 +593,15 @@ const applyTargetTableChange = (
   )
 
   const nextTargetSource = getTableSourceByUID(nextTableUID)
+  const selectedScopeAllowed = (
+    nextScope === EditDataTargetScope.SELECTED
+    && isViewContextOnceOperation.value
+    && nextTableUID === table.value.uid
+  )
   const fixedScope = nextTargetSource?.connection?.nocodeId
     && nextTargetSource.connection.nocodeId !== nocode.value?.meta?.id
     ? EditDataTargetScope.HISTORY
-    : nextScope
+    : selectedScopeAllowed ? EditDataTargetScope.SELECTED : nextScope
   props.options.targetTableUID = nextTableUID
   props.options.targetTableDataScope = fixedScope
   if (isTargetTableChanged || nextTableUID === table.value.uid) {
@@ -568,6 +609,15 @@ const applyTargetTableChange = (
   }
   if (isTargetTableChanged || isSwitchingToCurrentFormCurrentData) {
     clearCurrentSubTableFilters()
+  }
+
+  if (fixedScope === EditDataTargetScope.SELECTED) {
+    props.options.targetTableFilterRule = createTargetFilterRule(EditDataTargetScope.SELECTED)
+    props.options.sourceTables = []
+    props.options.primarySourceTable = null
+    clearCurrentSubTableFilters()
+    props.options.targetFields = createDefaultTargetFields()
+    props.options.allowLinkageFill = false
   }
 
   if (isTargetTableChanged) {
@@ -603,6 +653,25 @@ const ensureTargetTableDefaults = () => {
     props.options.targetTableDataScope = EditDataTargetScope.HISTORY
   }
 
+  if (
+    props.options.targetTableDataScope === EditDataTargetScope.SELECTED
+    && (!isViewContextOnceOperation.value || props.options.targetTableUID !== table.value.uid)
+  ) {
+    props.options.targetTableDataScope = EditDataTargetScope.HISTORY
+  }
+
+  if (isSelectedDataTarget.value) {
+    props.options.targetTableFilterRule = createTargetFilterRule(EditDataTargetScope.SELECTED)
+    props.options.sourceTables = []
+    props.options.primarySourceTable = null
+    clearCurrentSubTableFilters()
+    if (props.options.targetFields?.some(item => !selectedDataFillTypes.includes(item.type))) {
+      props.options.targetFields = createDefaultTargetFields()
+    }
+    props.options.allowLinkageFill = false
+    return
+  }
+
   if (!props.options.targetTableFilterRule) {
     props.options.targetTableFilterRule = createTargetFilterRule()
   } else if (
@@ -627,6 +696,18 @@ const ensureTargetTableDefaults = () => {
 
 ensureTargetTableDefaults()
 
+watch(isViewContextOnceOperation, (allowed) => {
+  if (allowed || props.options.targetTableDataScope !== EditDataTargetScope.SELECTED) {
+    return
+  }
+  props.options.targetTableDataScope = EditDataTargetScope.HISTORY
+  props.options.targetTableFilterRule = createTargetFilterRule(EditDataTargetScope.HISTORY)
+  props.options.sourceTables = []
+  props.options.primarySourceTable = null
+  clearCurrentSubTableFilters()
+  props.options.allowLinkageFill = false
+})
+
 const targetFormSelectValue = computed({
   get() {
     return getTargetFormSelectOptionValue(props.options.targetTableUID, targetTableScope.value)
@@ -641,7 +722,7 @@ const targetFormSelectValue = computed({
 
 const rules = {
   targetTableUID: [{
-    validator: (rule, value, callback) => value
+    validator: (rule, value, callback) => value && targetTableSource.value?.table
       ? callback()
       : callback(new Error(i18next.t('EditDataOption.selectForm'))),
     trigger: 'change'
@@ -666,13 +747,17 @@ const defaultFormInfo = computed(() => {
 const defaultTables = computed(() => {
   const targetTableUID = props.options.targetTableUID;
   const targetSourceUID = getProcessTargetSourceUID(targetTableUID, table.value.uid);
+  const targetFormAlias = targetTable.value?.alias || table.value.alias;
+  const targetScopeLabel = getScopeLabel(targetTableScope.value);
   return [
     {
       ...table.value,
       label: `${i18next.t('EditDataOption.currentForm')}-${i18next.t('EditDataOption.thisData')}`,
+      formSelectLabel: `${table.value.alias}-${getScopeLabel(EditDataTargetScope.CURRENT)}`,
     },
     {
-      label: `${i18next.t('EditDataOption.targetForm')}-${getScopeLabel(targetTableScope.value)}`,
+      label: `${i18next.t('EditDataOption.targetForm')}-${targetScopeLabel}`,
+      formSelectLabel: `${targetFormAlias}-${targetScopeLabel}`,
       ...(targetTable.value || {}),
       uid: targetSourceUID,
     }
@@ -763,10 +848,16 @@ const save = async () => {
       })
     })
     : true
-  const valid2 = await dataSourceFormRef.value?.validate()
+  const valid2 = isSelectedDataTarget.value
+    ? true
+    : await dataSourceFormRef.value?.validate()
   const valid3 = await targetFormFieldRef.value?.validate()
-  const valid4 = await filterConditionRef.value?.validate()
-  const valid5 = dataSourceSubFormRef.value ? await dataSourceSubFormRef.value?.validate() : true
+  const valid4 = isSelectedDataTarget.value
+    ? true
+    : await filterConditionRef.value?.validate()
+  const valid5 = isSelectedDataTarget.value
+    ? true
+    : dataSourceSubFormRef.value ? await dataSourceSubFormRef.value?.validate() : true
   const currentSubTableFilterRefs = Array.isArray(currentSubTableFilterRef.value)
     ? currentSubTableFilterRef.value
     : (currentSubTableFilterRef.value ? [currentSubTableFilterRef.value] : [])

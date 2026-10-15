@@ -16,13 +16,13 @@ export const meetRuleFuncs = {
   [RuleFunc.NOT_CONTAIN]: (a: any, b: any) => !(a || []).includes(b),
   [RuleFunc.BETWEEN]: (a: any, b: any) => b[0] <= a && a <= b[1],
   [RuleFunc.CONTAIN_ANY]: (a: any, b: any) => {
-    if (!Array.isArray(a)) a = a.split(",");
-    if (!Array.isArray(b)) b = b.split(",");
-    return b.some((item: any) => (a || []).includes(item));
+    if (!Array.isArray(a)) a = a?.split(",");
+    if (!Array.isArray(b)) b = b?.split(",");
+    return b?.some((item: any) => (a || []).includes(item));
   },
   [RuleFunc.CONTAIN_ALL]: (a: any, b: any) => {
-    if (!Array.isArray(a)) a = a.split(",");
-    if (!Array.isArray(b)) b = b.split(",");
+    if (!Array.isArray(a)) a = a?.split(",");
+    if (!Array.isArray(b)) b = b?.split(",");
     return b?.every((item: any) => (a || []).includes(item));
   },
   [RuleFunc.BELONG]: (a: any, b: any) => (b || []).includes(a),

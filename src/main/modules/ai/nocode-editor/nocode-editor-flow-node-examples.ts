@@ -942,7 +942,7 @@ const editDataExample: NocodeEditorFlowNodeExample = {
       },
     },
     targetTableDataScope: {
-      description: '修改范围，当前表单本条数据：current，历史数据：history',
+      description: '修改范围，当前表单本条数据：current，历史数据：history，一次性触发时当前表单选中数据：selected；selected 仅支持当前表单，且字段赋值只能使用固定值、清空或默认值',
       type: 'string',
       requiredWhen: '选填',
       exampleValue: 'current',

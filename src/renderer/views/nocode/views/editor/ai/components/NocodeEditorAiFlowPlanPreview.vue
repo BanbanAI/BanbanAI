@@ -308,6 +308,7 @@ const OWNER_EMPTY_LABEL_MAP: Record<string, string> = {
 const EDIT_SCOPE_LABEL_MAP: Record<string, string> = {
   get [EditDataTargetScope.CURRENT]() { return i18next.t('nocodeEditorAiFlowPlanPreview.currentRecordOnly') },
   get [EditDataTargetScope.HISTORY]() { return i18next.t('nocodeEditorAiFlowPlanPreview.historicalRecords') },
+  get [EditDataTargetScope.SELECTED]() { return i18next.t('nocodeEditorAiFlowPlanPreview.selectedRecords') },
 }
 
 const TARGET_FIELD_FILL_LABEL_MAP: Record<string, string> = {

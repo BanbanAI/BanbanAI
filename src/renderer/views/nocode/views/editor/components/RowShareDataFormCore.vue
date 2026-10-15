@@ -67,10 +67,10 @@
         <div class="footer" v-if="!isViewing">
           <div class="footer-left">
             <el-button type="primary" @click="emit('submit', isSubmitContinuous, isSaveCurrentContent)"
-              :loading="loading">{{
+              :loading="loading" :disabled="loading">{{
                 $t('RowShareDataFormCore.submit')
               }}</el-button>
-            <el-button @click="emit('submitDraft')" v-if="formMode !== FormMode.Edit" :loading="loading">{{
+            <el-button @click="emit('submitDraft')" v-if="formMode !== FormMode.Edit" :loading="loading" :disabled="loading">{{
               $t('RowShareDataFormCore.saveDraft') }}</el-button>
             <el-button v-if="formMode === FormMode.Edit" @click="emit('cancel')">{{ $t('RowShareDataFormCore.cancel')
             }}</el-button>

@@ -409,7 +409,7 @@ const handleConfirm = async () => {
 
       if (res && res.data) {
         const downloadUrl = `${window.location.origin}${res.data.zipFileUrl}`
-        exportedFiles.value.push({ url: downloadUrl, filename: `${tableName}(${i18next.t('ExportDataDialog.dataAndAttach')}).zip` });
+        exportedFiles.value.push({ url: downloadUrl, filename: `${replaceIllegalChars(tableName)}(${i18next.t('ExportDataDialog.dataAndAttach')}).zip` });
       }
     } catch (error) {
       ElMessage.error(i18next.t('ExportDataDialog.exportAttachFail'));
@@ -561,6 +561,7 @@ const limitText = (str) => {
 
 // 导出为Excel文件
 const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
+  const safeTableName = replaceIllegalChars(tableName);
   const subTableUIDs = await widget.getSubTableUIDs()
   // 创建工作簿
   const wb = XLSX.utils.book_new();
@@ -643,8 +644,8 @@ const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
               }
               // 单元格存的内容为：文件相对路径地址
               if(column.length > 0){
-                const relativePath = `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
-                const fileList = column.map(item => `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
+                const relativePath = `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
+                const fileList = column.map(item => `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
                 // 创建超链接格式的数据
                 dataRow.push({ t:'s', v:`${fileList}`, l:{Target:`${relativePath}`} });
               } else {
@@ -703,8 +704,8 @@ const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
                   }
                   // 单元格存的内容为：文件相对路径地址
                   if(column.length > 0){
-                    const relativePath = `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
-                    const fileList = column.map(item => `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
+                    const relativePath = `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
+                    const fileList = column.map(item => `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
                     // 创建超链接格式的数据
                     dataRow.push({ t:'s', v:`${fileList}`, l:{Target:`${relativePath}`} });
                   } else {
@@ -721,9 +722,7 @@ const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
                 dataRow.push(safeCellValue(column, header));
               }
             } else {  // 子表单字段
-              const forwardRow = row[header.parentUID]
-              const reverseRow = [...forwardRow].reverse()  // 创建副本再反转
-              const subRow = reverseRow[i]
+              const subRow = row[header.parentUID]?.[i]
               if (subRow) {
                 const column = subRow[header.uid];
                 if (header.subType === 'relatedData') {
@@ -760,8 +759,8 @@ const exportToExcel = async (headers, rows, tableName, relatedDataLabelMap) => {
                     }
                     // 单元格存的内容为：文件相对路径地址
                     if(column.length > 0){
-                      const relativePath = `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
-                      const fileList = column.map(item => `./${tableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
+                      const relativePath = `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${column[0].name}`
+                      const fileList = column.map(item => `./${safeTableName}_${i18next.t('ExportDataDialog.attachment')}/${item.name}`).join(',');
                       // 创建超链接格式的数据
                       dataRow.push({ t:'s', v:`${fileList}`, l:{Target:`${relativePath}`} });
                     } else {

@@ -59,7 +59,7 @@
       v-model="deleteConfirmDialogVisible"
       :text="$t('MobileFormDraftListDialog.confirmDelDraft')"
       :tip="$t('MobileFormDraftListDialog.delDraftWarn')"
-      @confirm="onDeleteConfirm"
+      :action="onDeleteConfirm"
     />
     <delete-confirm-dialog
       v-model="clearConfirmDialogVisible"
@@ -67,7 +67,7 @@
       :text="$t('MobileFormDraftListDialog.confirmClearDraft')"
       :tip="$t('MobileFormDraftListDialog.clearDraftWarn')"
       :confirmText="$t('MobileFormDraftListDialog.confirmClear')"
-      @confirm="onClearConfirm"
+      :action="onClearConfirm"
     />
   </div>
 </template>
@@ -84,6 +84,8 @@ const props = withDefaults(defineProps<{
   table: Table;
   drafts: Row[];
   enableClear?: boolean;
+  deleteAction?: (row: Row) => Promise<boolean | void> | boolean | void;
+  clearAction?: () => Promise<boolean | void> | boolean | void;
 }>(), {
   drafts: () => [],
   enableClear: false,
@@ -131,17 +133,21 @@ const onBeforeDelete = (row: Row) => {
   deleteConfirmDialogVisible.value = true;
 };
 
-const onDeleteConfirm = () => {
-  if (!deletingRow) return;
+const onDeleteConfirm = async () => {
+  if (!deletingRow) return false;
+  if (props.deleteAction) return (await props.deleteAction(deletingRow)) !== false;
   emit('delete', deletingRow);
+  return true;
 };
 
 const onBeforeClear = () => {
   clearConfirmDialogVisible.value = true;
 };
 
-const onClearConfirm = () => {
+const onClearConfirm = async () => {
+  if (props.clearAction) return (await props.clearAction()) !== false;
   emit('clear');
+  return true;
 };
 </script>
 
