@@ -1,16 +1,19 @@
 import { Global, Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 import { getRuntime } from "@main/runtime";
-import { PREFERENCES, COMMON_UTIL } from "@main/constants";
+import { PREFERENCES, COMMON_UTIL, COMMON_UTILS_SERVICE } from "@main/constants";
 import { Preferences } from "./components/preferences.component";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { GlobalExceptionFilter } from "./filters/global-exception.filter";
 import { CommonUtil } from "./common.util";
+import { CommonUtilsService } from "./common-utils.service";
 
 @Global()
 @Module({
   providers: [
+    CommonUtilsService,
+    { provide: COMMON_UTILS_SERVICE, useExisting: CommonUtilsService },
     {
       provide: PREFERENCES,
       async useFactory() {
@@ -41,6 +44,6 @@ import { CommonUtil } from "./common.util";
       inject: [CommonUtil],
     },
   ],
-  exports: [ PREFERENCES, COMMON_UTIL ],
+  exports: [ PREFERENCES, COMMON_UTIL, COMMON_UTILS_SERVICE ],
 })
 export class CommonModule {}
