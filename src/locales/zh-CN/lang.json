@@ -4387,7 +4387,8 @@
     "recordNotFound": "当前记录不存在或已被删除",
     "detailNoPermission": "当前无权限查看该数据",
     "linkDetailNoPermission": "当前无权限查看该链接数据",
-    "updateSuccess": "更新成功"
+    "updateSuccess": "更新成功",
+    "updateFailed": "更新数据失败"
   },
   "AutoCountingDialog": {
     "countSetting": "计数设置",

@@ -4179,7 +4179,8 @@
     "recordNotFound": "This record no longer exists",
     "detailNoPermission": "No permission to view this record",
     "linkDetailNoPermission": "No permission to view linked data",
-    "updateSuccess": "Updated successfully"
+    "updateSuccess": "Updated successfully",
+    "updateFailed": "Failed to update data"
   },
   "AutoCountingDialog": {
     "countSetting": "Count Settings",
