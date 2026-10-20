@@ -84,9 +84,10 @@ export const normalizeUploadItems = (value: unknown): RuntimeUploadDisplayItem[]
     if (!raw || typeof raw !== "object") return [];
     const record = raw as Record<string, unknown>;
     const size = Number(record.size);
+    const previewUrl = String(record.previewUrl || "");
     return [createUploadDisplayItem({
       name: String(record.name ?? record.fileName ?? record.url ?? ""),
-      url: String(record.previewUrl || record.url || ""),
+      url: previewUrl && !previewUrl.startsWith("blob:") ? previewUrl : String(record.url || ""),
       size: Number.isFinite(size) ? size : undefined,
       uid: String(record.uid ?? `runtime-upload-${index}`),
     })];
