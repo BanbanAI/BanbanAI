@@ -124,7 +124,11 @@ const isLoading = ref(false);
 
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
-const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
+const preRequiredColumns = computed(() => [
+  ...widget.getFillRuleSourceMainFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableColumnUIDs(),
+]);
 
 const isSelected = (row) => {
   return Object.keys(selectedRows.value).some(

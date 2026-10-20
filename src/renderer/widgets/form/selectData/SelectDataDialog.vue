@@ -83,7 +83,11 @@ let refreshGeneration = 0;
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
 const runtimeFormDataFilter = computed(() => widget.runtimeFormDataFilter);
-const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
+const preRequiredColumns = computed(() => [
+  ...widget.getFillRuleSourceMainFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableColumnUIDs(),
+]);
 let filterWatchersInitialized = false;
 const filterReady = ref(false);
 
