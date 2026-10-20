@@ -632,9 +632,12 @@ export function compileSubFormSchema(options: SubFormSchemaAdapterOptions): SubF
       ...(resolveFieldExtra?.(widget) || {}),
     };
 
+    const canDriveDefaultFormula = !!widget.handleFormatValue
+      || widget.type === 'widget.form.datePicker'
+      || widget.type === 'widget.form.timePicker';
     const isFormula = widget.type === 'widget.form.autoCompute'
       ? (widget.computeType === 'formula' && !!widget.formulaValue)
-      : (!!widget.handleFormatValue && widget.defaultType === 'formula' && !!widget.defaultFormulaValueStr);
+      : (canDriveDefaultFormula && widget.defaultType === 'formula' && !!widget.defaultFormulaValueStr);
 
     const isQuickCompute = widget.type === 'widget.form.autoCompute'
       ? (widget.computeType === 'quickCompute' && widget.otherTableFieldUID?.length >= 3)
