@@ -126,7 +126,7 @@ function formatNumberValue(widget: any, extra: Record<string, unknown>, value: u
   if (isEmptyValue(value)) return value;
 
   const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return value;
+  if (!Number.isFinite(numericValue)) return "";
   const format = getNumberFormat(widget, extra);
   const normalizedValue = format.numberType === "percent" ? numericValue * 100 : numericValue;
   const normalizedNumber = normalizeDisplayNumber(normalizedValue, format.decimal, format.decimalRoundingRule);
