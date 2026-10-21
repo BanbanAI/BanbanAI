@@ -2951,6 +2951,38 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
     const subField = subTable?.fields.find(item => item.uid === subFieldId || item.meta?.uid === subFieldId);
     return !!subField && (subField.revisedType || subField.type) === 'number';
   }
+  const resolveFormulaReferenceField = (fieldId: string, subFieldId?: string) => {
+    const field = targetTable.fields.find(item => item.uid === fieldId || item.meta?.uid === fieldId);
+    if (!subFieldId) return field;
+    const subTableUID = field?.meta?.extra?.subTableUID?.at(-1);
+    const subTable = formData.tables.find(table => table.uid === subTableUID);
+    return subTable?.fields.find(item => item.uid === subFieldId || item.meta?.uid === subFieldId);
+  }
+  const emptyValueOfFormulaField = (field?: Field) => {
+    switch (field?.revisedType || field?.type) {
+      case "number":
+        return 0;
+      case "array":
+        return [];
+      case "object":
+        return {};
+      default:
+        return "";
+    }
+  }
+  const normalizeFormulaReference = (
+    value: unknown,
+    fieldId: string,
+    subFieldId: string,
+    shouldNormalizeFormulaValues: boolean,
+  ) => {
+    const normalizedValue = value === undefined || value === null
+      ? (isNumericFormulaReference(fieldId, subFieldId)
+        ? value
+        : emptyValueOfFormulaField(resolveFormulaReferenceField(fieldId, subFieldId)))
+      : value;
+    return normalizeFormulaNumericValue(normalizedValue, shouldNormalizeFormulaValues);
+  }
   const formulaCollectMap = formulaFields.map(item => {
     return {
       uid: item.uid,
@@ -2976,10 +3008,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
   
             if (subFieldId) {
               const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId)
-                .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
             } else {
-              return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+              return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
             }
           })
           formula = replaceByFormula(formula, (keys) => {
@@ -2988,9 +3019,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
               && !emptyCheckReferenceKeys.has(keys.join(','));
             if (subFieldId) {
               const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
             } else {
-              return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+              return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
             }
           })
           if (!formula) continue;
@@ -3013,10 +3044,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
   
             if (subFieldId) {
               const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId)
-                .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
             } else {
-              return [normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues)];
+              return [normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues)];
             }
           })
           for(let j = 0; j < (row[key].length || 0); j++) {
@@ -3030,11 +3060,11 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
                 const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
                 const values = getSubFieldColumnValues(fieldValue, subFieldId);
                 if (fieldId === key) {
-                  return normalizeFormulaNumericValue(values[index], shouldNormalizeFormulaValues);
+                  return normalizeFormulaReference(values[index], fieldId, subFieldId, shouldNormalizeFormulaValues);
                 }
-                return values.map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+                return values.map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
               } else {
-                return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+                return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
               }
             })
             if (!formula) continue;

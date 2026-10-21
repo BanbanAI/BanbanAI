@@ -623,7 +623,7 @@ const migrateLegacySubformFillRules = (formSoul: WidgetSoul, connectionUID: stri
 
     if (soul.type === "widget.form.subform") {
       const legacyRule = soul.options?.["data-fill-rules"] as any;
-      const isMultipleSubform = soul.options?.["data-origin"] === "multiple";
+      const isMultipleSubform = (soul.options?.["data-origin"] ?? "multiple") === "multiple";
       const linkageSubFields = legacyRule?.fillWidgets?.filter(item => item?.fillWidget && item?.linkageWidget)?.map(item => ({
         fillWidget: item.fillWidget,
         linkageField: item.linkageWidget,

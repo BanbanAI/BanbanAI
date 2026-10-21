@@ -31,7 +31,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="handleCancel">{{ $t("PcOrganizeManagerDialog.cancel") }}</el-button>
-          <el-button type="primary" :loading="props.loading" :disabled="props.loading" @click="handleConfirm">{{ $t("PcOrganizeManagerDialog.confirm") }}</el-button>
+          <el-button type="primary" @click="handleConfirm">{{ $t("PcOrganizeManagerDialog.confirm") }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -90,7 +90,6 @@ const props = withDefaults(defineProps<{
   hideRoleTab?: boolean;
   hideDepartmentTab?: boolean;
   quickOptions?: Array<{ label: string, value: string }>;
-  loading?: boolean;
 }>(), {
   isInWidget: false,
   multiple: true,
@@ -104,7 +103,6 @@ const props = withDefaults(defineProps<{
   hideRoleTab: false,
   hideDepartmentTab: false,
   quickOptions: () => [],
-  loading: false,
 });
 
 const onClosed = () => {
@@ -119,14 +117,10 @@ const getTableList = computed(() => {
 
 
 const handleConfirm = () => {
-  if (props.loading) return;
   const selectedData = selectUserCoreRef.value?.getTabList();
   emit('confirm', selectedData);
   emit('update', selectedData);
   firstOpen.value = false
-}
-
-const close = () => {
   dialogVisible.value = false;
 }
 
@@ -149,7 +143,6 @@ watch(
 
 defineExpose({
   show,
-  close,
 })
 
 </script>

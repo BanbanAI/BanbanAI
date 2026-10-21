@@ -398,6 +398,25 @@ export class SelectData extends FormElement {
     return [...result];
   }
 
+  getFillRuleSourceSubTableColumnUIDs() {
+    const result = new Set<FieldUID>();
+    const collectColumnUID = (sourceUID?: string) => {
+      const [, columnUID] = String(sourceUID || "").split(".");
+      if (columnUID) {
+        result.add(columnUID as FieldUID);
+      }
+    };
+
+    for (const rule of this.fillRules) {
+      collectColumnUID(rule.sourceUID);
+      for (const item of rule.linkageSubFields || []) {
+        collectColumnUID(item.subSourceUID);
+      }
+    }
+
+    return [...result];
+  }
+
   getFillRuleSourceMainFieldUIDs() {
     const subTableFieldUIDSet = new Set(this.subFormTableFields.map(item => item.fieldUID));
     const result = new Set<FieldUID>();
@@ -560,7 +579,7 @@ export class SelectData extends FormElement {
         const nestedRows = this.transformSubRowVaue(value, rule.linkageSubFields, targetWidget as SubForm);
         rowData[targetWidget.fieldId] = deepClone(nestedRows);
       } else if (isUploader(targetWidget)) {
-        rowData[targetWidget.fieldId] = [];
+        rowData[targetWidget.fieldId] = deepClone(Array.isArray(value) ? value : []);
       } else {
         rowData[targetWidget.fieldId] = deepClone(value ?? "");
       }
