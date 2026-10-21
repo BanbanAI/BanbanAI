@@ -648,7 +648,9 @@ export class SubForm extends AbstractSubForm implements RelatedData {
           return;
         }
         this._rows.value = deepClone(value);
-        stop();
+        nextTick(() => {
+          stop();
+        })
       }, { immediate: true, flush: 'sync' });
     });
 
