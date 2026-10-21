@@ -3527,8 +3527,12 @@ export class FormDataService implements OnApplicationBootstrap {
     const pickConditions = (ruleConditions: FormCondition[] = []) => {
       return ruleConditions.filter((condition) => {
         const noValueNeeded = ['\u2205', '!\u2205'].includes(condition.func);
+        const value = condition?.value;
+        const isEmptyValue = value === ""
+          || (typeof value === "string" && value.trim() === "")
+          || isEmpty(value);
         return condition?.uid?.split(".").length === (type === "main" ? 1 : 2)
-          && (noValueNeeded || !isEmpty(condition.value));
+          && (noValueNeeded || !isEmptyValue);
       });
     };
 
