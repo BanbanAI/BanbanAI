@@ -79,6 +79,7 @@
       <teleport to="body">
         <RuntimeSelectDataHost
           v-if="runtimeSelectDataWidget && runtimeSelectDataContext"
+          :key="runtimeSelectDataWidget.uid"
           v-model="runtimeSelectDataVisible"
           :widget="runtimeSelectDataWidget"
           :runtime="runtimeSelectDataContext"
