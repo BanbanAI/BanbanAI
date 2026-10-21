@@ -917,9 +917,15 @@ export abstract class AbstractForm extends BaseWidget {
     }
 
     const subFormRows = this.getSubFormRows(subForm);
-    if (!subFormRows.length && this.hasRequiredSubFormSchemaField(subForm)) {
-      subForm.validationError = new Error(i18next.t('form.fieldRequiredTips'));
-      return subForm;
+    if (!subFormRows.length) {
+      if (!isEmpty(subForm.inputValue)) {
+        await subForm.validate();
+        return subForm.validationError ? subForm : null;
+      }
+      if (this.hasRequiredSubFormSchemaField(subForm)) {
+        subForm.validationError = new Error(i18next.t('form.fieldRequiredTips'));
+        return subForm;
+      }
     }
 
     for (const subFormRow of subFormRows) {
