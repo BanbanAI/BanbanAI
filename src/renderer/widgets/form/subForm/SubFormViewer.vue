@@ -191,7 +191,7 @@ const runtimeGridColumns = computed(() => {
     .filter((column): column is NonNullable<typeof column> => Boolean(column));
 });
 
-const runtimeColumnTitle = (column: any) => String(column?.schema?.title || column?.fieldId || '');
+const runtimeColumnTitle = (column: any) => String(column?.schema?.title ?? '');
 const isRuntimeColumnRequired = (column: any) => {
   const widget = showColumns.value.find(item => item.fieldId === column?.fieldId || item.uid === column?.id);
   return widget ? isColumnRequired(widget) : false;
