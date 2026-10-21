@@ -861,6 +861,12 @@ const lineHeight = computed(() => {
     min-width: 0;
     width: 100%;
 
+    .required {
+      color: #eb5050;
+      font-size: 14px;
+      margin-right: 4px;
+    }
+
     .column-title {
       flex: 1;
       min-width: 0;
