@@ -560,7 +560,7 @@ export class SelectData extends FormElement {
         const nestedRows = this.transformSubRowVaue(value, rule.linkageSubFields, targetWidget as SubForm);
         rowData[targetWidget.fieldId] = deepClone(nestedRows);
       } else if (isUploader(targetWidget)) {
-        rowData[targetWidget.fieldId] = [];
+        rowData[targetWidget.fieldId] = deepClone(Array.isArray(value) ? value : []);
       } else {
         rowData[targetWidget.fieldId] = deepClone(value ?? "");
       }
