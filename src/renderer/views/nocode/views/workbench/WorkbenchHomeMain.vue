@@ -941,8 +941,11 @@ const syncProgressiveRenderCapacity = () => {
   scheduleProgressiveRenderCoverageCheck();
 };
 
-watch([searchValue, groupStructure, isLoading], () => {
+watch(searchValue, () => {
   if (!isLoading.value) resetProgressiveRender();
+}, { flush: 'post' });
+watch([groupStructure, isLoading], () => {
+  if (!isLoading.value) syncProgressiveRenderCapacity();
 }, { flush: 'post' });
 onMounted(async () => {
   await nextTick();
