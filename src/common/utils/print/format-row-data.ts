@@ -5,7 +5,7 @@ import { isEmpty } from "@common/utils/object";
 import { cloneDeep } from "lodash";
 import dayjs from "dayjs";
 import i18next from "i18next";
-import { getDisplayAmount } from "../amount";
+import { formatNumberWithSeparator, getDisplayAmount } from "../amount";
 import { findWidgetSoulByUID } from "../element";
 import { formatNumberFieldDisplayValue } from "../fieldValue";
 import { richTextToPlainText } from "../other";
@@ -84,8 +84,14 @@ const fieldFormatMap: Partial<Record<FormWidgetType, FieldFormatHandler>> = {
       if (isNaN(value)) {
         value = 0
       }
-      const { isPercent, decimalPlaces, completeZero } = field?.meta?.extra;
-      let resultText = formatFloat(value, decimalPlaces, completeZero);
+      const { isPercent, decimalPlaces, completeZero, thousandSeparator } = field?.meta?.extra;
+      let resultText = !isPercent && thousandSeparator
+        ? formatNumberWithSeparator(value, {
+          decimalPlaces,
+          decimalPadding: completeZero,
+          thousandSeparator,
+        })
+        : formatFloat(value, decimalPlaces, completeZero);
       if (isPercent) {
         resultText = formatFloat(value * 100, decimalPlaces, completeZero)
         resultText += "%";

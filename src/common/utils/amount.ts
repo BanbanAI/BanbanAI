@@ -176,7 +176,8 @@ export const formatNumberWithSeparator = (
     decimalPlaces = 0,
     thousandSeparator = ',',
     decimalSeparator = '.',
-    decimalPadding = false
+    decimalPadding = false,
+    groupWithSameSeparator = false
   }: NumberFormatOptions = {}
 ): string => {
   if (num === null || num === undefined || num === '') return '';
@@ -195,7 +196,7 @@ export const formatNumberWithSeparator = (
     str = str.replace(/\.?0+$/, '');
   }
 
-  if (!normalizedThousandSeparator || decimalSeparator === normalizedThousandSeparator) {
+  if (!normalizedThousandSeparator || (!groupWithSameSeparator && decimalSeparator === normalizedThousandSeparator)) {
     return str.replace('.', decimalSeparator);
   }
 
@@ -243,7 +244,8 @@ export const getDisplayAmount = (
         decimalPlaces,
         decimalPadding,
         thousandSeparator,
-        decimalSeparator
+        decimalSeparator,
+        groupWithSameSeparator: true
       }
     );
   }
