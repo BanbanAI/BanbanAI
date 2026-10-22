@@ -1129,8 +1129,9 @@ export class ProjectService implements OnApplicationBootstrap {
     const result = renameNode(nocodeBody.structure)
     if(result) {
       await saveNocodeBody(this.nocodesDir, nocodeId, nocodeBody)
+      return true
     }
-    return;
+    return false
   }
 
   public async copyNocode(nocodeId: string, parentId: string, copyData = false) {
