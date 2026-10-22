@@ -1,6 +1,6 @@
 {
   "name": "banban-client",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "buildVersion": "177",
   "executableName": "ds-banban",
   "sign": "d1be13292509ee149073a8a262bafac1",
