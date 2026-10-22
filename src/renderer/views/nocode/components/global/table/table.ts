@@ -1338,12 +1338,18 @@ export class Table implements RelatedData {
       .filter(field => !hidden.has(field.uid) || required.has(field.uid) || isSystemField(field))
       .map(field => field.uid);
     const subForms: Record<FieldUID, FieldUID[]> = {};
-    for (const parentFieldUID of this.getRequestedSubTableFieldUIDs()) {
+    const requestedSubTableFieldUIDs = new Set(this.getRequestedSubTableFieldUIDs());
+    for (const parentFieldUID of this._subTableUIDs.keys()) {
+      if (required.has(parentFieldUID)) {
+        requestedSubTableFieldUIDs.add(parentFieldUID);
+      }
+    }
+    for (const parentFieldUID of requestedSubTableFieldUIDs) {
       const subTableUID = this._subTableUIDs.get(parentFieldUID)?.[1];
       const subTable = subTableUID ? this.getTable(subTableUID) : undefined;
       if (!subTable) continue;
       const subFields = subTable.fields
-        .filter(field => !hidden.has(field.uid) || isSystemField(field))
+        .filter(field => !hidden.has(field.uid) || required.has(field.uid) || isSystemField(field))
         .map(field => field.uid);
       if (subFields.length) subForms[parentFieldUID] = subFields;
     }
@@ -2231,12 +2237,14 @@ export class Table implements RelatedData {
       const fields = this._relatedTableFields.get(fieldUID) ?? [];
       const uuidField = getUUIDSystemField(fields);
       if (!uuidField?.uid) continue;
+      const relatedIds = Array.from(new Set(ids)).filter(Boolean);
+      if (!relatedIds.length) continue;
       const targetTableContext = this.getOptionTableContext(relatedTableUID);
       requests.push(
         this.getData(relatedTableUID[1], {
           filters: {
             [relatedTableUID[1]]: [
-              { [uuidField.uid]: { $in: Array.from(new Set(ids)) } }
+              { [uuidField.uid]: { $in: relatedIds } }
             ]
           },
         }, targetTableContext?.connection?.nocodeId || this.nocodeId).then(({rows, count}) => [fieldUID, { rows, total: count }] as [FieldUID, _TableData]).catch(() => null)

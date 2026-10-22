@@ -4167,7 +4167,8 @@
     "recordNotFound": "當前記錄不存在或已被刪除",
     "detailNoPermission": "當前無權限查看該數據",
     "linkDetailNoPermission": "當前無權限查看該鏈接數據",
-    "updateSuccess": "更新成功"
+    "updateSuccess": "更新成功",
+    "updateFailed": "更新數據失敗"
   },
   "AutoCountingDialog": {
     "countSetting": "計數設置",

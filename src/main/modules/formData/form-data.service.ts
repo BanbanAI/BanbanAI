@@ -3527,8 +3527,12 @@ export class FormDataService implements OnApplicationBootstrap {
     const pickConditions = (ruleConditions: FormCondition[] = []) => {
       return ruleConditions.filter((condition) => {
         const noValueNeeded = ['\u2205', '!\u2205'].includes(condition.func);
+        const value = condition?.value;
+        const isEmptyValue = value === ""
+          || (typeof value === "string" && value.trim() === "")
+          || isEmpty(value);
         return condition?.uid?.split(".").length === (type === "main" ? 1 : 2)
-          && (noValueNeeded || !isEmpty(condition.value));
+          && (noValueNeeded || !isEmptyValue);
       });
     };
 
@@ -12228,20 +12232,16 @@ export class FormDataService implements OnApplicationBootstrap {
         ...evaluateConditionGroup(validRule),
       }));
 
-      // 条件组之间是“或”：任意一组满足时，整体验证通过。
-      const hasSatisfiedGroup = evaluatedConditionGroups.some(({ isGroupMeet }) => isGroupMeet);
-      if (!hasSatisfiedGroup) {
-        const blockFailedGroup = evaluatedConditionGroups.find(({ validRule }) => (
-          this.normalizeConditionalGroupSubmitMode(validRule, formValidRule) === FormSubmitValidMode.BLOCK
-        ));
-        if (blockFailedGroup) {
-          return this.createFormSubmitValidateResult(formValidRule, {
-            valid: false,
-            error: blockFailedGroup.message,
-            messages: [blockFailedGroup.message],
-            submitMode: FormSubmitValidMode.BLOCK,
-          });
-        }
+      const blockFailedGroup = evaluatedConditionGroups.find(({ validRule, isGroupMeet }) => (
+        !isGroupMeet && this.normalizeConditionalGroupSubmitMode(validRule, formValidRule) === FormSubmitValidMode.BLOCK
+      ));
+      if (blockFailedGroup) {
+        return this.createFormSubmitValidateResult(formValidRule, {
+          valid: false,
+          error: blockFailedGroup.message,
+          messages: [blockFailedGroup.message],
+          submitMode: FormSubmitValidMode.BLOCK,
+        });
       }
 
       const allowFailedMessages: string[] = [];

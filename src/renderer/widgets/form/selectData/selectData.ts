@@ -398,6 +398,25 @@ export class SelectData extends FormElement {
     return [...result];
   }
 
+  getFillRuleSourceSubTableColumnUIDs() {
+    const result = new Set<FieldUID>();
+    const collectColumnUID = (sourceUID?: string) => {
+      const [, columnUID] = String(sourceUID || "").split(".");
+      if (columnUID) {
+        result.add(columnUID as FieldUID);
+      }
+    };
+
+    for (const rule of this.fillRules) {
+      collectColumnUID(rule.sourceUID);
+      for (const item of rule.linkageSubFields || []) {
+        collectColumnUID(item.subSourceUID);
+      }
+    }
+
+    return [...result];
+  }
+
   getFillRuleSourceMainFieldUIDs() {
     const subTableFieldUIDSet = new Set(this.subFormTableFields.map(item => item.fieldUID));
     const result = new Set<FieldUID>();
@@ -478,7 +497,21 @@ export class SelectData extends FormElement {
     this.setOption("form-data-filter", value)
   }
 
-  private resolveConditionRuntimeValue(condition: FormCondition) {
+  private resolveRuntimeSubFormConditionValue(comparisonUid: string, rowId?: string) {
+    const form = this.form;
+    if (!rowId || !(form instanceof SubForm) || !form.hasRuntime) return undefined;
+
+    const [subFormUID, subFieldUID] = comparisonUid.split(".");
+    if (!subFieldUID || subFormUID !== form.uid) return undefined;
+
+    const field = (form.children as FormElement[]).find(child => child.uid === subFieldUID);
+    if (!field?.fieldId) return undefined;
+
+    const value = form.runtimeStore?.getValue({ rowId, fieldId: field.fieldId });
+    return { value: value === undefined ? null : value };
+  }
+
+  private resolveConditionRuntimeValue(condition: FormCondition, rowId?: string) {
     if (condition.fieldType !== CurrentFieldWrapperOperator.FIELD || !condition.comparisonUid) {
       return condition.value;
     }
@@ -496,19 +529,28 @@ export class SelectData extends FormElement {
       return relatedValues.length > 0 ? [...new Set(relatedValues)] : condition.value;
     }
 
+    const runtimeSubFormCondition = this.resolveRuntimeSubFormConditionValue(condition.comparisonUid, rowId);
+    if (runtimeSubFormCondition) {
+      return runtimeSubFormCondition.value;
+    }
+
     const comparisonForm = this.form ? this.getComparisonFormElement(condition.comparisonUid) : undefined;
     return comparisonForm ? comparisonForm.inputValue : condition.value;
   }
 
-  get runtimeFormDataFilter(): FilterRule {
+  getRuntimeFormDataFilter(rowId?: string): FilterRule {
     const filterRule = this.formDataFilter;
     return {
       ...filterRule,
       conditions: filterRule.conditions.map(condition => ({
         ...condition,
-        value: this.resolveConditionRuntimeValue(condition),
+        value: this.resolveConditionRuntimeValue(condition, rowId),
       })),
     };
+  }
+
+  get runtimeFormDataFilter(): FilterRule {
+    return this.getRuntimeFormDataFilter();
   }
 
   async addField(fieldId: string, index: number) {
@@ -560,7 +602,7 @@ export class SelectData extends FormElement {
         const nestedRows = this.transformSubRowVaue(value, rule.linkageSubFields, targetWidget as SubForm);
         rowData[targetWidget.fieldId] = deepClone(nestedRows);
       } else if (isUploader(targetWidget)) {
-        rowData[targetWidget.fieldId] = [];
+        rowData[targetWidget.fieldId] = deepClone(Array.isArray(value) ? value : []);
       } else {
         rowData[targetWidget.fieldId] = deepClone(value ?? "");
       }

@@ -648,7 +648,9 @@ export class SubForm extends AbstractSubForm implements RelatedData {
           return;
         }
         this._rows.value = deepClone(value);
-        stop();
+        nextTick(() => {
+          stop();
+        })
       }, { immediate: true, flush: 'sync' });
     });
 
@@ -3761,7 +3763,9 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   // 单个条件的计算函数
   private isConditionMet(cond: FormCondition, type: VisibleType): boolean {
     if (cond.uid.split(".").length > 1) {
-      const fieldId = this.getChildElement(cond.uid.split(".")[1]).fieldId;
+      const widget = this.getChildElement(cond.uid.split(".")[1]);
+      if (!widget) return false;
+      const fieldId = widget.fieldId;
       const fieldValues = this.rows?.map(row => row[fieldId]) || [];
       // 如果是显示类型，则只要有一个满足条件，则显示，否则隐藏
       return type === VisibleType.SHOW ? fieldValues.some(value => meetRuleFuncs[cond.func]?.(value, cond.value)) : fieldValues.every(value => meetRuleFuncs[cond.func]?.(value, cond.value));

@@ -1,6 +1,6 @@
 
 import { FormElementConfiguration, RuleFunc, RuleFuncValue, AggregationType } from "@common/types/nocode";
-import { FormulaConfig } from "@common/utils/formula";
+import { FormulaConfig, getFormulaStr } from "@common/utils/formula";
 import { DefinedOptions } from "@renderer/b2/types";
 import { Board } from "@renderer/b2/controllers/board";
 import { FormElement } from "@renderer/b2/controllers/form";
@@ -233,11 +233,11 @@ export class TimePicker extends FormElement {
       return this._timeValue.value;
     } else if (this.initialValue) {
       const value = this.formatTimeValue(this.initialValue);
-      this.inputValue = value;
+      this.setInputValueNotChanged(value);
       return value;
     } else {
       const value = this.formatTimeValue(this.defaultValue);
-      this.inputValue = value;
+      this.setInputValueNotChanged(value);
       return value;
     }
   }
@@ -273,6 +273,10 @@ export class TimePicker extends FormElement {
 
   get defaultFormulaValue() {
     return this.getOption<string | FormulaConfig>("default-formula");
+  }
+
+  get defaultFormulaValueStr() {
+    return getFormulaStr(this.defaultFormulaValue);
   }
 
   public updateValueByFormula(value) {

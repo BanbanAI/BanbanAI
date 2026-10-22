@@ -35,7 +35,7 @@
 </template>
 
 <script lang='ts' setup>
-import { computed, nextTick, ref, toRaw, watch } from 'vue';
+import { computed, ref, toRaw, watch } from 'vue';
 import { useWidget } from '@renderer/b2/types';
 import { FormElement } from '@renderer/b2/controllers/form';
 import { deepClone, equals, isEmpty } from '@common/utils/object';
@@ -78,27 +78,17 @@ const selectDataStore = useSelectDataStore();
 const shouldRefreshAfterSubmit = ref(false);
 const lastSubmittedMode = ref<FormMode | null>(null);
 const isLoading = ref(false);
-let refreshGeneration = 0;
 
 const selectedRows = ref<Record<string, any[]>>({});
 const preHiddenColumns = computed(() => getSelectDataPreHiddenColumns(widget));
-const runtimeFormDataFilter = computed(() => widget.runtimeFormDataFilter);
-const preRequiredColumns = computed(() => widget.getFillRuleSourceMainFieldUIDs());
+const runtimeFormDataFilter = computed(() => widget.getRuntimeFormDataFilter(runtimeContext.value?.address.rowId));
+const preRequiredColumns = computed(() => [
+  ...widget.getFillRuleSourceMainFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableFieldUIDs(),
+  ...widget.getFillRuleSourceSubTableColumnUIDs(),
+]);
 let filterWatchersInitialized = false;
 const filterReady = ref(false);
-
-const refreshMountedTable = async (generation: number) => {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    await nextTick();
-    if (generation !== refreshGeneration || !props.modelValue) return;
-    const table = nocodeTableRef.value;
-    if (table?.getAllColumns?.()?.length) {
-      await table.refreshData?.(true);
-      return;
-    }
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-  }
-};
 
 if (!selectDataStore[widget.uid]) {
   isShowAdd.value = true;
@@ -211,7 +201,6 @@ const addNewRowData = computed(() => {
 
 const isSharePage = ref(false);
 const onOpen = async () => {
-  const generation = ++refreshGeneration;
   selectedRows.value = deepClone(runtimeContext.value?.initialSelectedRows || (isRuntime.value ? {} : widget.selectedRows));
   syncTableCheckedRows();
   shouldRefreshAfterSubmit.value = false;
@@ -220,7 +209,6 @@ const onOpen = async () => {
     handleFilterRulesFieldsValue();
   }
   filterReady.value = true;
-  void refreshMountedTable(generation);
   isSharePage.value = window.location.href.includes('share');
   if (widget.shouldShowSubTableAddDisabledTip) {
     ElMessage.warning(i18next.t("subTableAddDisabledTip"));
@@ -267,7 +255,6 @@ watch(() => props.modelValue, (value) => {
   if (value) {
     void onOpen();
   } else {
-    refreshGeneration += 1;
     filterReady.value = false;
   }
 }, { immediate: true });
