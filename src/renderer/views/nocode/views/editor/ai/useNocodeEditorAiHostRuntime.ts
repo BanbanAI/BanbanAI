@@ -237,6 +237,9 @@ import { validateFlowSchemeReferences } from '@common/utils/nocodeEditorFlowSche
 import {
   buildNocodeEditorFlowSchemePlanningContextKey,
 } from '@common/utils/nocodeEditorFlowConfirmationTrust'
+import {
+  healFlowSchemeDecisionKeys,
+} from '@common/utils/nocodeEditorFlowDecisionKeyHealing'
 import { unique } from '@common/utils/unique'
 import {
   validateRawFlowDecisionContract,
@@ -6243,8 +6246,31 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         fallbackPlanningContextKey: previousContextKey,
       }).decisions
       : []
+    // 答案账本：卡片答案不回写 stagedFlowScheme，只认「本轮请求携带的已答决策 + 上一版方案里已作答的题」，
+    // 否则换名后没有可继承的答案。两项上游已各自过滤：trustedFlowConfirmationDecisions 按 trustedContextMatches，
+    // previousSchemeDecisions 按 canReusePreviousDecisions。
+    const answeredDecisionLedger = [
+      ...trustedFlowConfirmationDecisions,
+      ...previousSchemeDecisions,
+    ]
+    const keyHealing = canReusePreviousDecisions
+      ? healFlowSchemeDecisionKeys({
+        scheme: input?.scheme || input,
+        previousQuestions: previousScheme?.confirmation?.questions || [],
+        answeredDecisions: answeredDecisionLedger,
+      })
+      : { scheme: input?.scheme || input, healed: [] }
+    keyHealing.healed.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_decision_key_healed',
+        message: `决策键已按上一版同锚点题归一：${item.from} -> ${item.to}`,
+        decisionKey: item.to,
+        previousDecisionKey: item.from,
+        reason: item.reason,
+      })
+    })
     const rawContractDiagnostics = validateRawFlowDecisionContract(
-      input?.scheme || input,
+      keyHealing.scheme,
       trustedContextMatches
         ? Object.fromEntries(trustedFlowConfirmationDecisions.map(decision => [
           decision.decisionKey,
@@ -6293,7 +6319,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     }
     // 信任链先于决策图：模型自答剥离、可信答案回填之后再算 openQuestions/status，
     // 避免出现「pending 但没有 openQuestion」的错位（重问只能由白名单投影重建题目）。
-    const scheme = normalizeNocodeEditorFlowScheme(input?.scheme || input, {
+    const scheme = normalizeNocodeEditorFlowScheme(keyHealing.scheme, {
       trustedAnswers: {
         planningContextKey: planningContextKey || undefined,
         decisions: trustedFlowConfirmationDecisions,
