@@ -111,15 +111,15 @@ export const buildFlowSchemeConfirmationContextForClientToolCall = (input: {
   const summaryPlanningContextKey = normalizeText(summary?.flowConfirmationContextKey)
   const summaryTargetFormId = normalizeText(summary?.flowConfirmationTargetFormId)
   const summaryRevision = summary?.flowConfirmationSchemeRevision
-  const incomingFlowConfirmationDecisions = Array.isArray(input.incomingFlowConfirmationDecisions)
-    ? input.incomingFlowConfirmationDecisions.filter((item) => (
-      isRecord(item)
-      && isSamePlanningConfirmationContext(
-        normalizeText(item.planningContextKey),
-        continuationPlanningContextKey,
-      )
-    ))
+  const rawIncomingFlowConfirmationDecisions = Array.isArray(input.incomingFlowConfirmationDecisions)
+    ? input.incomingFlowConfirmationDecisions.filter((item) => isRecord(item))
     : []
+  const incomingFlowConfirmationDecisions = rawIncomingFlowConfirmationDecisions.filter((item) => (
+    isSamePlanningConfirmationContext(
+      normalizeText(item.planningContextKey),
+      continuationPlanningContextKey,
+    )
+  ))
   const hasIncomingDecisions = incomingFlowConfirmationDecisions.length > 0
   const planningContextKey = hasIncomingDecisions
     ? continuationPlanningContextKey
@@ -129,6 +129,22 @@ export const buildFlowSchemeConfirmationContextForClientToolCall = (input: {
   )
   const confirmationStage = normalizeText(input.confirmationStage)
 
+  // 没有任何待保护答案时（首版暂存、纯重建方案）缺上下文不构成拒绝：
+  // strip 此时是空操作，拒绝只会把"上下文未建立"的噪音诊断带回模型并诱发多余重问。
+  const resolveMissingContextRejection = (missingFields: string[]) => {
+    if (!rawIncomingFlowConfirmationDecisions.length && !summaryFlowConfirmationDecisions.length) {
+      return { context: null, rejection: null } as NocodeEditorFlowSchemeConfirmationTrustResult
+    }
+    return {
+      context: null,
+      rejection: {
+        code: 'flow_confirmation_context_missing' as const,
+        confirmationStage,
+        missingFields,
+      },
+    }
+  }
+
   const missingFields: string[] = []
   if (!planningContextKey || !continuationPlanningContextKey) {
     missingFields.push('flowConfirmationContextKey')
@@ -137,14 +153,7 @@ export const buildFlowSchemeConfirmationContextForClientToolCall = (input: {
     missingFields.push('flowConfirmationTargetFormId')
   }
   if (missingFields.length) {
-    return {
-      context: null,
-      rejection: {
-        code: 'flow_confirmation_context_missing',
-        confirmationStage,
-        missingFields,
-      },
-    }
+    return resolveMissingContextRejection(missingFields)
   }
 
   // 回复归属由确认上下文决定：渲染层的“当前打开的表单”只表示用户此刻在浏览哪张表，
@@ -204,14 +213,7 @@ export const buildFlowSchemeConfirmationContextForClientToolCall = (input: {
     ? incomingFlowConfirmationDecisions
     : currentSummaryFlowConfirmationDecisions
   if (!flowConfirmationDecisions.length) {
-    return {
-      context: null,
-      rejection: {
-        code: 'flow_confirmation_context_missing',
-        confirmationStage,
-        missingFields: ['flowConfirmationDecisions'],
-      },
-    }
+    return resolveMissingContextRejection(['flowConfirmationDecisions'])
   }
 
   return {
@@ -354,15 +356,17 @@ export const stripUntrustedNocodeEditorFlowAnswers = (
   }
 }
 
+export type NocodeEditorFlowConfirmationTrustedDecision = {
+  decisionKey?: unknown
+  questionId?: unknown
+  selectedOptionValue?: unknown
+  answerSummary?: unknown
+  answerDetail?: unknown
+}
+
 export const applyTrustedNocodeEditorFlowAnswers = (input: {
   confirmation?: NocodeEditorAiConfirmPayload | null
-  decisions?: Array<{
-    decisionKey?: unknown
-    questionId?: unknown
-    selectedOptionValue?: unknown
-    answerSummary?: unknown
-    answerDetail?: unknown
-  }>
+  decisions?: NocodeEditorFlowConfirmationTrustedDecision[]
 }) => {
   const confirmation = input.confirmation
   if (!confirmation) return null
@@ -417,5 +421,115 @@ export const applyTrustedNocodeEditorFlowAnswers = (input: {
     ...confirmation,
     status: 'completed' as const,
     questions,
+  }
+}
+
+const normalizeEvidenceText = (value: unknown) => normalizeText(value)
+  .normalize('NFKC')
+  .replace(/[\s\p{P}\p{S}]+/gu, '')
+  .toLocaleLowerCase()
+
+export const findVerifiedUserQuote = (input: {
+  quote?: unknown
+  userTexts?: string[] | null
+}): string => {
+  const rawQuote = normalizeText(input.quote)
+  const normalizedQuote = normalizeEvidenceText(rawQuote)
+  if (!normalizedQuote) return ''
+  const texts = (input.userTexts || [])
+    .map(normalizeEvidenceText)
+    .filter(Boolean)
+  // 整条消息即引文：4 字门槛只挡「好/好的/可以/没问题」这类通用应答，不挡业务短语
+  const wholeMessageMatch = normalizedQuote.length >= 4
+    && texts.some(text => text === normalizedQuote)
+  // 片段包含：只有够长的引文才接受「包含」，防短语被断章取义
+  const containedMatch = normalizedQuote.length >= 8
+    && texts.some(text => text.includes(normalizedQuote))
+  return wholeMessageMatch || containedMatch ? rawQuote.slice(0, 200) : ''
+}
+
+// 只结算归一化后为 note_only 的题：带选项题的答案取值是语义判断，v1 不做。
+// status 在这里无条件按最终答案集重算：applyTrustedNocodeEditorFlowAnswers 会无条件写
+// completed，部分答案回填时那个 completed 是错的，不能在无引文时原样沿用。
+export const settleNocodeEditorFlowQuestionsByUserQuote = (input: {
+  confirmation?: NocodeEditorAiConfirmPayload | null
+  userTexts?: string[] | null
+}): {
+  confirmation: NocodeEditorAiConfirmPayload | null
+  settledKeys: string[]
+  unverifiedKeys: string[]
+} => {
+  const confirmation = input.confirmation
+  if (!confirmation) {
+    return { confirmation: null, settledKeys: [], unverifiedKeys: [] }
+  }
+  const settledKeys: string[] = []
+  const unverifiedKeys: string[] = []
+  const questions = (confirmation.questions || []).map((question) => {
+    const key = normalizeText(question.decisionKey) || normalizeText(question.id)
+    const quote = normalizeText(question.userQuote)
+    // userQuote 是证据，不是方案内容：结算后一律清掉，避免落库与下一轮复命中
+    if (!quote || !key || question.questionKind !== 'note_only' || question.confirmed === true) {
+      return { ...question, userQuote: undefined }
+    }
+    const verified = findVerifiedUserQuote({ quote, userTexts: input.userTexts })
+    if (!verified) {
+      unverifiedKeys.push(key)
+      return { ...question, userQuote: undefined }
+    }
+    settledKeys.push(key)
+    return {
+      ...question,
+      confirmed: true,
+      answerSummary: verified,
+      answerDetail: undefined,
+      userQuote: undefined,
+    }
+  })
+  const pending = questions.some(question => (
+    question.required !== false && question.confirmed !== true
+  ))
+  return {
+    confirmation: { ...confirmation, status: pending ? 'pending' : 'completed', questions },
+    settledKeys,
+    unverifiedKeys,
+  }
+}
+
+// 模型自答不能当用户确认：先剥离，再回填本轮可信答案，最后按用户本轮原话结算。
+// 必须在决策图/待答题投影之前调用——若延后到收尾才剥离，方案会按“已答”算出空 openQuestions
+// 和 completed，随后被打回 pending，形成「有待答题却没有 openQuestion」的错位。
+export const applyNocodeEditorFlowConfirmationTrust = (input: {
+  confirmation?: NocodeEditorAiConfirmPayload | null
+  planningContextKey?: unknown
+  decisions?: NocodeEditorFlowConfirmationTrustedDecision[]
+  userTexts?: string[] | null
+}): {
+  confirmation: NocodeEditorAiConfirmPayload | null
+  settledByUserQuoteKeys: string[]
+  unverifiedUserQuoteKeys: string[]
+} => {
+  const strippedConfirmation = stripUntrustedNocodeEditorFlowAnswers(
+    input.confirmation
+      ? {
+        ...input.confirmation,
+        planningContextKey: normalizeText(input.planningContextKey) || undefined,
+      }
+      : input.confirmation,
+  )
+  const withDecisions = strippedConfirmation && input.decisions?.length
+    ? applyTrustedNocodeEditorFlowAnswers({
+      confirmation: strippedConfirmation,
+      decisions: input.decisions,
+    })
+    : strippedConfirmation
+  const settled = settleNocodeEditorFlowQuestionsByUserQuote({
+    confirmation: withDecisions,
+    userTexts: input.userTexts,
+  })
+  return {
+    confirmation: settled.confirmation,
+    settledByUserQuoteKeys: settled.settledKeys,
+    unverifiedUserQuoteKeys: settled.unverifiedKeys,
   }
 }
