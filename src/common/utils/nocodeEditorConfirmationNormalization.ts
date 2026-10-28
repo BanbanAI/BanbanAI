@@ -575,7 +575,9 @@ export const normalizeNocodeEditorConfirmationQuestion = (
     ? {
       kind: 'field-source' as const,
       formKey: normalizeText(rawDecisionTarget.formKey) || undefined,
+      formName: normalizeText(rawDecisionTarget.formName) || undefined,
       fieldKey: normalizeText(rawDecisionTarget.fieldKey),
+      fieldName: normalizeText(rawDecisionTarget.fieldName) || undefined,
     }
     : undefined
   const rawDecisionScope = isRecord(value.decisionScope) ? value.decisionScope : null
@@ -651,6 +653,8 @@ export const normalizeNocodeEditorConfirmationQuestion = (
       : selectedOptionValue || undefined,
     answerSummary: answerSummary || undefined,
     answerDetail: answerDetail || undefined,
+    userQuote: normalizeText(value.userQuote) || undefined,
+    supersededByWidgetType: normalizeText(value.supersededByWidgetType) || undefined,
   }
 
   if (question.questionKind === 'note_only') {
@@ -878,7 +882,7 @@ const normalizeStructuredConfirmation = (
     factSnapshot: options.stage === 'flow-scheme' && isRecord(options.confirmation.factSnapshot)
       ? Object.fromEntries(Object.entries(options.confirmation.factSnapshot).flatMap(([key, value]) => {
         if (!key.trim() || !isRecord(value) || typeof value.value !== 'string'
-          || !['user', 'history', 'model', 'runtime'].includes(String(value.source))) return []
+          || !['user', 'history', 'runtime'].includes(String(value.source))) return []
         const scope = isRecord(value.scope) && ['flow', 'path', 'branch', 'step', 'object'].includes(String(value.scope.kind))
           && normalizeText(value.scope.id)
           ? { kind: value.scope.kind as NonNullable<NocodeEditorAiConfirmQuestion['decisionScope']>['kind'],

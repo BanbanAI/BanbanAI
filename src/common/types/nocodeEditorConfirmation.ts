@@ -80,7 +80,9 @@ export type NocodeEditorAiConfirmQuestion = {
   decisionTarget?: {
     kind: 'field-source'
     formKey?: string
+    formName?: string
     fieldKey: string
+    fieldName?: string
   }
   title: string
   domain?: NocodeEditorPlanningQuestionDomain
@@ -113,6 +115,9 @@ export type NocodeEditorAiConfirmQuestion = {
   selectedOptionValue?: string
   answerSummary?: string
   answerDetail?: string
+  /** 用户本轮原话中已给出该题答案的逐字片段；宿主核对通过后直接记为已确认 */
+  userQuote?: string
+  supersededByWidgetType?: string
 }
 
 export type NocodeEditorAiConfirmPayload = {
