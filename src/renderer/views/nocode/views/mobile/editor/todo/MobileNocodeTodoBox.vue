@@ -155,6 +155,8 @@
       :nocodeID="reInitiateNocodeId"
       :tableName="reInitiateTableName"
       :row="reInitiateRow"
+      :mode="reInitiateMode"
+      :uuid="reInitiateUuid"
       :message="$t('MobileNocodeTodoBox.reInitiateSuccess')"
       @close="handleReInitiateClose"
       @submitted="handleRefresh"
@@ -185,6 +187,7 @@ import dayjs from 'dayjs';
 import { isSystemField, getFlowById, isTriggerNode, getCreateOwnerSystemField, SystemField } from '@common/utils';
 import { ProcessNodeStatus, ProcessNodeType } from '@common/types/project';
 import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo, isViewContextOnceNoFormDataTodo } from '@renderer/views/nocode/utils';
+import type { ReInitiateMode } from '@renderer/views/nocode/utils/process-reinitiate';
 import ProcessInitiateDialog from '@renderer/views/nocode/views/editor/form/dialogs/ProcessInitiateDialog.vue';
 import { elementPlusLocale } from '@renderer/utils/elementPlusLocale';
 import { ElMessage } from 'element-plus';
@@ -242,17 +245,21 @@ const reInitiateRow = ref<Row | null>(null)
 const reInitiateTableUID = ref<OptionTableUID | null>(null)
 const reInitiateNocodeId = ref('')
 const reInitiateTableName = ref('')
+const reInitiateMode = ref<ReInitiateMode>('add')
+const reInitiateUuid = ref('')
 
 const formatDate = (timestamp: any) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
 }
 
-const handleReInitiate = async ({ row, tableUID }: { row: Row, tableUID: OptionTableUID }) => {
+const handleReInitiate = async ({ row, tableUID, mode }: { row: Row, tableUID: OptionTableUID, mode: ReInitiateMode }) => {
   const todo = dialogState.getArgs('todoDialogVisible');
   reInitiateRow.value = row;
   reInitiateTableUID.value = tableUID;
   reInitiateNocodeId.value = todo?.nocodeId || '';
   reInitiateTableName.value = todo?.formName || '';
+  reInitiateMode.value = mode;
+  reInitiateUuid.value = mode === 'edit' ? (todo?.uuid || '') : '';
   dialogState.todoDialogVisible = false;
   await nextTick();
   reInitiateDialogVisible.value = true;
@@ -264,6 +271,8 @@ const handleReInitiateClose = () => {
   reInitiateTableUID.value = null;
   reInitiateNocodeId.value = '';
   reInitiateTableName.value = '';
+  reInitiateMode.value = 'add';
+  reInitiateUuid.value = '';
 }
 
 const categoryData = reactive([

@@ -38,7 +38,7 @@
       </template>
       <div class="dialog-body">
         <el-scrollbar>
-          <nocode-form v-bind="nocodeFormProps" :isViewing="false" ref="nocodeFormRef" :row="row" v-if="props.modelValue"/>
+          <nocode-form v-bind="nocodeFormProps" :isViewing="false" :uuid="formUuid" ref="nocodeFormRef" :row="row" v-if="props.modelValue"/>
         </el-scrollbar>
       </div>
       <template #footer>
@@ -56,6 +56,8 @@ import type { OptionTableUID } from '@common/types/project';
 import { ElMessage } from 'element-plus';
 import { computed, ref } from 'vue';
 import i18next from 'i18next';
+import { provideFormMode } from '@renderer/views/nocode/components/global/table/hooks';
+import { FormMode } from '@renderer/views/nocode/components/global/table/types';
 
 const props = defineProps<{
   modelValue: boolean,
@@ -65,12 +67,19 @@ const props = defineProps<{
   row?: Record<string, any>,
   message?: string,
   enableSaveDraft?: boolean,
+  mode?: "add" | "edit",
+  uuid?: string,
 }>()
 
 const nocodeFormProps = computed(() => ({
   nocodeId: props.nocodeID,
   tableUID: props.tableUID,
 }))
+
+const formMode = computed(() => props.mode === "edit" ? FormMode.Edit : FormMode.Add);
+provideFormMode(formMode);
+
+const formUuid = computed(() => formMode.value === FormMode.Edit ? props.uuid : undefined);
 
 const emit = defineEmits<{
   (event: 'close'): void
