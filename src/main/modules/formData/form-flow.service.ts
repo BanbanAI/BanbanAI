@@ -324,6 +324,7 @@ type ScheduledTodoOptions = AddTodoOptions & {
 }
 const MAX_TRIGGER_DEPTH = 3;
 const MAX_SAME_TABLE_TRIGGER_COUNT = 0;
+const WORKER_NODE_STEP_COMMIT_ATTEMPTS = 3;
 const TIMEOUT_META_KEY = "__timeout__";
 const isUniqueFieldEmpty = (value: any) => isEmpty(value === "" ? null : value);
 @Injectable()
@@ -11249,45 +11250,67 @@ export class FormFlowService implements OnApplicationBootstrap {
   ) {
     const context = options.flowWorkerContext;
     if (!context || !options.todoId) return false;
-    const em = this.orm.em.fork();
-    const transactional = (em as unknown as {
-      transactional?: (callback: (tx: EntityManager) => Promise<boolean>) => Promise<boolean>;
-    }).transactional;
-    if (!transactional) return false;
-    const stepKey = this.getWorkerNodeStepKey(options.todoId, step.nodeId);
-    return await transactional.call(em, async tx => {
-      const now = Date.now();
-      const fenced = await tx.nativeUpdate(ViewActionTriggerTask, {
-        id: context.taskId,
-        status: "running",
-        leaseOwner: context.leaseOwner,
-        leaseVersion: context.leaseVersion,
-        leaseUntil: { $gt: now },
-      }, { updatedAt: now });
-      if (fenced !== 1) return false;
-      const updated = await tx.nativeUpdate(FlowTaskStepExecution, {
-        taskId: context.taskId,
-        stepKey,
-        status: "started",
-        leaseOwner: context.leaseOwner,
-        leaseVersion: context.leaseVersion,
-      }, {
-        status: "succeeded",
-        resultSnapshot: {
+    const todoId = options.todoId;
+    const stepKey = this.getWorkerNodeStepKey(todoId, step.nodeId);
+    for (let attempt = 1; ; attempt++) {
+      const em = this.orm.em.fork();
+      const transactional = (em as unknown as {
+        transactional?: (callback: (tx: EntityManager) => Promise<boolean>) => Promise<boolean>;
+      }).transactional;
+      if (!transactional) return false;
+      try {
+        return await transactional.call(em, async tx => {
+          const now = Date.now();
+          const fenced = await tx.nativeUpdate(ViewActionTriggerTask, {
+            id: context.taskId,
+            status: "running",
+            leaseOwner: context.leaseOwner,
+            leaseVersion: context.leaseVersion,
+            leaseUntil: { $gt: now },
+          }, { updatedAt: now });
+          if (fenced !== 1) return false;
+          const updated = await tx.nativeUpdate(FlowTaskStepExecution, {
+            taskId: context.taskId,
+            stepKey,
+            status: "started",
+            leaseOwner: context.leaseOwner,
+            leaseVersion: context.leaseVersion,
+          }, {
+            status: "succeeded",
+            resultSnapshot: {
+              nodeId: step.nodeId,
+              action: step.action,
+              stop: result.stop,
+              nextNodeIds: result.nextNodeIds,
+            },
+            errorCode: null,
+            errorMessage: null,
+            finishedAt: now,
+            updatedAt: now,
+          });
+          if (updated === 1) return true;
+          const existing = await tx.findOne(FlowTaskStepExecution, { taskId: context.taskId, stepKey });
+          return existing?.status === "succeeded";
+        });
+      } catch (error) {
+        if (attempt >= WORKER_NODE_STEP_COMMIT_ATTEMPTS || !this.isWriteConflictError(error)) throw error;
+        this.logger.warn(`[flow-node-step-commit-retry] ${JSON.stringify({
+          taskId: context.taskId,
+          todoId,
           nodeId: step.nodeId,
-          action: step.action,
-          stop: result.stop,
-          nextNodeIds: result.nextNodeIds,
-        },
-        errorCode: null,
-        errorMessage: null,
-        finishedAt: now,
-        updatedAt: now,
-      });
-      if (updated === 1) return true;
-      const existing = await tx.findOne(FlowTaskStepExecution, { taskId: context.taskId, stepKey });
-      return existing?.status === "succeeded";
-    });
+          attempt,
+        })}`);
+        await new Promise(resolve => setTimeout(resolve, 20 + Math.floor(Math.random() * 30)));
+      }
+    }
+  }
+
+  private isWriteConflictError(error: unknown, depth = 0): boolean {
+    if (!error || typeof error !== "object" || depth > 4) return false;
+    const candidate = error as { code?: unknown, codeName?: unknown, message?: unknown, cause?: unknown };
+    if (candidate.code === 112 || candidate.codeName === "WriteConflict") return true;
+    if (typeof candidate.message === "string" && /write\s*conflict/i.test(candidate.message)) return true;
+    return this.isWriteConflictError(candidate.cause, depth + 1);
   }
 
   private async markWorkerNodeStepUnknown(
