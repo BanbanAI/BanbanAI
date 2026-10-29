@@ -11045,6 +11045,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (isEmpty(rows)) return;
     const nodeField = table.fields.find(field => field.meta.name === SystemField.CURRENT_NODE);
     const statusField = table.fields.find(field => field.meta.name === SystemField.STATUS);
+    const updateTimeField = table.fields.find(field => field.meta.name === SystemField.UPDATE_TIME);
     const updateRows = rows.map(row => {
       const nextRow = {
         [uuidField.uid]: row[uuidField.uid],
@@ -11098,6 +11099,9 @@ export class FormFlowService implements OnApplicationBootstrap {
         skipLock: true,
         skipSubTableSync: true,
         skipSubTableDeduplicationRebuild: true,
+        ...(isDeleteTriggered && updateTimeField?.uid && rows[0]?.[updateTimeField.uid]
+          ? { fixedUpdateTime: rows[0][updateTimeField.uid] }
+          : {}),
       },
     );
   }
