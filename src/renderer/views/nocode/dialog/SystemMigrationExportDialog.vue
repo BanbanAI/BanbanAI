@@ -82,6 +82,7 @@
 <script lang="ts" setup>
 import { FormDatabaseType } from '@common/types/nocode';
 import { SystemMigrationExportResult, SystemMigrationExportSummary, SystemMigrationExportTaskStatus } from '@common/types/system-migration';
+import { doDownload } from '@renderer/utils';
 import { DialogBeforeCloseFn, ElMessage } from 'element-plus';
 import axios from 'axios';
 import i18next from 'i18next';
@@ -265,19 +266,15 @@ const databaseTip = computed(() => {
   return i18next.t('SystemMigration.embeddedExportTip');
 });
 
-const buildServerExportDownloadUrl = (taskId: string) => {
-  const params = new URLSearchParams();
-  params.set('taskId', taskId);
-  return `/system-migration/export-download?${params.toString()}`;
-};
-
-const triggerServerDownload = (taskId: string) => {
-  const link = document.createElement('a');
-  link.href = buildServerExportDownloadUrl(taskId);
-  link.download = '';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+const triggerServerDownload = async (taskId: string, fileName: string) => {
+  const { data } = await axios.get('/system-migration/export-download', {
+    params: { taskId },
+    responseType: 'blob',
+  });
+  doDownload({
+    url: URL.createObjectURL(data),
+    name: fileName,
+  });
 };
 
 const handleServerExportTaskStatus = (status: SystemMigrationExportTaskStatus | null) => {
@@ -392,12 +389,18 @@ const handleExport = async () => {
   handleServerExportTaskStatus(status);
 };
 
-const handleDownloadServerExport = () => {
+const handleDownloadServerExport = async () => {
   const taskId = exportTaskId.value;
   if (!taskId) {
     return;
   }
-  triggerServerDownload(taskId);
+  try {
+    await triggerServerDownload(taskId, downloadFileName.value);
+  } catch (error) {
+    exportError.value = buildDetailedErrorMessage(error?.response?.data?.message, 'downloadTs.downloadFailed');
+    ElMessage.error(exportError.value);
+    return;
+  }
   downloadCompleted.value = true;
 };
 
