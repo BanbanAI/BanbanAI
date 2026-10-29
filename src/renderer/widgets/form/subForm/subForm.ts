@@ -213,6 +213,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
   private _runtimeMutationDepth = 0;
   private _runtimeStructureChangePending = false;
   private _runtimeInitialRowsReady: Promise<void> | undefined;
+  private _runtimeInitialRowsSettled = ref(false);
   private _selectDataBatchTiming: {
     startedAt: number;
     lastPhaseAt: number;
@@ -234,6 +235,10 @@ export class SubForm extends AbstractSubForm implements RelatedData {
 
   get runtimeVersion() {
     return this._runtimeVersion.value;
+  }
+
+  get runtimeInitialRowsSettled() {
+    return this._runtimeInitialRowsSettled.value;
   }
 
   async getRuntimeRelatedDetailRow(address: CellAddress) {
@@ -2171,17 +2176,44 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     this._runtimeExternalFormulaStop?.();
     this._runtimeExternalFormulaStop = undefined;
     if (!widgetUids.length || !this._runtime) return;
+    const readTokens = () => widgetUids.map(widgetUid => {
+      const widget = this.topForm?.getChildElement(widgetUid) as FormElement | undefined;
+      if (widget?.isInSubForm && isSubForm(widget.form)) {
+        const subForm = widget.form as SubForm;
+        if (!subForm.runtimeInitialRowsSettled) return null;
+        const [, , columnValues] = getSubFormColumnLastChangeTimes(subForm, widget.fieldId);
+        return JSON.stringify(columnValues ?? []);
+      }
+      return JSON.stringify(widget?.status?.lastChangeTime ?? null);
+    });
+
+    const tokens: (string | null)[] = [];
+    const baselines: (string | null)[] = [];
     const stop = watch(
-      () => widgetUids.map(widgetUid => {
-        const widget = this.topForm?.getChildElement(widgetUid) as FormElement | undefined;
-        if (widget?.isInSubForm && isSubForm(widget.form)) {
-          return getSubFormColumnLastChangeTimes(widget.form as SubForm, widget.fieldId);
+      () => {
+        const nextTokens = readTokens();
+        tokens.splice(0, tokens.length, ...nextTokens);
+        return JSON.stringify(nextTokens);
+      },
+      () => {
+        let changed = false;
+        tokens.forEach((token, index) => {
+          if (token === null) {
+            baselines[index] = null;
+            return;
+          }
+          if (baselines[index] !== null && token !== baselines[index]) {
+            changed = true;
+          }
+          baselines[index] = token;
+        });
+        if (changed) {
+          void this._runtimeExternalFormulaRun();
         }
-        return widget?.status?.lastChangeTime;
-      }),
-      () => { void this._runtimeExternalFormulaRun(); },
+      },
       { flush: "post" },
     );
+    baselines.splice(0, baselines.length, ...tokens);
     this._runtimeExternalFormulaStop = stop;
   }
 
@@ -2719,6 +2751,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
       })), "default");
       await runtime.formulaEngine.recomputeAll(runtime.store.rowIds, { onlyMissing: true });
       this.status.rowsInitialized = true;
+      this._runtimeInitialRowsSettled.value = true;
       this._runtimeVersion.value += 1;
     });
     void this._runtimeInitialRowsReady.then(() => this.scheduleLoadingOff());
@@ -3553,7 +3586,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
       await runtime.store.transact(tx => {
         for (const item of prepared) {
           if (!Object.keys(item.values).length) continue;
-          if (item.row) tx.addRow(item.rowId, item.values, "selectData");
+          if (item.row) tx.addRow(item.rowId, item.row, "selectData");
           else tx.patchRow({ rowId: item.rowId, values: item.values }, "selectData");
         }
       });

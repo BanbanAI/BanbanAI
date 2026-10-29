@@ -180,6 +180,10 @@ function parseToDayjs(v: any) {
 }
 
 const excelAdd = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
@@ -252,10 +256,17 @@ const excelAdd = function (a: any, b: any) {
 };
 
 const excelSubtract = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
   const bIsTime = isTimeString(b);
+
+  if ((aIsDate || aIsTime) && isExcelBlank(b)) return null;
+  if ((bIsDate || bIsTime) && isExcelBlank(a)) return null;
 
     if (aIsDate && typeof b === "number") {
       const ms = b * 86400000;
@@ -1158,7 +1169,8 @@ function formatDate(date: Date, format: string): string {
     .replace(/Y{2,3}/g, year.toString().slice(-2))
     .replace(/Y/g, year.toString())
     .replace(/M{3,4}/g, padStartZero(month))
-    .replace(/M{1,2}/g, month.toString())
+    .replace(/M{2}/g, padStartZero(month))
+    .replace(/M/g, month.toString())
     .replace(/d{2}/g, padStartZero(day))
     .replace(/d/g, day.toString()) // 支持单个d
     .replace(/D{2}/g, padStartZero(day))

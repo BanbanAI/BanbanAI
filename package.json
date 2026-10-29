@@ -1,7 +1,7 @@
 {
   "name": "banban-client",
-  "version": "2.1.1",
-  "buildVersion": "177",
+  "version": "2.1.2",
+  "buildVersion": "178",
   "executableName": "ds-banban",
   "sign": "d1be13292509ee149073a8a262bafac1",
   "main": "src/index.js",

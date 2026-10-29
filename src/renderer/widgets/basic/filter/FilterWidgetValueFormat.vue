@@ -34,7 +34,7 @@
         <!-- <div :class="{ 'is-disabled-btn': disabled }" v-if="['department', 'account'].includes(configurations?.subType)" class="department-container" @click="handleShowOrganizeManageDialog" :style="{ color: modelValue?.length ? 'var(--color-primary)' : 'var(--el-color-text-2)' }">
           {{ modelValue?.length ? '已选择' : '选择' }}{{ configurations?.subType === 'department' ? '部门' : '成员' }}
         </div> -->
-        <field-select
+        <el-select-v2
           :disabled="disabled"
           :model-value="selectOptions.length>0 ? modelValue : undefined"
           @update:model-value="emit('update:modelValue', $event)"
@@ -42,12 +42,13 @@
           :no-data-text="i18next.t('emptyData')"
           :multiple="true"
           :clearable="true"
+          filterable
           :options="selectOptions"
           :props="selectProps"
           :placeholder="dropdownTipText"
           v-if="widget.getSoul().type === 'widget.basic.filter'"
         >
-        </field-select>
+        </el-select-v2>
         <el-input-tag v-else :disabled="disabled" collapse-tags collapse-tags-tooltip tag-type="primary" filterable :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" :placeholder="`输入后回车添加值`" />
       </template>
       <template v-else-if="type === RuleFuncValue.ADDRESS">
@@ -72,18 +73,19 @@
         </div> -->
         <date-dynamic-filter-value-select class="dynamic-filter-select" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" :append-to="'body'" :teleported="true" v-if="configurations?.subType === 'date' && type === RuleFuncValue.STRING">
         </date-dynamic-filter-value-select>
-        <field-select
+        <el-select-v2
           :disabled="disabled"
           :model-value="selectOptions.length>0 ? modelValue : undefined"
           @update:model-value="emit('update:modelValue', $event)"
           :no-data-text="i18next.t('emptyData')"
           :clearable="true"
+          filterable
           :placeholder="dropdownTipText"
           :options="selectOptions"
           :props="selectProps"
           v-else-if="widget.getSoul().type === 'widget.basic.filter'"
         >
-        </field-select>
+        </el-select-v2>
         <el-input :disabled="disabled" :model-value="getPercentValue(modelValue)" @update:model-value="emit('update:modelValue', getNumberValue(Number($event)))" type="number" :placeholder="dropdownTipText" v-else-if="widget.getSoul().type === 'widget.basic.filter-input'&& type === RuleFuncValue.NUMBER">
           <template #suffix v-if="curSelectField?.meta?.extra?.isPercent">
             <span>%</span>
@@ -238,8 +240,7 @@ const dateType = computed(() => {
 
 const selectProps = {
   label: "label",
-  value: "value",
-  options: "get"
+  value: "value"
 }
 const cacheSelectOptions = reactive({});
 const selectOptions = computed(() => {

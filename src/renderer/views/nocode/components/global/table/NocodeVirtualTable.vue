@@ -252,7 +252,7 @@ import { Field, OptionTableUID, Row, TableUID } from "@common/types/project";
 import { FormCondition, RuleFunc, RuleFuncTextMapping, RuleFuncValue } from "@common/types/nocode";
 import { SystemField } from "@common/utils/connection";
 import { usePassportStore } from "@renderer/stores";
-import { isAutoComputeColumn } from "./column-capability";
+import { isAutoComputeColumn, isColumnSortDisabled } from "./column-capability";
 import { useTableProps } from "./hooks";
 import { Column, Table } from "./table";
 import {
@@ -677,6 +677,7 @@ const headerDescriptorMap = computed(() => {
       fixedColumnId: effectiveFixedColumnId.value,
       isAutoComputeColumn: (column) => isAutoComputeColumn(column as Column),
       isSystemColumnWithoutSortAndFilter: (column) => isSystemColumnWithoutSortAndFilter(column as Column),
+      isColumnSortDisabled: (column) => isColumnSortDisabled(column as Column),
       canUpdateColumnData: (column) => props.canUpdateColumnData(column as Column),
     }).map((descriptor) => [descriptor.key, descriptor] as const),
   );

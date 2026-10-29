@@ -33,7 +33,7 @@ import { buildAggregateRuntimeTables, buildBoardConnectionsWithAggregateTables, 
 import { FormDataStage } from "@common/utils";
 import { canReadNocodeTableDataByBody, isPublicDataPermissionBypassedRoute } from "@renderer/views/nocode/utils/data-permission";
 import router from "@renderer/router";
-import { filterAutoComputeConditions, filterAutoComputeSortFields } from "./column-capability";
+import { filterAutoComputeConditions, filterAutoComputeSortFields, isColumnSortDisabled } from "./column-capability";
 import { extendConnectionsWithTableAggregateFields, mergeBucketsWithTableAggregateFields } from "@renderer/utils/tableAggregateField";
 import { buildMainAndSubSearchCondition, buildSubTableDisplaySearchCondition } from "./search-filter";
 import type { FormDataFindFilterNode, FormDataFindResponse } from "@common/types/form-data-find";
@@ -647,7 +647,8 @@ export class Table implements RelatedData {
   }
 
   private sanitizeSortFieldsValue(value: FormSortField[] = []) {
-    return filterAutoComputeSortFields(value, this._columns.value);
+    return filterAutoComputeSortFields(value, this._columns.value)
+      .filter(item => !isColumnSortDisabled(this._columns.value.find(column => column.uid === item.field)));
   }
 
   getTable(uid: TableUID) {
@@ -2104,6 +2105,20 @@ export class Table implements RelatedData {
     return this._subTableData.value;
   }
 
+  public isSubTableFullyLoaded(fieldUID: FieldUID) {
+    if (!this.getRequestedSubTableFieldUIDs().has(fieldUID)) {
+      return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(this._subTableData.value, fieldUID)) {
+      return false;
+    }
+    if (!isEmpty(this.getSearchRules("sub").conditions?.[fieldUID])) {
+      return false;
+    }
+    const searchConditions = this.searchValue?.filter(condition => condition?.uid?.split(".")[0] === fieldUID);
+    return isEmpty(searchConditions);
+  }
+
   get subTableFieldUIDs() {
     return this._subTableFieldUIDs.value;
   }
@@ -2400,10 +2415,6 @@ export class Table implements RelatedData {
       if (createTimeField) {
         orderBy[createTimeField.uid] = SortType.DESC;
       }
-    }
-    const uniqueKey = this.rowKey;
-    if (!isEmpty(orderBy) && uniqueKey && !(uniqueKey in orderBy)) {
-      orderBy[uniqueKey] = SortType.DESC;
     }
     return orderBy;
   }

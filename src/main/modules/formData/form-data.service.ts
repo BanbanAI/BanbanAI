@@ -6730,7 +6730,8 @@ export class FormDataService implements OnApplicationBootstrap {
       return null
     }
     if (options.fillSubTable) {
-      [row] = await this.fillSubFormField([row], sourceNocodeId, table, sourceFormData, {}, false, false, options?.scope || "main");
+      const fillSubTableStage = options?.enabledStage === false ? undefined : stage;
+      [row] = await this.fillSubFormField([row], sourceNocodeId, table, sourceFormData, {}, false, false, options?.scope || "main", false, undefined, fillSubTableStage);
     }
     if (options.transformRelated) {
       [row] = await this.transformRelatedField([row], nocodeId, table, nocodeBody, stage, {
@@ -8020,6 +8021,7 @@ export class FormDataService implements OnApplicationBootstrap {
       })
       : [];
     if (options.fillSubTable) {
+      const fillSubTableStage = options?.enabledStage === false ? undefined : stage;
       for (const bucket of normalBuckets) {
         let rows = bucket.rows;
         const { table, sourceFormData, sourceNocodeId } = this.resolveTableSourceContext(nocodeBody, nocodeId, bucket.tableId as TableUID, true);
@@ -8035,6 +8037,7 @@ export class FormDataService implements OnApplicationBootstrap {
           options?.scope || "main",
           false,
           internalOptions,
+          fillSubTableStage,
         );
       }
     }

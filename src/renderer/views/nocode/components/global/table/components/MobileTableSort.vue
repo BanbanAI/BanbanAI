@@ -56,7 +56,7 @@ import { useTable } from '../hooks';
 import { deepClone } from '@common/utils/object';
 import { FormSortField } from '@common/types/nocode';
 import i18next from 'i18next';
-import { isAutoComputeColumn, isSortDisabledSystemColumn } from '../column-capability';
+import { isAutoComputeColumn, isColumnSortDisabled } from '../column-capability';
 
 const props = defineProps<{
   modelValue: boolean,
@@ -71,8 +71,8 @@ const sortFields = ref<FormSortField[]>([]);
 const options = computed(() => {
   const selectColumns = sortFields.value;
   return table.allColumns.filter(item => {
-    return !isSortDisabledSystemColumn(item)
-      && !isAutoComputeColumn(item);
+    return !isAutoComputeColumn(item)
+      && !isColumnSortDisabled(item);
   }).map(item => {
     return {
       label: item.alias,
