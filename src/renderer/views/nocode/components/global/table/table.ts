@@ -2104,6 +2104,20 @@ export class Table implements RelatedData {
     return this._subTableData.value;
   }
 
+  public isSubTableFullyLoaded(fieldUID: FieldUID) {
+    if (!this.getRequestedSubTableFieldUIDs().has(fieldUID)) {
+      return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(this._subTableData.value, fieldUID)) {
+      return false;
+    }
+    if (!isEmpty(this.getSearchRules("sub").conditions?.[fieldUID])) {
+      return false;
+    }
+    const searchConditions = this.searchValue?.filter(condition => condition?.uid?.split(".")[0] === fieldUID);
+    return isEmpty(searchConditions);
+  }
+
   get subTableFieldUIDs() {
     return this._subTableFieldUIDs.value;
   }
