@@ -56,6 +56,7 @@ type ResolveNocodeHeaderActionKeysOptions = {
   headerMenuMode?: NocodeHeaderMenuMode;
   isAutoComputeColumn?: (column: NocodeHeaderColumnLike) => boolean;
   isSystemColumnWithoutSortAndFilter?: (column: NocodeHeaderColumnLike) => boolean;
+  isColumnSortDisabled?: (column: NocodeHeaderColumnLike) => boolean;
   canUpdateColumnData?: (column: NocodeHeaderColumnLike) => boolean;
 };
 
@@ -85,7 +86,10 @@ const shouldDisableSortForColumn = (
   column: NocodeHeaderColumnLike,
   options: ResolveNocodeHeaderActionKeysOptions,
 ) => {
-  return options.isSystemColumnWithoutSortAndFilter?.(column) ?? false;
+  if (options.isSystemColumnWithoutSortAndFilter?.(column)) {
+    return true;
+  }
+  return options.isColumnSortDisabled?.(column) ?? false;
 };
 
 export const resolveNocodeHeaderActionKeys = (

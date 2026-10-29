@@ -33,7 +33,7 @@ import { buildAggregateRuntimeTables, buildBoardConnectionsWithAggregateTables, 
 import { FormDataStage } from "@common/utils";
 import { canReadNocodeTableDataByBody, isPublicDataPermissionBypassedRoute } from "@renderer/views/nocode/utils/data-permission";
 import router from "@renderer/router";
-import { filterAutoComputeConditions, filterAutoComputeSortFields } from "./column-capability";
+import { filterAutoComputeConditions, filterAutoComputeSortFields, isColumnSortDisabled } from "./column-capability";
 import { extendConnectionsWithTableAggregateFields, mergeBucketsWithTableAggregateFields } from "@renderer/utils/tableAggregateField";
 import { buildMainAndSubSearchCondition, buildSubTableDisplaySearchCondition } from "./search-filter";
 import type { FormDataFindFilterNode, FormDataFindResponse } from "@common/types/form-data-find";
@@ -647,7 +647,8 @@ export class Table implements RelatedData {
   }
 
   private sanitizeSortFieldsValue(value: FormSortField[] = []) {
-    return filterAutoComputeSortFields(value, this._columns.value);
+    return filterAutoComputeSortFields(value, this._columns.value)
+      .filter(item => !isColumnSortDisabled(this._columns.value.find(column => column.uid === item.field)));
   }
 
   getTable(uid: TableUID) {
