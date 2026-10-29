@@ -51,7 +51,7 @@
         :style="{ color: widget.inputValue ? 'unset' : 'var(--text-color-inactive)' }"
         :title="widget.inputValue || i18next.t('noContent')"
       >
-        <pre>{{ widget.inputValue || i18next.t('noContent') }}</pre>
+        <pre :style="{ whiteSpace: 'pre-wrap' }">{{ widget.inputValue || i18next.t('noContent') }}</pre>
       </div>
     </template>
   </b2-form-element>
@@ -157,8 +157,6 @@ onUnmounted(() => {
 
   pre {
     width: 100%;
-    white-space: pre-wrap;
-    white-space: -moz-pre-wrap;
     word-wrap: break-word;
   }
 
