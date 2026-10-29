@@ -4340,8 +4340,14 @@ export class FormFlowService implements OnApplicationBootstrap {
     if (!liveRow) return mergedRow;
 
     for (const field of currentTable.fields || []) {
-      if (!isSystemField(field)) continue;
-      mergedRow[field.uid] = deepClone(liveRow[field.uid]);
+      if (isSystemField(field)) {
+        mergedRow[field.uid] = deepClone(liveRow[field.uid]);
+        continue;
+      }
+      if (!field.meta?.extra?.subTableUID?.[1]) continue;
+      const snapshotSubRows = mergedRow[field.uid];
+      if (Array.isArray(snapshotSubRows) && snapshotSubRows.length) continue;
+      mergedRow[field.uid] = deepClone(liveRow[field.uid] ?? []);
     }
     return mergedRow;
   }
