@@ -3553,7 +3553,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
       await runtime.store.transact(tx => {
         for (const item of prepared) {
           if (!Object.keys(item.values).length) continue;
-          if (item.row) tx.addRow(item.rowId, item.values, "selectData");
+          if (item.row) tx.addRow(item.rowId, item.row, "selectData");
           else tx.patchRow({ rowId: item.rowId, values: item.values }, "selectData");
         }
       });
