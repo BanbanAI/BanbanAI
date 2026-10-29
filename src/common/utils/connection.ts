@@ -839,8 +839,9 @@ export const transformFilterRule = (
       if(!isSubTable) {
         value = row[value];
       } else {
+        const subRows = Array.isArray(row[tableUID]) ? row[tableUID] : [];
         const isArray = [RuleFunc.IN, RuleFunc.NOT_IN].includes(rest.func)
-        value = isArray ? row[tableUID].map(item => item[subFieldId]) : row[tableUID][0][subFieldId];
+        value = isArray ? subRows.map(item => item[subFieldId]) : subRows[0]?.[subFieldId];
       }
     } else if (type === FormConditionValueType.FORMULA) {
       try {
