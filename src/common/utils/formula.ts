@@ -180,6 +180,10 @@ function parseToDayjs(v: any) {
 }
 
 const excelAdd = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
@@ -252,10 +256,17 @@ const excelAdd = function (a: any, b: any) {
 };
 
 const excelSubtract = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
   const bIsTime = isTimeString(b);
+
+  if ((aIsDate || aIsTime) && isExcelBlank(b)) return null;
+  if ((bIsDate || bIsTime) && isExcelBlank(a)) return null;
 
     if (aIsDate && typeof b === "number") {
       const ms = b * 86400000;
