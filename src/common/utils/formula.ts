@@ -1158,7 +1158,8 @@ function formatDate(date: Date, format: string): string {
     .replace(/Y{2,3}/g, year.toString().slice(-2))
     .replace(/Y/g, year.toString())
     .replace(/M{3,4}/g, padStartZero(month))
-    .replace(/M{1,2}/g, month.toString())
+    .replace(/M{2}/g, padStartZero(month))
+    .replace(/M/g, month.toString())
     .replace(/d{2}/g, padStartZero(day))
     .replace(/d/g, day.toString()) // 支持单个d
     .replace(/D{2}/g, padStartZero(day))
