@@ -2416,10 +2416,6 @@ export class Table implements RelatedData {
         orderBy[createTimeField.uid] = SortType.DESC;
       }
     }
-    const uniqueKey = this.rowKey;
-    if (!isEmpty(orderBy) && uniqueKey && !(uniqueKey in orderBy)) {
-      orderBy[uniqueKey] = SortType.DESC;
-    }
     return orderBy;
   }
   private _filterRules = ref<FilterRule>({
