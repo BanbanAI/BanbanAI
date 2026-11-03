@@ -17,6 +17,7 @@ import {
   isSameNocodeEditorBlueprintForm,
   mergeSingleFormBlueprintFragments,
 } from '@common/utils/nocodeEditorBlueprintFormNormalization'
+import { backfillNocodeEditorBlueprintSourceIdentities } from '@common/utils/nocodeEditorBlueprintSourceIdentity'
 import type {
   NocodeEditorAiAppBlueprint,
   NocodeEditorAiArtifactBlock,
@@ -354,6 +355,72 @@ const getPendingBlueprintItemApplyTargetIdentity = (
   Array.isArray(item?.blueprint?.forms) ? item?.blueprint?.forms?.[0] : null,
 )
 
+const collectPendingBlueprintSourceForms = (
+  forms: NocodeEditorAiAppBlueprint['forms'],
+  form: NocodeEditorAiAppBlueprint['forms'][number],
+) => {
+  const matched: NocodeEditorAiAppBlueprint['forms'] = []
+  const visit = (fields: NocodeEditorAiAppBlueprint['forms'][number]['fields']) => {
+    for (const field of Array.isArray(fields) ? fields : []) {
+      const source = field?.source
+      if (source?.formKey || source?.formName) {
+        const sourceForm = forms.find(candidate => isSameNocodeEditorBlueprintForm(
+          { formKey: source.formKey, tableName: source.formName },
+          candidate,
+        ))
+        if (sourceForm) {
+          matched.push(sourceForm)
+        }
+      }
+      if (Array.isArray(field?.children) && field.children.length) {
+        visit(field.children)
+      }
+    }
+  }
+
+  visit(form.fields)
+  return matched
+}
+
+// 单卡应用只带本表单的切片；字段 source 指向同版本其他表单时，
+// 只应用本表单会让来源表缺失（如「所属项目」找不到项目管理表），
+// 因此在应用前把被引用表单补进目标集合。
+export const expandPendingBlueprintTargetFormKeys = (
+  forms: NocodeEditorAiAppBlueprint['forms'] | null | undefined,
+  targetFormKeys: string[] | null | undefined,
+) => {
+  const availableForms = Array.isArray(forms) ? forms : []
+  const selectedKeys = new Set(
+    (Array.isArray(targetFormKeys) ? targetFormKeys : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )
+  if (!availableForms.length || !selectedKeys.size) {
+    return Array.from(selectedKeys)
+  }
+
+  const queue = Array.from(selectedKeys)
+  while (queue.length) {
+    const formKey = queue.shift()
+    const form = availableForms.find(item => (
+      getNocodeEditorBlueprintFormApplyTargetIdentity(item) === formKey
+    ))
+    if (!form) {
+      continue
+    }
+
+    for (const sourceForm of collectPendingBlueprintSourceForms(availableForms, form)) {
+      const sourceFormKey = getNocodeEditorBlueprintFormApplyTargetIdentity(sourceForm)
+      if (sourceFormKey && !selectedKeys.has(sourceFormKey)) {
+        selectedKeys.add(sourceFormKey)
+        queue.push(sourceFormKey)
+      }
+    }
+  }
+
+  return Array.from(selectedKeys)
+}
+
 export const collectPendingBlueprintIdentityKeysByTargetFormKeys = (
   items: NocodeEditorAiStageBlueprintDisplayItem[],
   input: {
@@ -545,7 +612,11 @@ export const buildPendingBlueprintDisplayItems = (
     return []
   }
 
-  const forms = Array.isArray(normalizedBlueprint.forms) ? normalizedBlueprint.forms : []
+  // 卡片按表单切片展示，切片后无法再用整份蓝图反查来源表；因此在切片前补全
+  // source 的 formName/fieldName。签名仍按补全前的蓝图计算，避免卡片身份漂移。
+  const displayBlueprint = backfillNocodeEditorBlueprintSourceIdentities(normalizedBlueprint)
+    || normalizedBlueprint
+  const forms = Array.isArray(displayBlueprint.forms) ? displayBlueprint.forms : []
   if (!forms.length) {
     return []
   }
@@ -566,6 +637,10 @@ export const buildPendingBlueprintDisplayItems = (
       id: `pending:${identityKey}`,
       identityKey,
       contentSignatureKey,
+      blueprintFormScope: forms.map(form => ({
+        formKey: String(form.formKey || '').trim(),
+        tableName: String(form.tableName || '').trim(),
+      })),
       planningScope: normalizeNocodeEditorPlanningScopeValue(block.planningScope),
       phase,
       status: phase,
@@ -581,7 +656,7 @@ export const buildPendingBlueprintDisplayItems = (
       applyResult: phase === 'staged' ? null : block.applyResult || null,
       draftPersistenceState: block.draftPersistenceState || null,
       blueprint: {
-        ...cloneBlueprintValue(normalizedBlueprint),
+        ...cloneBlueprintValue(displayBlueprint),
         forms: [cloneBlueprintValue(form)],
       },
     }
@@ -621,10 +696,15 @@ const getPendingBlueprintApplyBatchKey = (
     phase: item.phase,
     applyResult: item.applyResult || null,
   })
+  // 工作台把暂存版本按表单拆成多张卡，卡片侧的表单切片会让 workspaceKey 落到各自的表名上；
+  // 批处理必须按“蓝图身份 + 版本”聚合，否则同一版本会被拆成多批，跨表单 source 依赖也跟着丢失。
+  const versionScopeKey = [
+    String(item.sourcePlanningContextKey || '').trim(),
+    blueprintIdentityKey,
+  ].filter(Boolean).join('|') || workspaceKey
 
   return [
-    workspaceKey,
-    `blueprint:${blueprintIdentityKey || 'unknown'}`,
+    versionScopeKey,
     `version:${versionKey}`,
   ].join('|')
 }

@@ -372,6 +372,7 @@ export const applyBlueprintFormulaPlan = async (input: {
     issues: NocodeEditorFormulaPreflightIssue[]
   }
   setAiFieldOptions?: (input: {
+    tableId: string
     widgetId: string
     changes: Array<{ path: string[]; value: string }>
   }) => Promise<unknown> | unknown
@@ -480,6 +481,7 @@ export const applyBlueprintFormulaPlan = async (input: {
 
     try {
       await input.setAiFieldOptions?.({
+        tableId: write.tableId,
         widgetId: write.widgetId,
         changes: [{ path: [write.formulaPath], value: write.formula }],
       })

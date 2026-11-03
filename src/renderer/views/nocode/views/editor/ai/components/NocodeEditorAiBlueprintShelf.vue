@@ -251,6 +251,10 @@ import type {
   NocodeEditorAiStageBlueprintDisplayItem,
 } from '../types'
 import type { NocodeEditorAiConfirmationResponseDraftMap } from './confirmationInteraction'
+import {
+  countBlueprintCardPendingQuestions,
+  resolveUniquePendingBlueprintCardKey,
+} from './blueprintCardPendingQuestions'
 import NocodeEditorAiBlueprintWorkbenchFormPanel from './NocodeEditorAiBlueprintWorkbenchFormPanel.vue'
 import NocodeEditorAiBlueprintWorkbenchGroupSummaryPanel from './NocodeEditorAiBlueprintWorkbenchGroupSummaryPanel.vue'
 import NocodeEditorAiBlueprintWorkbenchHeader from './NocodeEditorAiBlueprintWorkbenchHeader.vue'
@@ -259,7 +263,11 @@ import NocodeEditorAiBlueprintWorkbenchOverviewPanel from './NocodeEditorAiBluep
 import NocodeEditorAiBlueprintWorkbenchRail from './NocodeEditorAiBlueprintWorkbenchRail.vue'
 import NocodeEditorAiBlueprintWorkbenchTabs from './NocodeEditorAiBlueprintWorkbenchTabs.vue'
 
-type BlueprintWorkbenchTabOption = { key: string; label: string }
+type BlueprintWorkbenchTabOption = {
+  key: string
+  label: string
+  pendingCount?: number
+}
 
 const OVERVIEW_TAB_KEY = 'overview'
 const FORM_TAB_PREFIX = 'form:'
@@ -275,7 +283,10 @@ const resolvePreferredCardKey = (cards: BlueprintWorkbenchCard[], preferredCardK
 )
 const resolveDefaultActiveTabKey = (cards: BlueprintWorkbenchCard[], preferredCardKey = '') => {
   if (cards.length > 1) {
-    return OVERVIEW_TAB_KEY
+    const uniquePendingCardKey = resolveUniquePendingBlueprintCardKey(cards)
+    return uniquePendingCardKey
+      ? buildFormTabKey(uniquePendingCardKey)
+      : OVERVIEW_TAB_KEY
   }
 
   const nextCardKey = resolvePreferredCardKey(cards, preferredCardKey)
@@ -718,18 +729,26 @@ const activeGroupApplyDisabled = computed(() => (
 const hasSingleCardGroup = computed(() => activeCards.value.length <= 1)
 const hasOverviewTab = computed(() => activeCards.value.length > 1)
 
-const workbenchTabs = computed<BlueprintWorkbenchTabOption[]>(() => (
-  (hasOverviewTab.value
+const workbenchTabs = computed<BlueprintWorkbenchTabOption[]>(() => {
+  const formTabs = activeCards.value.map(card => ({
+    key: buildFormTabKey(card.key),
+    label: card.title,
+    pendingCount: countBlueprintCardPendingQuestions(card),
+  }))
+  const overviewPendingCount = formTabs.reduce(
+    (total, tab) => total + (tab.pendingCount || 0),
+    0,
+  )
+
+  return (hasOverviewTab.value
     ? [{
       key: OVERVIEW_TAB_KEY,
       label: i18next.t('nocodeEditorAiBlueprintShelf.overview'),
+      pendingCount: overviewPendingCount,
     }]
     : []
-  ).concat(activeCards.value.map(card => ({
-    key: buildFormTabKey(card.key),
-    label: card.title,
-  })))
-))
+  ).concat(formTabs)
+})
 
 const showWorkbenchTabs = computed(() => workbenchTabs.value.length > 1)
 const showOverviewPanel = computed(() => hasOverviewTab.value && activeTabKey.value === OVERVIEW_TAB_KEY)

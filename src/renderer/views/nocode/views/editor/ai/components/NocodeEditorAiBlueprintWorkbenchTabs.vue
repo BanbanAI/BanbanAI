@@ -10,9 +10,20 @@
           class="ai-blueprint-workbench-tabs__button"
           :class="{ 'is-active': tab.key === activeKey }"
           :aria-selected="tab.key === activeKey"
+          :aria-label="tab.pendingCount
+            ? $t('nocodeEditorAiBlueprintWorkbenchTabs.pendingTabAria', { name: tab.label, count: tab.pendingCount })
+            : undefined"
+          :title="tab.pendingCount
+            ? $t('nocodeEditorAiBlueprintWorkbenchTabs.pendingBadgeHint', { name: tab.label, count: tab.pendingCount })
+            : undefined"
           @click="emit('select', tab.key)"
         >
-          {{ tab.label }}
+          <span class="ai-blueprint-workbench-tabs__label">{{ tab.label }}</span>
+          <span
+            v-if="tab.pendingCount"
+            class="ai-blueprint-workbench-tabs__badge"
+            aria-hidden="true"
+          >{{ tab.pendingCount }}</span>
         </button>
       </div>
 
@@ -30,7 +41,7 @@ import { type PropType } from 'vue'
 
 defineProps({
   tabs: {
-    type: Array as PropType<Array<{ key: string, label: string }>>,
+    type: Array as PropType<Array<{ key: string, label: string, pendingCount?: number }>>,
     default: () => [],
   },
   activeKey: {
@@ -80,7 +91,27 @@ const emit = defineEmits(['select'])
   line-height: 20px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   transition: border-color 0.18s ease, color 0.18s ease;
+}
+
+.ai-blueprint-workbench-tabs__label {
+  min-width: 0;
+}
+
+.ai-blueprint-workbench-tabs__badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #fffbe8;
+  color: #fa8c16;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .ai-blueprint-workbench-tabs__button.is-active {

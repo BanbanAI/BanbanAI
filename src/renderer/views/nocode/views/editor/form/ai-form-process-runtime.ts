@@ -1,6 +1,10 @@
 import i18next from 'i18next'
 import { unique } from '@common/utils/unique'
 import { deepClone } from '@common/utils/object'
+import {
+  resolveNocodeEditorFieldEnumOptions,
+  resolveNocodeEditorFieldEnumSourceType,
+} from '@common/utils/nocodeEditorFieldEnumOptions'
 import { ADMIN_USERNAME } from '@common/types/account'
 import {
   type AddDataOptions,
@@ -555,50 +559,6 @@ const toPublicFlowPlanNodeType = (
 const isMemberField = (field?: Field | null) => getFlowFieldOwnerPolicy(field) === 'member'
 const isDepartmentField = (field?: Field | null) => getFlowFieldOwnerPolicy(field) === 'department'
 
-const normalizeFlowFieldEnumOptions = (value: unknown) => (
-  Array.isArray(value)
-    ? value
-      .map((item) => {
-        if (typeof item === 'string') {
-          const normalized = item.trim()
-          return normalized
-            ? {
-              label: normalized,
-              value: normalized,
-            }
-            : null
-        }
-        if (!item || typeof item !== 'object') {
-          return null
-        }
-        const label = String((item as Record<string, unknown>).label || (item as Record<string, unknown>).value || '').trim()
-        const optionValue = String((item as Record<string, unknown>).value || (item as Record<string, unknown>).label || '').trim()
-        if (!label || !optionValue) {
-          return null
-        }
-        return {
-          label,
-          value: optionValue,
-        }
-      })
-      .filter((item): item is { label: string, value: string } => Boolean(item))
-    : []
-)
-
-const resolveFlowFieldEnumSourceType = (field: Field) => {
-  const sourceType = String(
-    field?.meta?.extra?.enumSourceType
-      || field?.meta?.extra?.['select-choices-type']
-      || '',
-  ).trim()
-  if (sourceType) {
-    return sourceType
-  }
-
-  const enumOptions = normalizeFlowFieldEnumOptions(field?.meta?.extra?.options || field?.meta?.extra?.enumOptions)
-  return enumOptions.length ? 'custom' : ''
-}
-
 const buildFieldSummary = (
   field: Field,
   policyContext?: FlowFieldPolicyContext,
@@ -607,10 +567,8 @@ const buildFieldSummary = (
     fieldName: string
   },
 ): FlowRuntimeFieldSummary => {
-  const enumOptionsPreview = normalizeFlowFieldEnumOptions(
-    field?.meta?.extra?.options || field?.meta?.extra?.enumOptions,
-  ).slice(0, 8)
-  const enumSourceType = resolveFlowFieldEnumSourceType(field)
+  const enumOptionsPreview = resolveNocodeEditorFieldEnumOptions(field).slice(0, 8)
+  const enumSourceType = resolveNocodeEditorFieldEnumSourceType(field)
   const ownerPolicy = getFlowFieldOwnerPolicy(field)
   const currentFieldId = String(field.uid || '').trim()
   const currentFieldName = String(field.alias || field.meta?.name || field.uid || '').trim()

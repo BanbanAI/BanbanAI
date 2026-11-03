@@ -249,12 +249,13 @@
                 :status-tag-text="getConfirmationStatusTagText(item.block)"
                 :readonly-version="item.readonly"
                 :version-tag-text="resolveDisplayVersionLabel(item.block)"
-                :action-disabled="hasNewerUserMessageAfterMessage(messages, message.id) || isConversationActionDisabled || doesPlanningArtifactBelongToGeneratedBlueprintChain(item.block) || isStaleFlowSchemeConfirmationBlock(item.block)"
-                @open="handleOpenConfirmationDrawer"
+                :expired="isStaleFlowSchemeConfirmationBlock(item.block)"
+                :action-disabled="Boolean(resolveConfirmationAnswerBlockReason(message.id, item.block))"
+                @open="handleOpenConfirmationDrawer($event, message.id)"
                 @preview="handlePreviewConfirmationArtifact"
                 @continue-defaults="handleContinueWithConfirmationDefaults"
                 @submit-staged-responses="handleSubmitCardConfirmationResponses"
-                @focus-input="handleFocusConfirmationQuestion"
+                @focus-input="handleFocusConfirmationQuestion($event, message.id)"
                 @select-option="handleSelectConfirmationOption"
               />
             </div>
@@ -497,7 +498,9 @@
     <nocode-editor-ai-confirmation-drawer
       v-model="confirmationDrawerVisible"
       :block="confirmationDrawerBlock"
-      :readonly="isReadonlyPlanningConfirmationBlock(confirmationDrawerBlock)"
+      :readonly="isReadonlyPlanningConfirmationBlock(confirmationDrawerBlock) || confirmationDrawerAnswerBlockedReason === 'stale'"
+      :expired="confirmationDrawerAnswerBlockedReason === 'stale'"
+      :action-disabled="Boolean(confirmationDrawerAnswerBlockedReason)"
       :focus-question-id="confirmationDrawerFocusQuestionId"
       :response-drafts="confirmationDrawerDrafts"
       :status-tag-text="confirmationDrawerStatusTagText"
@@ -573,6 +576,7 @@ import {
 import {
   normalizeNocodeEditorFlowScheme,
 } from '@common/utils/nocodeEditorFlowScheme'
+import { resolveNocodeEditorProviderRetryCopyKey } from '@common/utils/nocodeEditorProviderRetryCopy'
 import {
   normalizeFlowIssueRoutingResult,
   projectFlowIssueRouteToLegacyFields,
@@ -599,6 +603,7 @@ import {
 import {
   findFlowSchemeArtifactIndexForPlanningContext,
   isFlowPlanApplyContextReady,
+  isFlowSchemeArtifactIdentityMismatched,
   isLegacyFlowSchemeGuardPlaceholderArtifact,
   resolveFlowSchemeArtifactSyncDecision,
   shouldHideFlowBlueprintPreflightFallbackSchemeArtifact,
@@ -623,6 +628,7 @@ import {
 import {
   findNocodeEditorArtifactBlockMergeIndex,
   getNocodeEditorArtifactBlockMergeKey,
+  hasNocodeEditorPendingFlowSchemeConfirmation,
   mergeNocodeEditorArtifactBlocks,
   normalizeNocodeEditorArtifactBlocks,
 } from '@common/utils/nocodeEditorArtifactBlocks'
@@ -647,7 +653,8 @@ import {
   buildNocodeEditorPostFormFlowFollowUpMessageLines,
   decideNocodeEditorPostFormFlowOpportunity,
   decideNocodeEditorPostFormFlowFollowUp,
-  buildNocodeEditorPendingFlowIntentFromEntryFlowIntent,
+  resolveNocodeEditorAppliedPrimaryForm,
+  resolveNocodeEditorPendingFlowIntentAfterBlueprintApply,
   bindNocodeEditorFlowEntryIntentTarget,
   buildNocodeEditorPostFormFlowInlineMessageLines,
   NOCODE_EDITOR_POST_FORM_FLOW_FOLLOW_UP_AUTO_CONTINUE_MESSAGE,
@@ -699,6 +706,11 @@ import {
   isSamePlanningConfirmationContext,
 } from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
 import {
+  pickFlowSchemePlanningContextKey,
+  resolveFlowSchemeGroundingIdentity,
+  type FlowSchemeIdentityCandidate,
+} from '@common/utils/nocodeEditorFlowSchemeCardIdentity'
+import {
   normalizeNocodeEditorPlanningOutline,
 } from '@common/utils/nocodeEditorPlanningOutline'
 import {
@@ -728,6 +740,9 @@ import {
 import {
   resolveNocodeEditorBlueprintDisplayTitle,
 } from '@common/utils/nocodeEditorBlueprintTitle'
+import {
+  parsePlanningConfirmationContextKey,
+} from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
 import {
   getNocodeEditorPendingContinueLabel,
 } from '@common/utils/nocodeEditorConfirmationCopy'
@@ -804,8 +819,10 @@ import {
   deriveDefaultCompletedConfirmationFromReplyMessage,
   deriveCompletedConfirmationFromReplyMessage,
   hasMeaningfulConfirmationResponse,
+  hasNewerAnswerableConfirmationCard,
   isStructuredConfirmationReplyMessage,
   toggleConfirmationResponseDraftOption,
+  type ConfirmationCardAnswerability,
   type NocodeEditorAiConfirmationResponseDraftMap,
   type NocodeEditorAiConfirmationResponse,
 } from './components/confirmationInteraction'
@@ -835,9 +852,11 @@ import {
 import {
   buildBlueprintDisplayVersionIndex,
   buildBlueprintSourcePlanningContextKeyIndex,
+  buildFlowSchemeDisplayVersionIndex,
   buildPlanningDisplayVersionIndex,
   resolveBlueprintDisplayRevision,
   resolveBlueprintDisplayVersionLabel,
+  resolveFlowSchemeDisplayVersionLabel,
   resolveFormulaPlanDisplayVersionLabel,
   resolvePlanningArtifactDisplayRevision,
   resolvePlanningArtifactDisplayVersionLabel,
@@ -918,9 +937,13 @@ import { resolveFlowBlueprintPreflightToolResultLoadingBlock } from './flowBluep
 import { computePostFormFlowTailCardViewportAdjustment } from './postFormFlowTailCardViewport'
 import {
   applyNocodeEditorToolResultSummaryToAssistantContent,
-  isNocodeEditorSuppressedIntermediateSummary,
   shouldMergeNocodeEditorToolResultBlocks,
 } from './streamToolResultState'
+import {
+  buildNocodeEditorModelContractRepairStreamMetadata,
+  isNocodeEditorGuardFailureStreamMetadata,
+  shouldShowNocodeEditorFailedStageArtifact,
+} from '@common/utils/nocodeEditorToolResultSummaryState'
 import {
   buildBlueprintApplyNarrationContent,
   formatBlueprintApplyDetectedFormsMessage,
@@ -990,6 +1013,7 @@ import {
   getNocodeEditorAiBlueprintArtifactPlanningContextKey as getBlueprintArtifactPlanningContextKey,
   getNocodeEditorAiBlueprintIdentityKey as getBlueprintIdentityKey,
   getNocodeEditorAiBlueprintLineageKey as getBlueprintLineageKey,
+  getNocodeEditorAiBlueprintPlanningContextKey,
 } from './blueprintArtifactIdentity'
 import {
   isImportedHandoffConversationSnapshotCurrent,
@@ -1455,9 +1479,9 @@ const setComposerDraft = (value: string) => {
 }
 const previewDialogVisible = ref(false)
 const previewArtifact = ref<NocodeEditorAiArtifactBlock | null>(null)
-const previewSessionId = ref(0)
 const confirmationDrawerVisible = ref(false)
 const confirmationDrawerBlock = ref<NocodeEditorAiArtifactBlock | null>(null)
+const confirmationDrawerSourceMessageId = ref('')
 const confirmationDrawerFocusQuestionId = ref<string | null>(null)
 const confirmationDrawerPendingBlueprintItem = shallowRef<NocodeEditorAiStageBlueprintDisplayItem | null>(null)
 const confirmationResponseDrafts = ref<Record<string, NocodeEditorAiConfirmationResponseDraftMap>>({})
@@ -2368,54 +2392,26 @@ const ensureMessageMetadata = (message: NocodeEditorAiMessage) => {
 const normalizePendingFlowIntent = normalizeNocodeEditorPendingFlowIntent
 const normalizeActivePendingFlowIntent = normalizeActiveNocodeEditorPendingFlowIntent
 
-const resolveSingleAppliedTableId = (result?: NocodeEditorAiBlueprintApplyResult | null) => {
-  const tableIds = Array.from(new Set(
-    (result?.forms || [])
-      .map(item => String(item?.tableId || '').trim())
-      .filter(Boolean),
-  ))
-  return tableIds.length === 1 ? tableIds[0] : ''
-}
-
-const resolveSingleAppliedTableName = (result?: NocodeEditorAiBlueprintApplyResult | null) => {
-  const tableNames = Array.from(new Set(
-    (result?.forms || [])
-      .map(item => String(item?.tableName || '').trim())
-      .filter(Boolean),
-  ))
-  return tableNames.length === 1 ? tableNames[0] : ''
-}
-
-const buildPendingFlowIntentForCommittedTarget = (input: {
-  entryFlowIntent?: ReturnType<typeof resolveNocodeEditorFlowEntryIntent> | null
-  targetFormId?: string
-  targetFormName?: string
-}) => buildNocodeEditorPendingFlowIntentFromEntryFlowIntent({
-  entryFlowIntent: input.entryFlowIntent,
-  targetFormId: input.targetFormId,
-  targetFormName: input.targetFormName,
-  now: Date.now(),
-})
-
-const buildPendingFlowIntentAfterBlueprintApply = (input: {
-  entryFlowIntent?: ReturnType<typeof resolveNocodeEditorFlowEntryIntent> | null
-  result?: NocodeEditorAiBlueprintApplyResult | null
-}) => {
-  const result = input.result || null
-  if (!result) {
-    return null
+// 表单规划会把当前表单关联到的来源表一并生成。流程推荐只针对当前规划的表单，
+// 所以主表单身份取规划上下文里的 primaryFormKey / 蓝图标题，而不是按“批次只剩一张”推断。
+const resolveAppliedPrimaryFormHints = () => {
+  const staged = stagedBlueprint.value
+  const blueprint = staged?.blueprint || null
+  const planningContextKey = getNocodeEditorAiBlueprintPlanningContextKey({
+    blueprint,
+    sourcePlanningContextKey: staged?.sourcePlanningContextKey,
+  }) || ''
+  return {
+    primaryFormKey: parsePlanningConfirmationContextKey(planningContextKey).primaryFormKey || undefined,
+    primaryFormName: String(blueprint?.title || '').trim() || undefined,
   }
-
-  return buildPendingFlowIntentForCommittedTarget({
-    entryFlowIntent: input.entryFlowIntent,
-    targetFormId: resolveSingleAppliedTableId(result) || undefined,
-    targetFormName: resolveSingleAppliedTableName(result) || undefined,
-  })
 }
 
 const resolveBlueprintApplyPostFormFlowMetadata = (input: {
   entryFlowIntent?: ReturnType<typeof resolveNocodeEditorFlowEntryIntent> | null
   result?: NocodeEditorAiBlueprintApplyResult | null
+  primaryFormKey?: unknown
+  primaryFormName?: unknown
 }) => {
   const result = input.result || null
   const planningScope = normalizeNocodeEditorPlanningScopeValue(result?.planningScope)
@@ -2436,10 +2432,17 @@ const resolveBlueprintApplyPostFormFlowMetadata = (input: {
     entryFlowIntent: input.entryFlowIntent,
     pendingFlowIntent: lastPendingFlowIntent,
   })
-  const appliedTargetFormId = resolveSingleAppliedTableId(result) || undefined
-  // 续跑和文案的目标只能是本次真正落地的表单；识别不到就留空，不能回落到入口意图里
-  // 当时打开的表单名，否则会把上一张表单的名字带过来。
-  const appliedTargetFormName = resolveSingleAppliedTableName(result) || undefined
+  // 目标从本次应用批次里认：多表批次不能因为“不是唯一表单”就当成没有目标，
+  // 也不能退回去用入口意图里的旧表单名。
+  const appliedPrimaryForm = resolveNocodeEditorAppliedPrimaryForm(
+    result.forms || [],
+    {
+      primaryFormKey: input.primaryFormKey,
+      primaryFormName: input.primaryFormName,
+    },
+  )
+  const appliedTargetFormId = appliedPrimaryForm.targetFormId
+  const appliedTargetFormName = appliedPrimaryForm.targetFormName
   const activePendingFlowIntent = resolveActivePendingFlowIntent()
   // 同源既有挂账只在同一张表单上延续；目标表单不同时保持原挂账，不再向新表单重建。
   // 判定要看最近一笔挂账（含已完成）：完成只结束续跑，不抹掉这条需求原本绑定的表单。
@@ -2451,9 +2454,12 @@ const resolveBlueprintApplyPostFormFlowMetadata = (input: {
   })
   const pendingFlowIntent = rebindBlocked
     ? activePendingFlowIntent
-    : buildPendingFlowIntentAfterBlueprintApply({
+    : resolveNocodeEditorPendingFlowIntentAfterBlueprintApply({
       entryFlowIntent,
-      result: input.result,
+      appliedForms: result.forms || [],
+      primaryFormKey: input.primaryFormKey,
+      primaryFormName: input.primaryFormName,
+      now: Date.now(),
     })
 
   const postFormFlowSignals = result.postFormFlowSignals || null
@@ -4313,6 +4319,14 @@ const getAllArtifactBlocks = (message: NocodeEditorAiMessage): NocodeEditorAiArt
   return resolvedBlocks
 }
 
+// 方案身份顶层独立暂存在暂存态上；卡片答完后 confirmation 会被消费成 null，
+// 因此读暂存态必须带上顶层 key，否则会退回翻历史拿到别的表单的上下文。
+const resolveStagedFlowSchemePlanningContextKey = () => String(
+  stagedFlowScheme.value.planningContextKey
+  || stagedFlowScheme.value.scheme?.confirmation?.planningContextKey
+  || '',
+).trim()
+
 const resolveLatestFlowSchemePlanningContextKey = () => {
   for (let messageIndex = messages.value.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages.value[messageIndex]
@@ -4378,6 +4392,125 @@ const resolveLatestFlowSchemeTitleForPlanningContext = (
   return fallbackTitle
 }
 
+const collectFlowSchemeIdentityCandidates = (
+  excludeBlock?: NocodeEditorAiArtifactBlock | null,
+  messageList: NocodeEditorAiMessage[] = messages.value,
+): FlowSchemeIdentityCandidate[] => {
+  const candidates: FlowSchemeIdentityCandidate[] = []
+  for (let messageIndex = messageList.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const artifactBlocks = [...getAllArtifactBlocks(messageList[messageIndex])].reverse()
+    for (const block of artifactBlocks) {
+      if (block.kind !== 'flow-scheme' || block === excludeBlock) {
+        continue
+      }
+      candidates.push({
+        planningContextKey: String(
+          block.confirmation?.planningContextKey
+          || buildPlanningArtifactContextKey(block)
+          || '',
+        ).trim() || undefined,
+        title: String(resolveAiArtifactTitle(block) || '').trim() || undefined,
+        formId: String(block.scheme?.target?.formId || '').trim() || undefined,
+        formName: String(block.scheme?.target?.formName || '').trim() || undefined,
+      })
+    }
+  }
+  return candidates
+}
+
+// 兜底卡问的是某张表单上的问题，身份必须来自指向同一张表单的方案：
+// 显式 key 常常是"历史最后一张卡"（可能是别的表单），只有表单对得上才采用，
+// 否则依次从暂存态、权威任务摘要、历史同表单卡里取。
+const resolveFlowGroundingCardIdentity = (
+  questions: NocodeEditorAiConfirmQuestion[],
+  explicit: { planningContextKey?: string | null; title?: string | null } = {},
+  excludeBlock?: NocodeEditorAiArtifactBlock | null,
+  messageList?: NocodeEditorAiMessage[],
+) => {
+  const summary = authoritativeTaskSummary.value
+  return resolveFlowSchemeGroundingIdentity({
+    questions,
+    candidates: [
+      {
+        planningContextKey: String(explicit.planningContextKey || '').trim() || undefined,
+        title: String(explicit.title || '').trim() || undefined,
+      },
+      {
+        planningContextKey: resolveStagedFlowSchemePlanningContextKey() || undefined,
+        title: String(stagedFlowScheme.value.scheme?.title || '').trim() || undefined,
+        formId: String(stagedFlowScheme.value.scheme?.target?.formId || '').trim() || undefined,
+        formName: String(stagedFlowScheme.value.scheme?.target?.formName || '').trim() || undefined,
+      },
+      {
+        planningContextKey: String(summary?.flowConfirmationContextKey || '').trim() || undefined,
+        title: String(summary?.currentFlowTitle || '').trim() || undefined,
+        formId: String(summary?.flowConfirmationTargetFormId || '').trim() || undefined,
+        formName: String(summary?.flowConfirmationTargetFormName || '').trim() || undefined,
+      },
+      ...collectFlowSchemeIdentityCandidates(excludeBlock, messageList),
+    ],
+  })
+}
+
+// 存量兜底卡可能带着历史上一张卡（另一张表单）的名称与上下文：按题目指向的表单重取身份，
+// 让旧卡也显示正确方案名、进入正确版本族，并把作答路由回正确的确认上下文。
+const healFlowSchemeGroundingIdentities = (messageList: NocodeEditorAiMessage[]) => {
+  for (const message of messageList) {
+    const blocks = getAllArtifactBlocks(message)
+    let healedCount = 0
+    // getAllArtifactBlocks 给的是缓存里的规范化副本，就地改写不会落回 metadata.blocks，
+    // 必须整组替换后走 setMessageArtifactBlocks 才能让卡片和缓存一起失效重算。
+    const nextBlocks = blocks.map((block) => {
+      if (
+        block.kind !== 'flow-scheme'
+        || block.status !== 'ready'
+        || !isFlowSchemeArtifactIdentityMismatched(block)
+      ) {
+        return block
+      }
+      const identity = resolveFlowGroundingCardIdentity(
+        block.confirmation?.questions || [],
+        {
+          planningContextKey: block.confirmation?.planningContextKey,
+          title: block.title,
+        },
+        block,
+        messageList,
+      )
+      const planningContextKey = String(identity?.planningContextKey || '').trim()
+      const currentPlanningContextKey = String(block.confirmation?.planningContextKey || '').trim()
+      if (!planningContextKey || planningContextKey === currentPlanningContextKey) {
+        return block
+      }
+      healedCount += 1
+      const title = String(identity?.title || '').trim()
+      const schemeConfirmation = block.scheme?.confirmation
+      return {
+        ...block,
+        title: title || block.title,
+        ...(block.scheme
+          ? {
+            scheme: {
+              ...block.scheme,
+              title: title || block.scheme.title,
+              // 方案载荷里的确认副本跟着卡片身份一起改，否则预览/恢复仍读到上一张方案。
+              ...(schemeConfirmation
+                ? { confirmation: { ...schemeConfirmation, planningContextKey } }
+                : {}),
+            },
+          }
+          : {}),
+        ...(block.confirmation
+          ? { confirmation: { ...block.confirmation, planningContextKey } }
+          : {}),
+      }
+    })
+    if (healedCount) {
+      setMessageArtifactBlocks(message, nextBlocks)
+    }
+  }
+}
+
 const planningDisplayVersionIndex = computed(() => buildPlanningDisplayVersionIndex({
   messages: messages.value,
   artifactBlocks: messages.value.flatMap(message => getAllArtifactBlocks(message)),
@@ -4439,6 +4572,11 @@ const resolveDisplayVersionLabel = (
 
   if (block.kind === 'formula-plan') {
     return resolveFormulaPlanDisplayVersionLabel(block)
+      || resolveAiArtifactVersionLabel(block)
+  }
+
+  if (block.kind === 'flow-scheme') {
+    return resolveFlowSchemeDisplayVersionLabel(block, flowSchemeDisplayVersionIndex.value)
       || resolveAiArtifactVersionLabel(block)
   }
 
@@ -4592,6 +4730,28 @@ const sessionFlowStageArtifactBlocks = computed<NocodeEditorAiArtifactBlock[]>((
   return blocks
 })
 
+const flowSchemeDisplayVersionIndex = computed(() => buildFlowSchemeDisplayVersionIndex({
+  messages: messages.value,
+  artifactBlocks: sessionFlowStageArtifactBlocks.value,
+}))
+
+// 同一方案上下文已被更新版本取代：旧待确认卡转为只读历史卡，不再整卡隐藏。
+const isStaleFlowSchemeCard = (
+  block?: NocodeEditorAiArtifactBlock | null,
+) => {
+  if (block?.kind !== 'flow-scheme' || block.status !== 'ready') {
+    return false
+  }
+  // 身份和题目指向的表单不是同一张表单时，身份不可信，不能再拿它判新旧。
+  if (isFlowSchemeArtifactIdentityMismatched(block)) {
+    return false
+  }
+  return resolveFlowSchemeArtifactSyncDecision({
+    block,
+    blocks: sessionFlowStageArtifactBlocks.value,
+  }).reason === 'stale_flow_scheme_artifact'
+}
+
 const hasFormulaExecutionResultAfterMessage = (message: NocodeEditorAiMessage) => {
   const messageIndex = messages.value.findIndex(candidate => candidate.id === message.id)
   const candidates = messageIndex >= 0
@@ -4615,11 +4775,6 @@ const shouldHideMessageArtifactBlock = (
   message: NocodeEditorAiMessage,
   block: NocodeEditorAiArtifactBlock,
 ) => {
-  const flowSchemeSyncDecision = resolveFlowSchemeArtifactSyncDecision({
-    block,
-    blocks: sessionFlowStageArtifactBlocks.value,
-  })
-
   return Boolean(
     block.status === 'loading'
     || (
@@ -4640,11 +4795,6 @@ const shouldHideMessageArtifactBlock = (
       messageMetadata: message.metadata,
       pendingQuestionCount: resolveAiArtifactPendingQuestionCount(block),
     })
-    || (
-      block.kind === 'flow-scheme'
-      && block.status === 'ready'
-      && flowSchemeSyncDecision.reason === 'stale_flow_scheme_artifact'
-    )
     || shouldHideAppliedFlowArtifactInActionMessage({
       message,
       block,
@@ -5140,6 +5290,7 @@ const getRawAssistantMarkdownBlocks = (message: NocodeEditorAiMessage) => {
       artifactBlocks,
       planningDisplayVersionIndex.value,
       blueprintDisplayVersionIndex.value,
+      flowSchemeDisplayVersionIndex.value,
     )
     if (rewrittenText !== block.text) {
       return {
@@ -5161,6 +5312,7 @@ const getRawAssistantMarkdownBlocks = (message: NocodeEditorAiMessage) => {
         fallbackArtifactBlocks,
         planningDisplayVersionIndex.value,
         blueprintDisplayVersionIndex.value,
+        flowSchemeDisplayVersionIndex.value,
       )
       : rewrittenText
     return {
@@ -6090,6 +6242,7 @@ const resolveDeferredPostFormFlowMetadataAfterDraftRefresh = (input: {
   return resolveBlueprintApplyPostFormFlowMetadata({
     entryFlowIntent,
     result: stagedBlueprint.value.applyResult,
+    ...resolveAppliedPrimaryFormHints(),
   })
 }
 
@@ -6371,12 +6524,15 @@ const buildFlowSchemeGroundingConfirmationBlock = (
     planningContextKey?: string
     error?: string
     title?: string
+    resolvedIdentity?: boolean
     groundingDiagnostics?: FlowSchemeConvergenceGroundingDiagnostic[]
   } = {},
 ): NocodeEditorAiArtifactBlock => {
+  // resolvedIdentity：调用方已按题目指向的表单定好身份，不能再退回 sourceBlock 的字段，
+  // 否则又会把上一张卡（另一张表单）的方案名和上下文借回来。
   const planningContextKey = String(
     options.planningContextKey
-      || sourceBlock?.confirmation?.planningContextKey
+      || (options.resolvedIdentity ? '' : sourceBlock?.confirmation?.planningContextKey)
       || '',
   ).trim()
   const groundingMessage = options.error || i18next.t('nocodeEditorAiPanel.flowNeedsConfirmation')
@@ -6388,15 +6544,19 @@ const buildFlowSchemeGroundingConfirmationBlock = (
     scopeKey: question.branchKey,
   }))
   const sourceScheme = normalizeNocodeEditorFlowScheme(sourceBlock?.scheme)
+  // 身份已按题目指向的表单重取时，方案载荷里的确认副本属于来源卡（另一张表单），
+  // 不能跟着搬过来，否则卡片身份和载荷副本互相打架。
+  const sourceSchemePayload = sourceScheme && options.resolvedIdentity
+    ? { ...sourceScheme, confirmation: undefined }
+    : sourceScheme
   const flowSchemeTitle = String(
     options.title
-    || sourceBlock?.title
-    || sourceScheme?.title
+    || (options.resolvedIdentity ? '' : sourceBlock?.title || sourceScheme?.title)
     || i18next.t('nocodeEditorAiPanel.flowScheme'),
   ).trim() || i18next.t('nocodeEditorAiPanel.flowScheme')
   const scheme = decorateFlowSchemeWithConvergence({
     scheme: {
-      ...(sourceScheme || {
+      ...(sourceSchemePayload || {
         title: flowSchemeTitle,
         summary: groundingMessage,
         trigger: {
@@ -6408,6 +6568,8 @@ const buildFlowSchemeGroundingConfirmationBlock = (
         confirmedFacts: [],
         assumptions: [],
       }),
+      // 卡片标题和方案标题同源：只改 block.title 会留下旧方案名，预览和恢复都还会读到它。
+      title: flowSchemeTitle,
       openQuestions,
       convergence: null,
     },
@@ -6457,16 +6619,24 @@ const upsertFlowSchemeGroundingQuestions = (
   }
 
   const blocks = [...getAllArtifactBlocks(message)]
-  const planningContextKey = String(options.planningContextKey || '').trim()
   const existingFlowSchemeIndex = findFlowSchemeArtifactIndexForPlanningContext({
     blocks,
-    planningContextKey,
+    planningContextKey: String(options.planningContextKey || '').trim(),
   })
 
   const existingFlowScheme = existingFlowSchemeIndex >= 0
     ? blocks[existingFlowSchemeIndex]
     : undefined
-  const nextBlock = buildFlowSchemeGroundingConfirmationBlock(existingFlowScheme, questions, options)
+  // 身份按题目指向的表单重取：调用方给的 key/标题可能来自历史最后一张卡。
+  const identity = resolveFlowGroundingCardIdentity(questions, options, existingFlowScheme)
+  const nextBlock = buildFlowSchemeGroundingConfirmationBlock(existingFlowScheme, questions, identity
+    ? {
+      ...options,
+      resolvedIdentity: true,
+      planningContextKey: String(identity.planningContextKey || '').trim(),
+      title: String(identity.title || '').trim(),
+    }
+    : options)
   if (existingFlowSchemeIndex >= 0) {
     blocks[existingFlowSchemeIndex] = nextBlock
   } else {
@@ -6475,6 +6645,40 @@ const upsertFlowSchemeGroundingQuestions = (
   setMessageArtifactBlocks(message, blocks)
 
   return true
+}
+
+// 收口卡只在最后一条 assistant 消息上恢复：用户答复并继续后，旧卡不能复活成待答。
+const applyFlowSchemeFactStopLossQuestions = (message: NocodeEditorAiMessage) => {
+  const factStopLoss = message.metadata?.flowSchemeFactStopLoss
+  if (!factStopLoss || typeof factStopLoss !== 'object' || Array.isArray(factStopLoss)) {
+    return false
+  }
+  const record = factStopLoss as Record<string, unknown>
+  const questions = normalizeVisibleFlowGroundingQuestions({ questions: record.questions })
+  if (!questions.length) {
+    return false
+  }
+  const planningContextKey = pickFlowSchemePlanningContextKey(
+    record.planningContextKey,
+    resolveStagedFlowSchemePlanningContextKey(),
+    resolveLatestFlowSchemePlanningContextKey(),
+  )
+  return upsertFlowSchemeGroundingQuestions(message, questions, {
+    planningContextKey: planningContextKey || undefined,
+    error: i18next.t('nocodeEditorAiPanel.flowSchemeFactStopLoss'),
+    title: resolveLatestFlowSchemeTitleForPlanningContext(planningContextKey),
+  })
+}
+
+const applyLatestFlowSchemeFactStopLossQuestions = (messageList: NocodeEditorAiMessage[]) => {
+  for (let index = messageList.length - 1; index >= 0; index -= 1) {
+    const message = messageList[index]
+    if (message.role !== NocodeEditorAiMessageRole.ASSISTANT) {
+      continue
+    }
+    applyFlowSchemeFactStopLossQuestions(message)
+    return
+  }
 }
 
 const isFlowBlueprintExpansionStateBlock = (
@@ -6751,10 +6955,9 @@ const resolveAssistantStreamStatusText = (message: NocodeEditorAiMessage) => {
   }
   const statusPhase = String(message.metadata?.streamStatusPhase || '').trim()
   if (statusPhase === 'provider_retry') {
-    return i18next.t('nocodeEditorAiPanel.streamRetrying')
-  }
-  if (statusPhase === 'waiting_slow') {
-    return i18next.t('nocodeEditorAiPanel.streamWaitingSlow')
+    return i18next.t(
+      resolveNocodeEditorProviderRetryCopyKey(message.metadata?.streamStatusRetryReason),
+    )
   }
   return ''
 }
@@ -7109,13 +7312,11 @@ const canApplyBlueprintFromPreview = (block?: NocodeEditorAiArtifactBlock | null
 )
 
 const openPreviewArtifact = (block: NocodeEditorAiArtifactBlock) => {
-  previewSessionId.value += 1
   previewArtifact.value = withDisplayVersionLabel(block) || block
   previewDialogVisible.value = true
 }
 
 const closePreviewArtifact = () => {
-  previewSessionId.value += 1
   previewArtifact.value = null
   previewDialogVisible.value = false
 }
@@ -7260,6 +7461,28 @@ const getActivePlanningSummaryBlock = () => (
   || buildAppPlanArtifactBlock(stagedAppPlan.value)
 )
 
+// 蓝图阶段的模型只能凭摘要重建表单身份；只给数量会诱发重造 formKey/表名，
+// 触发严格范围校验。这里把规划的稳定身份直接交给模型复用。
+const buildPlanningFormIdentitySummaryLines = (forms: unknown) => {
+  const labels = (Array.isArray(forms) ? forms : [])
+    .map((form) => {
+      if (!form || typeof form !== 'object' || Array.isArray(form)) {
+        return ''
+      }
+      const record = form as Record<string, unknown>
+      const tableName = String(record.tableName || record.name || '').trim()
+      if (!tableName) {
+        return ''
+      }
+      const formKey = String(record.formKey || '').trim()
+      return formKey ? `${tableName}（formKey=${formKey}）` : tableName
+    })
+    .filter(Boolean)
+  return labels.length
+    ? [`已规划表单（蓝图必须复用同一 formKey 和表名）：${labels.join('；')}`]
+    : []
+}
+
 const buildSolutionOutlinePromptSummary = () => {
   const activePlanningBlock = getActivePlanningSummaryBlock()
   const outline = activePlanningBlock?.outline || stagedFormPlan.value.outline || stagedAppPlan.value.plan?.outline
@@ -7273,7 +7496,10 @@ const buildSolutionOutlinePromptSummary = () => {
     solutionPresentation: formPlanPresentation,
   })
   if (formPlanningSummary) {
-    return formPlanningSummary
+    return [
+      formPlanningSummary,
+      ...buildPlanningFormIdentitySummaryLines(outline.forms),
+    ].filter(Boolean).join('\n')
   }
   const confirmation = resolveAiArtifactConfirmation(activePlanningBlock)
   const completionSummary = String(confirmation?.completionSummary || '').trim()
@@ -7289,6 +7515,7 @@ const buildSolutionOutlinePromptSummary = () => {
     resultSummary.length ? `确认结果：${resultSummary.join('；')}` : '',
     `模块数：${outline.modules?.length || 0}`,
     `表单数：${outline.forms?.length || 0}`,
+    ...buildPlanningFormIdentitySummaryLines(outline.forms),
     `流程节点数：${outline.flows?.length || 0}`,
     currentHostContext.value?.activeFormName ? `当前焦点表单：${currentHostContext.value.activeFormName}` : '',
     questionLines.length ? `待确认：\n${questionLines.join('\n')}` : '',
@@ -7821,6 +8048,7 @@ const getPlanningArtifactDisplayState = (
   stagedAppPlan: stagedAppPlan.value,
   stagedFormPlan: stagedFormPlan.value,
   stagedFormulaPlan: stagedFormulaPlan.value,
+  flowSchemeCardExpired: isStaleFlowSchemeCard(block),
 })
 
 const findLatestAssistantMessage = () => (
@@ -7861,6 +8089,7 @@ const getPlanningArtifactDisplayStateForMessage = (
   stagedFormPlan: stagedFormPlan.value,
   stagedFormulaPlan: stagedFormulaPlan.value,
   allowHistoricalCompletedFlowSchemeCard: shouldAllowHistoricalCompletedFlowSchemeCard(message, block),
+  flowSchemeCardExpired: isStaleFlowSchemeCard(block),
 })
 
 const isReadonlyPlanningConfirmationBlock = (
@@ -7895,7 +8124,7 @@ const resolveFlowSchemeCardContextKey = (
 // 防御前移：卡片版本落后于当前暂存版本时不再允许作答，避免用户答旧卡制造 A 类（stale）输入。
 // 版本计数器是跨上下文累加的，只有「同一方案上下文且卡片更旧」才成立；当前暂存态可能被别的表单
 // 的方案占据（或已收敛清空 confirmation），跨上下文比较会把最新卡片误判成过期。
-const isStaleFlowSchemeConfirmationBlock = (
+const isRevisionStaleFlowSchemeCard = (
   block?: NocodeEditorAiArtifactBlock | null,
 ) => {
   const cardRevision = resolveFlowSchemeCardRevision(block)
@@ -7914,6 +8143,85 @@ const isStaleFlowSchemeConfirmationBlock = (
     && isSamePlanningConfirmationContext(cardContextKey, stagedContextKey),
   )
 }
+
+// 消息序列判定覆盖「最新暂存属于别的表单」的漏判；跨上下文比较作兜底保留。
+const isStaleFlowSchemeConfirmationBlock = (
+  block?: NocodeEditorAiArtifactBlock | null,
+) => Boolean(
+  isStaleFlowSchemeCard(block)
+  || isRevisionStaleFlowSchemeCard(block),
+)
+
+// 一张确认卡「现在还能不能作答」的唯一判定：卡片按钮禁用、过期展示、抽屉只读都从这里取。
+// 之前抽屉只按展示态判只读，版本落后的卡片会出现「卡片按钮灰、抽屉按钮亮」的分叉。
+// 「被取代」需要证据：后面确实有一张能作答的确认卡。
+// 只看“有更新用户消息”会把顺带提问后的旧卡直接判死，且没有任何提示。
+const resolveConfirmationCardIdentity = (block: NocodeEditorAiArtifactBlock) => [
+  block.kind,
+  String(block.version || '').trim(),
+  Number(block.revision || 0),
+  Number(block.stagedAt || 0),
+  String(block.title || '').trim(),
+].join('|')
+
+const confirmationCardAnswerabilityList = computed<ConfirmationCardAnswerability[]>(() => {
+  const cards: ConfirmationCardAnswerability[] = []
+  messages.value.forEach((message) => {
+    if (message.role !== NocodeEditorAiMessageRole.ASSISTANT) {
+      return
+    }
+    getAllArtifactBlocks(message).forEach((block) => {
+      if (shouldHideMessageArtifactBlock(message, block)) {
+        return
+      }
+      const displayState = getPlanningArtifactDisplayStateForMessage(message, block)
+      if (!displayState.renderAsConfirmation) {
+        return
+      }
+      cards.push({
+        messageId: message.id,
+        blockKey: resolveConfirmationCardIdentity(block),
+        answerable: !displayState.readonly
+          && resolveAiArtifactConfirmationStatus(block) !== 'completed'
+          && !isStaleFlowSchemeConfirmationBlock(block),
+      })
+    })
+  })
+  return cards
+})
+
+const hasNewerAnswerableConfirmationCardAfter = (
+  messageId: string,
+  block: NocodeEditorAiArtifactBlock,
+) => hasNewerAnswerableConfirmationCard({
+  cards: confirmationCardAnswerabilityList.value,
+  messageId,
+  blockKey: resolveConfirmationCardIdentity(block),
+})
+
+const resolveConfirmationAnswerBlockReason = (
+  messageId: string,
+  block: NocodeEditorAiArtifactBlock,
+): 'stale' | 'superseded' | 'busy' | '' => {
+  if (isStaleFlowSchemeConfirmationBlock(block)) {
+    return 'stale'
+  }
+
+  if (messageId && hasNewerAnswerableConfirmationCardAfter(messageId, block)) {
+    return 'superseded'
+  }
+
+  return isConversationActionDisabled.value ? 'busy' : ''
+}
+
+const confirmationDrawerAnswerBlockedReason = computed(() => (
+  confirmationDrawerBlock.value
+    ? resolveConfirmationAnswerBlockReason(
+      confirmationDrawerSourceMessageId.value,
+      confirmationDrawerBlock.value,
+    )
+    : ''
+))
 
 const STALE_FLOW_SCHEME_CARD_MESSAGE = '此卡片已过期，请回答最新卡片。'
 
@@ -8245,22 +8553,29 @@ const getConfirmationStatusTagText = (
 })
 
 const confirmationDrawerStatusTagText = computed(() => (
-  getConfirmationStatusTagText(confirmationDrawerBlock.value)
+  confirmationDrawerAnswerBlockedReason.value === 'stale'
+    ? i18next.t('nocodeEditorAiConfirmationDrawer.expiredBadge')
+    : getConfirmationStatusTagText(confirmationDrawerBlock.value)
 ))
 
 const closeConfirmationDrawer = () => {
   confirmationDrawerVisible.value = false
   confirmationDrawerBlock.value = null
+  confirmationDrawerSourceMessageId.value = ''
   confirmationDrawerFocusQuestionId.value = null
   confirmationDrawerPendingBlueprintItem.value = null
 }
 
-const handleOpenConfirmationDrawer = (block: NocodeEditorAiArtifactBlock) => {
+const handleOpenConfirmationDrawer = (
+  block: NocodeEditorAiArtifactBlock,
+  sourceMessageId = '',
+) => {
   if (!isReadonlyPlanningConfirmationBlock(block)) {
     ensureConfirmationResponseDrafts(block)
   }
 
   confirmationDrawerBlock.value = block
+  confirmationDrawerSourceMessageId.value = sourceMessageId
   confirmationDrawerFocusQuestionId.value = null
   confirmationDrawerPendingBlueprintItem.value = null
   confirmationDrawerVisible.value = true
@@ -8678,7 +8993,7 @@ const handleUpdateConfirmationNoteActive = (payload: {
 const handleFocusConfirmationQuestion = async (payload: {
   block: NocodeEditorAiArtifactBlock
   question: AiArtifactConfirmationQuestion
-}) => {
+}, sourceMessageId = '') => {
   if (isReadonlyPlanningConfirmationBlock(payload.block)) {
     return
   }
@@ -8689,6 +9004,7 @@ const handleFocusConfirmationQuestion = async (payload: {
 
   ensureConfirmationResponseDrafts(payload.block)
   confirmationDrawerBlock.value = payload.block
+  confirmationDrawerSourceMessageId.value = sourceMessageId
   confirmationDrawerFocusQuestionId.value = payload.question.id
   confirmationDrawerPendingBlueprintItem.value = null
   confirmationDrawerVisible.value = true
@@ -8810,6 +9126,7 @@ const submitStagedConfirmationResponses = async (
   block: NocodeEditorAiArtifactBlock,
   options: {
     closeDrawerOnSuccess?: boolean
+    onSubmitStarted?: () => void
   } = {},
 ): Promise<SubmitStagedConfirmationResponsesResult> => {
   if (isReadonlyPlanningConfirmationBlock(block)) {
@@ -8871,6 +9188,7 @@ const submitStagedConfirmationResponses = async (
     if (options.closeDrawerOnSuccess && confirmationDrawerVisible.value) {
       closeConfirmationDrawer()
     }
+    options.onSubmitStarted?.()
     return 'completed'
   }
   const requestMetadata = {
@@ -8882,6 +9200,7 @@ const submitStagedConfirmationResponses = async (
   if (shouldCloseDrawerBeforeSubmit) {
     closeConfirmationDrawer()
   }
+  options.onSubmitStarted?.()
   const submitResult = await submitMessage(
     message,
     Object.keys(requestMetadata).length
@@ -8907,15 +9226,11 @@ const handleSubmitBlueprintConfirmationResponses = async () => {
     return
   }
 
-  const submitPreviewSessionId = previewSessionId.value
-  const submitResult = await submitStagedConfirmationResponses(previewArtifact.value, {
+  await submitStagedConfirmationResponses(previewArtifact.value, {
     closeDrawerOnSuccess: true,
+    // 提交一进入 AI 调整就收起预览，否则整轮回复期间弹窗会一直挡住会话。
+    onSubmitStarted: () => closePreviewArtifact(),
   })
-  if (submitResult !== 'completed' || submitPreviewSessionId !== previewSessionId.value) {
-    return
-  }
-
-  closePreviewArtifact()
 }
 
 const handleSubmitCardConfirmationResponses = async (
@@ -8935,7 +9250,13 @@ const handleSubmitFlowConfirmationResponses = async (
     return
   }
 
-  await submitStagedConfirmationResponses(block)
+  await submitStagedConfirmationResponses(block, {
+    onSubmitStarted: () => {
+      if (previewArtifact.value) {
+        closePreviewArtifact()
+      }
+    },
+  })
 }
 
 const handleSubmitConfirmationResponses = async (payload: {
@@ -9672,7 +9993,7 @@ const buildApplyProgressStatusLines = (input: {
 }
 
 const formatApplyResultMessage = (result: NocodeEditorAiBlueprintApplyResult) => {
-  return formatBlueprintApplyResultMessageFromHelper({
+  const message = formatBlueprintApplyResultMessageFromHelper({
     blueprint: stagedBlueprint.value.blueprint,
     persistenceMode: result.persistenceMode === 'draft_only' ? 'draft_only' : 'saved',
     draftIssueCount: result.draftPersistenceState?.actionIssues?.length
@@ -9680,6 +10001,10 @@ const formatApplyResultMessage = (result: NocodeEditorAiBlueprintApplyResult) =>
       || 0,
     summary: result.summary,
   })
+  if (result.persistenceVerified !== false) {
+    return message
+  }
+  return [message, i18next.t('nocodeEditorAiPanel.blueprintApplyUnverified')].filter(Boolean).join('\n')
 }
 
 const buildApplyInlineFollowUpLines = (
@@ -10163,6 +10488,7 @@ const restoreStagedStateFromMessages = async (messageList: NocodeEditorAiMessage
       planningStatus: latestFlowSchemeBlock.planningStatus,
       flowUnifiedIssues: latestFlowSchemeBlock.flowUnifiedIssues || null,
       flowIssueRouting: latestFlowSchemeBlock.flowIssueRouting || null,
+      planningContextKey: latestFlowSchemeConfirmation?.planningContextKey || undefined,
     })
   } else {
     await props.runtime.restoreStagedFlowScheme(null)
@@ -10260,6 +10586,7 @@ const loadConversationMessages = async (
     }
     // 打开面板时补一次收敛：补齐过但还没落库的流程待补配置在这里补上记录
     rawMessages.forEach(syncFlowIssueListResolutionState)
+    healFlowSchemeGroundingIdentities(rawMessages)
     const nextMessages = rawMessages
       .filter(item => (
         (item.role === NocodeEditorAiMessageRole.USER || item.role === NocodeEditorAiMessageRole.ASSISTANT)
@@ -10295,6 +10622,7 @@ const loadConversationMessages = async (
       })
       : nextMessages
     messages.value = mergedMessages
+    applyLatestFlowSchemeFactStopLossQuestions(mergedMessages)
     localPendingFlowIntent.value = findLatestPendingFlowIntentFromMessages(mergedMessages)
     activeExcelAnalysisContext.value = resolveLatestAiExcelAnalysisContext(
       mergedMessages.map(item => item.metadata || null),
@@ -12042,12 +12370,12 @@ const resolveFlowBlueprintPlanningContextKeyForCallback = (
     ? getAllArtifactBlocks(assistantMessage).find(block => isFlowBlueprintExpansionStateBlock(block, 'loading'))
     : undefined
 
-  return String(
-    loadingBlock?.confirmation?.planningContextKey
-    || buildPlanningArtifactContextKey(loadingBlock)
-    || resolveLatestFlowSchemePlanningContextKey()
-    || '',
-  ).trim()
+  return pickFlowSchemePlanningContextKey(
+    loadingBlock?.confirmation?.planningContextKey,
+    buildPlanningArtifactContextKey(loadingBlock),
+    resolveStagedFlowSchemePlanningContextKey(),
+    resolveLatestFlowSchemePlanningContextKey(),
+  )
 }
 
 const FLOW_BLUEPRINT_REPLAN_REQUIRED_MESSAGE = '请先根据已确认的信息更新流程方案，再继续生成流程。'
@@ -12270,12 +12598,14 @@ const handleToolCall = async (
       && normalizedFlowUnifiedIssues.length
       && normalizedFlowUnifiedIssues.every(issue => isFlowSchemePrerequisiteMissingIssue(issue)),
     )
-    const isFlowStructureAssumptionRecovery = normalizedFlowUnifiedIssues.some(issue => (
-      String(issue.issueId || '') === 'flow-structure-assumption-unconfirmed'
-      || (Array.isArray(issue.diagnostics) && issue.diagnostics.some(item => (
-        item?.code === 'flow_structure_assumption_unconfirmed'
-      )))
-    ))
+    // 模型入参契约问题由 runtime 显式标记，不再靠 issueId/code 反推：
+    // 依赖声明缺失、人员槽位不合法同属“模型自己还能改”的一族。
+    // 五件套由 common utils 生成，回归断言的即线上写进 callback 的同一份对象。
+    const modelContractRepairMetadata = (
+      toolName === 'editor_plan_flow_scheme'
+        ? buildNocodeEditorModelContractRepairStreamMetadata(error)
+        : null
+    )
     if (
       flowIssueRouting?.outcome === 'return_to_flow_scheme'
       && !flowGroundingQuestions.length
@@ -12294,11 +12624,18 @@ const handleToolCall = async (
       })
     }
     // 恢复卡要能作答：把它绑定到被拒时的当前 revision，作答元数据才能通过版本信任校验。
+    // stagedAt 一起带上，恢复卡才能和同族旧卡比出版本先后，不至于被判成过期卡。
     const flowSchemeRecoveryRevision = (
       flowIssueRouting?.outcome === 'return_to_flow_scheme'
       && Number(stagedFlowScheme.value.revision) > 0
     )
       ? Number(stagedFlowScheme.value.revision)
+      : undefined
+    const flowSchemeRecoveryStagedAt = (
+      flowSchemeRecoveryRevision
+      && Number(stagedFlowScheme.value.stagedAt) > 0
+    )
+      ? Number(stagedFlowScheme.value.stagedAt)
       : undefined
     const flowPatchErrorCode = typeof errorRecord?.flowPatchErrorCode === 'string'
       ? errorRecord.flowPatchErrorCode
@@ -12318,8 +12655,15 @@ const handleToolCall = async (
     const blueprintScopeUnexpectedForms = Array.isArray(errorRecord?.blueprintScopeUnexpectedForms)
       ? errorRecord.blueprintScopeUnexpectedForms
       : undefined
+    const blueprintScopePlannedForms = Array.isArray(errorRecord?.blueprintScopePlannedForms)
+      ? errorRecord.blueprintScopePlannedForms
+      : undefined
     const blueprintStageErrorCode = typeof errorRecord?.blueprintStageErrorCode === 'string'
       ? errorRecord.blueprintStageErrorCode
+      : undefined
+    // 失败卡里已经写清要用户先做什么，服务端据此不再补一句没有信息的通用收尾。
+    const flowBlueprintStageUserActionRequired = errorRecord?.userActionRequired === true
+      ? true
       : undefined
     const blueprintSourceTargetErrorCode = typeof errorRecord?.blueprintSourceTargetErrorCode === 'string'
       ? errorRecord.blueprintSourceTargetErrorCode
@@ -12376,10 +12720,12 @@ const handleToolCall = async (
         blueprintScopeErrorCode,
         blueprintScopeMissingForms,
         blueprintScopeUnexpectedForms,
+        blueprintScopePlannedForms,
         blueprintStageErrorCode,
         blueprintSourceTargetErrorCode,
         blueprintSourceTargetForms,
         blueprintRetryUpdateMode,
+        flowBlueprintStageUserActionRequired,
         flowPatchErrorCode: flowPatchErrorCode,
         requiresFullRebuild: requiresFullRebuild,
         flowPatchPersisted: flowPatchPersisted,
@@ -12396,13 +12742,11 @@ const handleToolCall = async (
           suppressSummaryContent: true,
           suppressStreamBlocks: true,
         } : {}),
-        // 结构假设未确认是给模型看的纠偏信号，同轮会重新提交方案，不向用户暴露失败卡。
-        ...(isFlowStructureAssumptionRecovery ? {
-          suppressPersistedSummary: true,
-          suppressSummaryContent: true,
-          suppressStreamBlocks: true,
-        } : {}),
+        // 模型契约自修是给模型看的纠偏信号，同轮会重新提交方案：
+        // 五件套（三 suppress* + suppressedIntermediateSummary + reason）由 common utils 统一生成。
+        ...(modelContractRepairMetadata || {}),
         flowSchemeRecoveryRevision,
+        flowSchemeRecoveryStagedAt,
         blockedNextAction: typeof errorRecord?.blockedNextAction === 'string'
           ? errorRecord.blockedNextAction
           : undefined,
@@ -12413,6 +12757,10 @@ const handleToolCall = async (
       && Boolean(flowGroundingQuestions.length)
     )
     if (flowGroundingDiagnostics.length || flowGroundingQuestions.length) {
+      // 回传身份要落在题目指向的表单上：否则服务端拿历史最后一张卡的身份拼兜底卡。
+      const flowGroundingIdentity = resolveFlowGroundingCardIdentity(flowGroundingQuestions, {
+        planningContextKey: flowBlueprintPlanningContextKey,
+      })
       callbackPayload.error = flowGroundingUserMessage
       callbackPayload.metadata = {
         ...(callbackPayload.metadata || {}),
@@ -12426,8 +12774,8 @@ const handleToolCall = async (
           ? 'editor_stage_flow_blueprint'
           : flowIssueRouting?.blockedNextAction,
         requiredNextAction: shouldUseGroundingRecovery ? 'editor_plan_flow_scheme' : undefined,
-        planningContextKey: flowBlueprintPlanningContextKey || undefined,
-        flowSchemeTitle: resolveLatestFlowSchemeTitleForPlanningContext(flowBlueprintPlanningContextKey) || undefined,
+        planningContextKey: flowGroundingIdentity?.planningContextKey || flowBlueprintPlanningContextKey || undefined,
+        flowSchemeTitle: flowGroundingIdentity?.title || resolveLatestFlowSchemeTitleForPlanningContext(flowBlueprintPlanningContextKey) || undefined,
         flowSchemePlanningStatus: shouldUseGroundingRecovery ? 'needs_confirmation' : flowIssueRouting?.planningStatus,
         planningConvergenceLateQuestions: shouldUseGroundingRecovery
           ? flowGroundingQuestions.map(question => question.title)
@@ -12492,6 +12840,7 @@ const handleToolCall = async (
     blueprintApplyPostFormFlowMetadata = resolveBlueprintApplyPostFormFlowMetadata({
       entryFlowIntent: currentRequestEntryFlowIntent,
       result: (toolOutput as NocodeEditorAiBlueprintApplyResult | null | undefined) || null,
+      ...resolveAppliedPrimaryFormHints(),
     })
     nextPendingFlowIntent = blueprintApplyPostFormFlowMetadata.pendingFlowIntent
   } else if (
@@ -12618,6 +12967,7 @@ const handleToolCall = async (
       toolName.includes('outline')
       || toolName === 'editor_stage_app_plan'
       || toolName === 'editor_stage_single_form_plan'
+      || toolName === 'editor_plan_flow_scheme'
       || toolName === 'editor_apply_staged_flow'
       || toolName.includes('blueprint')
       || toolName === 'editor_stage_content_plan'
@@ -12648,7 +12998,11 @@ const handleToolCall = async (
     }
     if (toolName === 'editor_apply_staged_app_blueprint' && callbackPayload.output) {
       const result = callbackPayload.output as NocodeEditorAiBlueprintApplyResult
-      if (result.persistenceMode !== 'draft_only') {
+      if (result.persistenceVerified === false) {
+        ElMessage.warning(i18next.t('nocodeEditorAiPanel.blueprintApplyUnverified'))
+      }
+      // 未完成回读校验时不能写已应用记录，否则会把「未验证」当成「已保存」
+      if (result.ok && result.persistenceMode !== 'draft_only' && result.persistenceVerified !== false) {
         emitBlueprintApplied(result)
       } else if (assistantMessage && result.draftPersistenceState) {
         ensureMessageMetadata(assistantMessage).draftIssueActionList = result.draftPersistenceState
@@ -12897,8 +13251,10 @@ const handleApplyBlueprint = async (
       return
     }
     const result = recovery.result
+    // 刷新暂存态之前先取主表单提示，避免应用后蓝图状态被清掉导致多表批次认不出目标。
+    const primaryFormHints = resolveAppliedPrimaryFormHints()
     await refreshStagedState()
-    if (result.persistenceMode !== 'draft_only') {
+    if (result.persistenceMode !== 'draft_only' && result.persistenceVerified !== false) {
       emitBlueprintApplied(result, {
         targetFormKeys: options.targetFormKeys,
         pendingIdentityKeys: pendingIdentityKeysForAppliedScope,
@@ -12907,6 +13263,7 @@ const handleApplyBlueprint = async (
     const blueprintApplyPostFormFlowMetadata = resolveBlueprintApplyPostFormFlowMetadata({
       entryFlowIntent: resolveActiveEntryFlowIntent(),
       result,
+      ...primaryFormHints,
     })
     const pendingFlowIntent = blueprintApplyPostFormFlowMetadata.pendingFlowIntent
     localPendingFlowIntent.value = pendingFlowIntent
@@ -13395,7 +13752,10 @@ const addLoadingArtifactForTool = (
     }
   }
   if (toolName === 'editor_get_flow_node_examples') {
-    const planningContextKey = resolveLatestFlowSchemePlanningContextKey()
+    const planningContextKey = pickFlowSchemePlanningContextKey(
+      resolveStagedFlowSchemePlanningContextKey(),
+      resolveLatestFlowSchemePlanningContextKey(),
+    )
     if (resolveToolCallFlowBlueprintPreflightPhase(metadata) === 'examples' && planningContextKey) {
       upsertMessageArtifactBlock(message, buildLoadingArtifactBlock(
         'flow-plan',
@@ -13408,7 +13768,10 @@ const addLoadingArtifactForTool = (
     }
   }
   if (toolName === 'editor_stage_flow_blueprint') {
-    const planningContextKey = resolveLatestFlowSchemePlanningContextKey()
+    const planningContextKey = pickFlowSchemePlanningContextKey(
+      resolveStagedFlowSchemePlanningContextKey(),
+      resolveLatestFlowSchemePlanningContextKey(),
+    )
     upsertMessageArtifactBlock(message, buildLoadingArtifactBlock(
       'flow-plan',
       getFlowBlueprintExpansionLoadingMessage(),
@@ -13484,13 +13847,7 @@ const applyToolResultArtifactsToMessage = async (
       ? metadata.flowIssueActionList as NocodeEditorAiFlowIssueState
       : null)
     : null
-  const ignoredGuardFailure = Boolean(
-    metadata.duplicateBlocked
-    || metadata.toolPolicyViolation
-    || metadata.blockedByPlanningScope
-    || (metadata.blockedByFlowApplyAuthorization && metadata.suppressedIntermediateSummary)
-    || isNocodeEditorSuppressedIntermediateSummary(metadata),
-  )
+  const ignoredGuardFailure = isNocodeEditorGuardFailureStreamMetadata(metadata)
   const summaryContent = typeof metadata.summaryContent === 'string'
     ? metadata.summaryContent.trim()
     : ''
@@ -13574,10 +13931,10 @@ const applyToolResultArtifactsToMessage = async (
 
   if (!ok) {
     if (ignoredGuardFailure) {
-      if (metadata.blockedByPlanningScope && toolName === 'editor_stage_app_plan') {
+      if (incomingSummaryStage) {
         setMessageArtifactBlocks(
           message,
-          getAllArtifactBlocks(message).filter(block => !(block.kind === 'app-plan' && block.status === 'loading')),
+          getAllArtifactBlocks(message).filter(block => !(block.kind === incomingSummaryStage && block.status === 'loading')),
         )
       }
       return
@@ -13600,7 +13957,18 @@ const applyToolResultArtifactsToMessage = async (
       ))
     }
     if (toolName === 'editor_plan_flow_scheme') {
-      upsertMessageArtifactBlock(message, buildErrorArtifactBlock('flow-scheme', String(metadata.error || payload.error || i18next.t('nocodeEditorAiPanel.flowSchemeProcessFailed'))))
+      const planningContextKey = resolveStagedFlowSchemePlanningContextKey()
+      const hasPendingConfirmation = hasNocodeEditorPendingFlowSchemeConfirmation({
+        blocks: getAllArtifactBlocks(message),
+        planningContextKey,
+      })
+      // 与 flow-plan 的“前置缺失”同级：内部纠偏和已有待答卡都不该被一张错误卡盖掉。
+      if (shouldShowNocodeEditorFailedStageArtifact({ metadata, hasPendingConfirmation })) {
+        upsertMessageArtifactBlock(message, buildErrorArtifactBlock(
+          'flow-scheme',
+          String(metadata.error || payload.error || i18next.t('nocodeEditorAiPanel.flowSchemeProcessFailed')),
+        ))
+      }
     }
     if (toolName === 'editor_stage_flow_blueprint') {
       const planningContextKey = resolveFlowBlueprintPlanningContextKeyForCallback(message)
@@ -13762,7 +14130,6 @@ const applyToolResultArtifactsToMessage = async (
   }
 }
 
-const STREAM_SLOW_HINT_MS = 45_000
 const STREAM_INACTIVITY_TIMEOUT_MS = 90_000
 // 服务端每 15s 发心跳，连接空闲超时永远不会触发；内容空闲需要单独计时。
 // 这里只是最后兜底：provider 首个事件 90s、provider 事件间隔 90s、上下文压缩 45s、
@@ -13939,6 +14306,10 @@ const submitMessage = async (
   isPreparingSubmit.value = false
   didStartRequest = true
 
+  // 卡片绑定必须在推入本轮用户消息前取：入栈后这条消息会被当成“更新”，
+  // 卡片里的目标表单就再也进不了场景载荷。
+  const activePostFormFlowFollowUpAtSubmit = findLatestActivePostFormFlowFollowUpFromMessages(messages.value)
+
   const userMessage: NocodeEditorAiMessage = {
     id: createMessageId('user'),
     role: NocodeEditorAiMessageRole.USER,
@@ -14035,7 +14406,7 @@ const submitMessage = async (
   const pendingFlowIntent = shouldResetPendingFlowIntent
     ? null
     : resolveActivePendingFlowIntent()
-  const latestPostFormFlowMessage = findLatestActivePostFormFlowFollowUpFromMessages(messages.value)
+  const latestPostFormFlowMessage = activePostFormFlowFollowUpAtSubmit
   const postFormFlowFollowUp = latestPostFormFlowMessage?.followUp || null
   const postFormFlowRelease = latestPostFormFlowMessage
     ? resolveMessagePostFormFlowRelease(latestPostFormFlowMessage.message)
@@ -14160,15 +14531,6 @@ const submitMessage = async (
     if (!assistant) {
       return
     }
-    if (
-      now - lastContentEventAt >= STREAM_SLOW_HINT_MS
-      && assistant.metadata?.streamStatusPhase !== 'waiting_slow'
-    ) {
-      assistant.metadata = {
-        ...(assistant.metadata || {}),
-        streamStatusPhase: 'waiting_slow',
-      }
-    }
     const contentIdleTimedOut = now - lastContentEventAt >= STREAM_CONTENT_IDLE_TIMEOUT_MS
     const transportIdleTimedOut = now - lastStreamEventAt >= STREAM_INACTIVITY_TIMEOUT_MS
     if (contentIdleTimedOut || transportIdleTimedOut) {
@@ -14219,6 +14581,13 @@ const submitMessage = async (
             assistant.metadata = {
               ...(assistant.metadata || {}),
               streamStatusPhase: statusPhase,
+              ...(statusPhase === 'provider_retry'
+                ? {
+                  streamStatusRetryReason: (
+                    String(payload.metadata?.retryReason || '').trim() || undefined
+                  ),
+                }
+                : {}),
             }
           }
           return
@@ -14228,6 +14597,7 @@ const submitMessage = async (
           assistant.metadata = {
             ...assistant.metadata,
             streamStatusPhase: undefined,
+            streamStatusRetryReason: undefined,
           }
         }
         lastContentEventAt = Date.now()

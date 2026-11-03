@@ -28,8 +28,12 @@ import {
   normalizeNocodeEditorFlowScheme,
 } from '@common/utils/nocodeEditorFlowScheme'
 import {
+  isFlowConfirmationQuestionAnswered,
   resolveFlowConfirmationPendingQuestionProjection,
 } from '@common/utils/nocodeEditorFlowConfirmationPendingQuestions'
+import {
+  isFlowSchemePrerequisiteMissingIssue,
+} from '@common/utils/nocodeEditorFlowUnifiedIssue'
 import {
   countNocodeEditorFlowPlanTotalNodes,
   normalizeNocodeEditorFlowPlan,
@@ -43,6 +47,10 @@ import {
   applyNocodeEditorFlowConfirmationDependencyCompatibility,
   normalizeNocodeEditorConfirmationQuestion,
 } from '@common/utils/nocodeEditorConfirmationNormalization'
+import {
+  isNocodeEditorDefaultHandledConfirmationQuestion,
+  isNocodeEditorPendingDecisionQuestion,
+} from '@common/utils/nocodeEditorConfirmationQuestionGrouping'
 import {
   filterPendingNocodeEditorFlowConfirmationQuestions,
   pruneDanglingFlowDecisionReferences,
@@ -792,8 +800,10 @@ export const resolveAiArtifactConfirmation = (
       ...confirmation,
       stage: confirmation.stage || resolveAiArtifactConfirmationStage(block) || undefined,
       ...(flowScheme ? {
-        planningContextKey: normalizeText(flowScheme.confirmation?.planningContextKey)
-          || normalizeText(confirmation.planningContextKey)
+        // 卡片自身的确认身份优先：scheme.confirmation 是方案载荷里的副本，
+        // 兜底卡换过身份后副本仍是上一张方案的，反过来盖住卡片会让作答路由回错方案。
+        planningContextKey: normalizeText(confirmation.planningContextKey)
+          || normalizeText(flowScheme.confirmation?.planningContextKey)
           || undefined,
         schemeRevision: Number(flowScheme.confirmation?.schemeRevision || 0)
           || flowSchemeBlockRevision
@@ -832,6 +842,21 @@ export const resolveAiArtifactConfirmation = (
   }
 }
 
+// 历史版本曾把“缺少暂存方案”投影成 flow-scheme 块；它不是方案，也不是问题。
+// 入参用结构类型：本文件对外用 AiAssistantArtifactBlock，而展示层传的是
+// NocodeEditorAiArtifactBlock，两者只有公共字段重叠。
+export const isFlowSchemePrerequisiteMissingBlock = (
+  block?: { kind?: string; flowUnifiedIssues?: unknown } | null,
+) => {
+  if (block?.kind !== 'flow-scheme') {
+    return false
+  }
+  const issues = block.flowUnifiedIssues
+  return Array.isArray(issues) && issues.some(issue => (
+    isFlowSchemePrerequisiteMissingIssue(issue as Parameters<typeof isFlowSchemePrerequisiteMissingIssue>[0])
+  ))
+}
+
 export const resolveAiArtifactQuestions = (
   block?: AiAssistantArtifactBlock | null,
 ): AiArtifactConfirmationQuestion[] => (
@@ -854,7 +879,80 @@ export const resolveAiArtifactPendingQuestions = (
     })
     return pendingQuestions
   }
+  if (block?.kind === 'blueprint') {
+    return allQuestions.filter(question => isNocodeEditorPendingDecisionQuestion(question))
+  }
   return allQuestions.filter(question => question.confirmed !== true)
+}
+
+// 蓝图里“已按默认处理”的说明项不阻塞生成，但用户仍可通过补充说明要求调整。
+export const resolveAiArtifactDefaultHandledQuestions = (
+  block?: AiAssistantArtifactBlock | null,
+): AiArtifactConfirmationQuestion[] => (
+  block?.kind === 'blueprint'
+    ? resolveAiArtifactQuestions(block)
+      .filter(question => isNocodeEditorDefaultHandledConfirmationQuestion(question))
+    : []
+)
+
+// scheme.confirmation.questions 是“历史题 + 投影题”的累积结果。已答后的 openQuestions 会被
+// 归一化逻辑按“已解决”移除，因此当前轮次只能取原始 scheme.openQuestions 的键。
+const resolveAiArtifactRawFlowSchemeOpenQuestionRefs = (
+  block?: AiAssistantArtifactBlock | null,
+) => {
+  if (block?.kind !== 'flow-scheme') {
+    return []
+  }
+
+  const scheme = toRecord((block as any)?.scheme)
+  const openQuestions = Array.isArray(scheme.openQuestions) ? scheme.openQuestions : []
+  return Array.from(new Set(openQuestions.flatMap((item) => {
+    if (typeof item === 'string') {
+      return [normalizeText(item)]
+    }
+    const record = toRecord(item)
+    return [record.key, record.id, record.title].map(normalizeText).filter(Boolean)
+  })))
+}
+
+export const resolveAiArtifactCurrentRoundQuestions = (
+  block?: AiAssistantArtifactBlock | null,
+): AiArtifactConfirmationQuestion[] => {
+  const allQuestions = resolveAiArtifactQuestions(block)
+  if (block?.kind !== 'flow-scheme' || !allQuestions.length) {
+    return allQuestions
+  }
+
+  const openQuestionRefs = resolveAiArtifactRawFlowSchemeOpenQuestionRefs(block)
+  if (!openQuestionRefs.length) {
+    return allQuestions
+  }
+
+  const openQuestionRefSet = new Set(openQuestionRefs)
+  const currentRoundQuestions = allQuestions.filter(question => (
+    openQuestionRefSet.has(normalizeText(question.decisionKey))
+    || openQuestionRefSet.has(normalizeText(question.id))
+    || openQuestionRefSet.has(normalizeText(question.title))
+  ))
+
+  return currentRoundQuestions.length ? currentRoundQuestions : allQuestions
+}
+
+// 过期/只读卡片用于回看的“记录题”：当前轮题里仍待答或已作答的项。
+// 流程卡的待答题经决策契约过滤，答完后会被剔除，直接取待答题会让整段问答消失。
+export const resolveAiArtifactRecordQuestions = (
+  block?: AiAssistantArtifactBlock | null,
+): AiArtifactConfirmationQuestion[] => {
+  const roundQuestions = resolveAiArtifactCurrentRoundQuestions(block)
+  const pendingQuestionKeys = new Set(
+    resolveAiArtifactPendingQuestions(block)
+      .map(question => normalizeText(question.decisionKey) || normalizeText(question.id))
+      .filter(Boolean),
+  )
+  return roundQuestions.filter((question) => {
+    const key = normalizeText(question.decisionKey) || normalizeText(question.id)
+    return (key && pendingQuestionKeys.has(key)) || isFlowConfirmationQuestionAnswered(question)
+  })
 }
 
 export const resolveAiArtifactConfirmationQuestionCount = (
@@ -862,7 +960,6 @@ export const resolveAiArtifactConfirmationQuestionCount = (
 ) => (
   resolveAiArtifactQuestions(block).length
 )
-
 export const resolveAiArtifactConfirmedQuestionCount = (
   block?: AiAssistantArtifactBlock | null,
 ) => (
@@ -1323,9 +1420,17 @@ export const resolveAiArtifactStatusTag = (
   }
 
   if (block.kind === 'flow-scheme') {
-    return resolveAiArtifactPendingQuestionCount(block) > 0
-      ? i18next.t('artifactBlock.pendingConfirmation')
-      : i18next.t('artifactBlock.pendingValidation')
+    // 历史 completed 状态可能在新增待确认项后仍然保留，先看待答数再判完成。
+    if (resolveAiArtifactPendingQuestionCount(block) > 0) {
+      return i18next.t('artifactBlock.pendingConfirmation')
+    }
+    if (
+      resolveAiArtifactConfirmationStatus(block) === 'completed'
+      || normalizeConfirmationStatus(resolveAiArtifactRawConfirmation(block)?.status) === 'completed'
+    ) {
+      return i18next.t('nocodeEditorAiConfirmationCard.confirmedComplete')
+    }
+    return i18next.t('artifactBlock.pendingValidation')
   }
 
   if (block.kind === 'flow-plan') {
@@ -1367,6 +1472,7 @@ export const resolveAiArtifactStatusTagTone = (
   if (label === i18next.t('artifactBlock.pendingGeneration')) return 'ready'
   if (label === i18next.t('artifactBlock.generating')) return 'applying'
   if (label === i18next.t('artifactBlock.generated')) return 'applied'
+  if (label === i18next.t('nocodeEditorAiConfirmationCard.confirmedComplete')) return 'applied'
   if (label === i18next.t('artifactBlock.historicalVersion')) return 'historical'
   if (label === i18next.t('artifactBlock.draftIncomplete')) return 'pending'
   return ''

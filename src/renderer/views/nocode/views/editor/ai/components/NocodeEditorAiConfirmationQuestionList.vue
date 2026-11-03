@@ -1,7 +1,7 @@
 <template>
   <div
     class="ai-confirmation-question-list"
-    :class="{ 'is-compact': compact, 'is-readonly': readonly }"
+    :class="{ 'is-compact': compact, 'is-readonly': readonly, 'is-muted': muted }"
   >
     <article
       v-for="(question, index) in questions"
@@ -113,6 +113,8 @@ const props = withDefaults(defineProps<{
   maxVisibleActions?: number
   responseDrafts?: NocodeEditorAiConfirmationResponseDraftMap
   showSupplementAction?: boolean
+  supplementActionLabel?: string
+  muted?: boolean
   activeInputQuestionIds?: string[]
   inlineNoteQuestionIds?: string[]
   showInlineNoteInput?: boolean
@@ -123,6 +125,8 @@ const props = withDefaults(defineProps<{
   maxVisibleActions: 0,
   responseDrafts: () => ({}),
   showSupplementAction: false,
+  supplementActionLabel: '',
+  muted: false,
   activeInputQuestionIds: () => [],
   inlineNoteQuestionIds: () => [],
   showInlineNoteInput: false,
@@ -144,7 +148,9 @@ const emit = defineEmits<{
   }): void
 }>()
 
-const fallbackInputLabel = computed(() => i18next.t('nocodeEditorAiConfirmationQuestionList.additionalNotes'))
+const fallbackInputLabel = computed(() => (
+  props.supplementActionLabel || i18next.t('nocodeEditorAiConfirmationQuestionList.additionalNotes')
+))
 const normalizeQuestionId = (value: unknown) => String(value ?? '').trim()
 const readonlyQuestionIdSet = computed(() => new Set(
   props.readonlyQuestionIds
@@ -334,6 +340,20 @@ const handleInlineNoteInput = (
   border-radius: 8px;
 }
 
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__item {
+  background: #f7f8fa;
+  border-color: #eef0f3;
+}
+
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__index {
+  color: #86909c;
+}
+
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__option.is-focus {
+  border-color: #d9dde3;
+  color: #4e5969;
+}
+
 .ai-confirmation-question-list__head {
   display: flex;
   align-items: flex-start;
@@ -379,14 +399,15 @@ const handleInlineNoteInput = (
 
 .ai-confirmation-question-list__options {
   margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .ai-confirmation-question-list__option {
   min-height: 32px;
-  width: 100%;
+  flex: 0 1 auto;
+  width: auto;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;

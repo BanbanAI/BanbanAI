@@ -1,6 +1,7 @@
 import type {
   NocodeEditorFlowPlan,
   NocodeEditorFlowPlanNode,
+  NocodeEditorFlowPlanTriggerBranch,
 } from '@common/utils/nocodeEditorFlowPlan'
 import type {
   NocodeEditorFlowScheme,
@@ -102,6 +103,8 @@ export type FlowPersonnelBlueprintDiagnostic = {
   actualFieldId?: string
   actualFieldName?: string
   compatibleFields?: Array<{ fieldId: string; fieldName: string }>
+  expectedStepKeys?: string[]
+  actualNodeKeys?: string[]
 }
 
 export type FlowPersonnelBlueprintPreflightResult = {
@@ -213,12 +216,38 @@ const isUndeclaredOptionalNotifyNode = (input: {
   && !isFormFieldBoundOwner(input.owner)
 )
 
-const collectPersonnelNodes = (nodes: NocodeEditorFlowPlanNode[]): NocodeEditorFlowPlanNode[] => (
-  nodes.flatMap(node => [
-    ...(isPersonnelNodeType(node.type) ? [node] : []),
-    ...(node.branches || []).flatMap(branch => collectPersonnelNodes(branch.nodes || [])),
-  ])
-)
+type LocatedPersonnelNode = {
+  node: NocodeEditorFlowPlanNode
+  branchKey: string
+}
+
+// 蓝图常把同一条方案步骤按条件拆到多条分支上，所以人员节点必须带上所属分支：
+// 同一方案步骤可以被不同分支的同类型节点复用，同一分支内仍要求一一对应。
+const collectLocatedPersonnelNodes = (input: {
+  branches: NocodeEditorFlowPlanTriggerBranch[]
+}): LocatedPersonnelNode[] => {
+  const located: LocatedPersonnelNode[] = []
+  const visitNodes = (nodes: NocodeEditorFlowPlanNode[], branchKey: string) => {
+    nodes.forEach((node) => {
+      if (isPersonnelNodeType(node.type)) {
+        located.push({ node, branchKey })
+      }
+      (node.branches || []).forEach((branch, branchIndex) => {
+        visitNodes(
+          branch.nodes || [],
+          `${branchKey}/${normalizeText(branch.branchKey) || `branch-${branchIndex}`}`,
+        )
+      })
+    })
+  }
+  input.branches.forEach((branch, branchIndex) => {
+    visitNodes(
+      branch.nodes || [],
+      normalizeText(branch.branchKey) || `trigger-branch-${branchIndex}`,
+    )
+  })
+  return located
+}
 
 const getSchemeSteps = (scheme: NocodeEditorFlowScheme) => [
   ...(scheme.mainPath || []),
@@ -236,7 +265,7 @@ const resolvePersonnelStepNodeType = (
 
 const matchPersonnelNodesToSchemeSteps = (input: {
   scheme: NocodeEditorFlowScheme
-  nodes: NocodeEditorFlowPlanNode[]
+  branches: NocodeEditorFlowPlanTriggerBranch[]
 }) => {
   const schemeSteps = getSchemeSteps(input.scheme)
   const steps = schemeSteps.filter(step => (
@@ -250,15 +279,25 @@ const matchPersonnelNodesToSchemeSteps = (input: {
       .map(step => normalizeText(step.key))
       .filter(Boolean),
   )
-  const nodes = collectPersonnelNodes(input.nodes).filter(node => (
-    node.type !== 'approval'
-    || (
-      !legacyApprovalStepKeys.has(normalizeText(node.nodeKey))
-      && hasApprovalPersonnelContract
-    )
-  ))
+  const locatedNodes = collectLocatedPersonnelNodes({ branches: input.branches })
+  const nodes: NocodeEditorFlowPlanNode[] = []
+  const nodeBranchKeys: string[] = []
+  locatedNodes.forEach(({ node, branchKey }) => {
+    if (
+      node.type === 'approval'
+      && (
+        legacyApprovalStepKeys.has(normalizeText(node.nodeKey))
+        || !hasApprovalPersonnelContract
+      )
+    ) {
+      return
+    }
+    nodes.push(node)
+    nodeBranchKeys.push(branchKey)
+  })
   const matchedNodeIndexes = new Set<number>()
   const matchedStepIndexes = new Set<number>()
+  const firstMatchedBranchByStepIndex = new Map<number, string>()
   const matches: Array<{
     nodeIndex: number
     node: NocodeEditorFlowPlanNode
@@ -268,6 +307,9 @@ const matchPersonnelNodesToSchemeSteps = (input: {
   const addMatch = (nodeIndex: number, stepIndex: number) => {
     matchedNodeIndexes.add(nodeIndex)
     matchedStepIndexes.add(stepIndex)
+    if (!firstMatchedBranchByStepIndex.has(stepIndex)) {
+      firstMatchedBranchByStepIndex.set(stepIndex, nodeBranchKeys[nodeIndex])
+    }
     matches.push({ nodeIndex, node: nodes[nodeIndex], step: steps[stepIndex] })
   }
 
@@ -297,6 +339,69 @@ const matchPersonnelNodesToSchemeSteps = (input: {
     if (compatibleStepIndexes.length === 1) {
       addMatch(nodeIndex, compatibleStepIndexes[0])
     }
+  })
+
+  // 标题兜底：模型常给节点换个 nodeKey 却保留步骤标题，标题一致即视为同一步骤，
+  // 避免"重命名 nodeKey"被误判成"没有唯一对应的方案步骤"。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const nodeName = normalizeText(node.name)
+    if (!nodeName) {
+      return
+    }
+    const titleStepIndexes = steps.flatMap((step, stepIndex) => (
+      !matchedStepIndexes.has(stepIndex)
+      && resolvePersonnelStepNodeType(step) === node.type
+      && normalizeText(step.title) === nodeName
+        ? [stepIndex]
+        : []
+    ))
+    if (titleStepIndexes.length === 1) {
+      addMatch(nodeIndex, titleStepIndexes[0])
+    }
+  })
+
+  // 有序兜底：两侧同类型剩余项按出现顺序逐一绑定（典型场景：两条分支各一个部门审批，
+  // key 与标题都相同，只能靠顺序区分）；真正的来源不一致仍会在后续来源校验里被拦截。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const orderedStepIndex = steps.findIndex((step, stepIndex) => (
+      !matchedStepIndexes.has(stepIndex)
+      && resolvePersonnelStepNodeType(step) === node.type
+    ))
+    if (orderedStepIndex >= 0) {
+      addMatch(nodeIndex, orderedStepIndex)
+    }
+  })
+
+  // 跨分支复用：方案把条件审批写成一步，蓝图按条件拆成多条分支各放一个同类型节点时，
+  // 不同分支的节点可以共用同一方案步骤；同一分支内仍保持一一对应，避免把重复节点算成合法。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const branchKey = nodeBranchKeys[nodeIndex]
+    const reusableStepIndexes = steps.flatMap((step, stepIndex) => {
+      const firstBranchKey = firstMatchedBranchByStepIndex.get(stepIndex)
+      return firstBranchKey
+        && firstBranchKey !== branchKey
+        && resolvePersonnelStepNodeType(step) === node.type
+          ? [stepIndex]
+          : []
+    })
+    if (reusableStepIndexes.length !== 1) {
+      return
+    }
+    matchedNodeIndexes.add(nodeIndex)
+    matches.push({
+      nodeIndex,
+      node,
+      step: steps[reusableStepIndexes[0]],
+    })
   })
 
   return {
@@ -640,7 +745,7 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
   const targetForm = resolveTargetForm(input.scheme, summaryForms.forms)
   const personnelMatches = matchPersonnelNodesToSchemeSteps({
     scheme: input.scheme,
-    nodes: input.plan.triggerBranches.flatMap(branch => branch.nodes || []),
+    branches: input.plan.triggerBranches,
   })
   const declaredStepNodeTypes = new Set(
     getSchemeSteps(input.scheme)
@@ -709,16 +814,27 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
     if (isUndeclaredOptionalNotifyNode({ node, owner, declaredStepNodeTypes })) {
       return
     }
+    const expectedStepKeys = personnelMatches.unmatchedSteps
+      .filter(step => resolvePersonnelStepNodeType(step) === node.type)
+      .map(step => normalizeText(step.key))
+      .filter(Boolean)
+      .slice(0, 3)
     diagnostics.push({
       code: 'flow_personnel_source_mismatch',
       message: '流程蓝图中的人员节点没有唯一对应的已收敛方案步骤。',
       nodeKey: normalizeText(node.nodeKey) || undefined,
       nodeName: normalizeText(node.name) || undefined,
       actualSourceType: owner.sources.length === 1 ? owner.sources[0] : 'unresolved',
+      ...(expectedStepKeys.length ? { expectedStepKeys } : {}),
     })
   })
 
   personnelMatches.unmatchedSteps.forEach((step) => {
+    const actualNodeKeys = personnelMatches.unmatchedNodes
+      .filter(node => node.type === resolvePersonnelStepNodeType(step))
+      .map(node => normalizeText(node.nodeKey))
+      .filter(Boolean)
+      .slice(0, 3)
     diagnostics.push({
       code: 'flow_personnel_source_mismatch',
       message: '已收敛流程方案中的人员步骤在流程蓝图中缺失。',
@@ -726,6 +842,7 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
       nodeName: normalizeText(step.title) || undefined,
       expectedSourceType: step.personnelRequirement!.sourceType,
       actualSourceType: 'unresolved',
+      ...(actualNodeKeys.length ? { actualNodeKeys } : {}),
     })
   })
 

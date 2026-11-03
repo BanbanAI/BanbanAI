@@ -706,7 +706,8 @@ const saveAiDraft = async (options: AiDraftSaveOptions = {}) => {
   assertAiDraftPersistenceRefreshActive(refreshGuard)
   const formContext = getAiDraftFormContext()
   const shouldPersistToApp = Boolean(options.persistToApp)
-  if (!hasLocalChanges.value) {
+  // force 用于蓝图应用收尾：即使当前表单没有本地改动，也要把内存中的整包设计态写回应用数据
+  if (!hasLocalChanges.value && !options.force) {
     // 没有本地改动不等于配置已补齐：仍按当前设计态重新校验，避免把“未重新校验”误报成“问题已解决”
     const issues = formDesignerRef.value?.getDesignValidationIssues?.() || []
     return {

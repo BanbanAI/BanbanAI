@@ -3,11 +3,17 @@ import type {
   NocodeEditorAiAppBlueprintForm,
 } from './types'
 import {
+  buildBlueprintFieldIdentityPathTokens,
+  createBlueprintFieldIdentityIndex,
   getBlueprintFieldNameIdentityKey,
   getBlueprintFieldStableIdentityKey,
-  isBlueprintFieldMarkedDeleted,
   normalizeBlueprintIdentityToken,
-} from './blueprintDeletionIdentity'
+  resolveBlueprintFieldIdentity,
+  resolveBlueprintFieldIdentityMatch,
+  resolveBlueprintFieldPath,
+} from './blueprintFieldIdentity'
+import type { BlueprintFieldDeletionMatcher } from './blueprintDeletionIdentity'
+import { isBlueprintFieldMarkedDeleted } from './blueprintDeletionIdentity'
 
 const cloneValue = <T>(value: T): T => {
   if (value === null || value === undefined) {
@@ -18,161 +24,111 @@ const cloneValue = <T>(value: T): T => {
 
 const pickFirstDefined = <T,>(...values: Array<T | undefined>) => values.find(value => value !== undefined)
 
-export type BlueprintFieldPathPatchResolution =
-  | { kind: 'existing', fieldKey: string }
-  | { kind: 'childAddition', containerKey: string, childKey: string }
+type BlueprintFieldPathPatchResolution =
+  | {
+    kind: 'existing'
+    fieldKey: string
+    fieldChain: NocodeEditorAiAppBlueprintField[]
+  }
+  | {
+    kind: 'childAddition'
+    containerKey: string
+    childKey: string
+    containerFieldChain: NocodeEditorAiAppBlueprintField[]
+  }
+  | {
+    kind: 'ambiguous'
+    fieldKey: string
+    candidatePaths: NocodeEditorAiAppBlueprintField[][]
+  }
   | { kind: 'unresolved' }
 
-const isBlueprintFieldPathKey = (fieldKey: string) => {
-  if (!fieldKey.includes('.')) {
-    return false
-  }
-  const segments = fieldKey.split('.')
-  return segments.length >= 2 && segments.every(segment => segment.trim().length > 0)
+type BlueprintFieldMergeOptions = {
+  updateMode?: 'patch' | 'replace'
+  deletionMatcher?: BlueprintFieldDeletionMatcher
+  fieldPath?: readonly NocodeEditorAiAppBlueprintField[]
 }
 
-const findBlueprintFieldByPathSegment = (
-  fields: NocodeEditorAiAppBlueprintField[],
-  segment: string,
-): NocodeEditorAiAppBlueprintField | undefined => {
-  const rawSegment = segment.trim()
-  if (!rawSegment) {
-    return undefined
-  }
-  const byStableKey = fields.find(field => getBlueprintFieldStableIdentityKey(field) === rawSegment)
-  if (byStableKey) {
-    return byStableKey
-  }
-  const segmentToken = normalizeBlueprintIdentityToken(rawSegment)
-  if (!segmentToken) {
-    return undefined
-  }
-  const byNormalizedKey = fields.find((field) => {
-    const stableKey = getBlueprintFieldStableIdentityKey(field)
-    return Boolean(stableKey) && normalizeBlueprintIdentityToken(stableKey) === segmentToken
-  })
-  if (byNormalizedKey) {
-    return byNormalizedKey
-  }
-  return fields.find(field => getBlueprintFieldNameIdentityKey(field) === segmentToken)
-}
-
-const isBlueprintFieldContainerLike = (field: NocodeEditorAiAppBlueprintField | undefined) => (
-  Boolean(field) && (
-    Array.isArray(field?.children)
-    || /subform|subtable/i.test(String(field?.widgetType || ''))
-  )
-)
-
-// 模型偶尔把「父字段key.子字段key」整体当作 fieldKey 提交（公式引用口径的延伸）；
-// 这里把它解析回真实嵌套字段：命中已有子字段=原位更新，父容器命中且叶子是新 key=追加子字段。
-// 分段匹配口径与删除清单一致：真实 fieldKey → 归一化 fieldKey → 归一化字段名。
-export const resolveBlueprintFieldPathPatch = (
+// 路径解析复用统一标识口径；字段链带上 parentPath，供路径级 patch 精确定位。
+const resolveBlueprintFieldPathPatch = (
   fieldKey: unknown,
-  fields: NocodeEditorAiAppBlueprintField[] = [],
+  fields: readonly NocodeEditorAiAppBlueprintField[] = [],
+  basePath: readonly NocodeEditorAiAppBlueprintField[] = [],
 ): BlueprintFieldPathPatchResolution | null => {
-  const rawKey = String(fieldKey || '').trim()
-  if (!isBlueprintFieldPathKey(rawKey)) {
+  const resolution = resolveBlueprintFieldPath(fieldKey, fields)
+  if (!resolution) {
     return null
   }
-  const segments = rawKey.split('.').map(segment => segment.trim())
-  let cursorFields = fields
-  let resolvedCount = 0
-  let lastResolved: NocodeEditorAiAppBlueprintField | undefined
-  for (const segment of segments) {
-    const found = findBlueprintFieldByPathSegment(cursorFields, segment)
-    if (!found) {
-      break
-    }
-    resolvedCount += 1
-    lastResolved = found
-    cursorFields = Array.isArray(found.children) ? found.children : []
-  }
-  if (resolvedCount === segments.length) {
-    const leafKey = getBlueprintFieldStableIdentityKey(lastResolved)
-    return leafKey ? { kind: 'existing', fieldKey: leafKey } : { kind: 'unresolved' }
-  }
-  if (
-    resolvedCount === segments.length - 1
-    && isBlueprintFieldContainerLike(lastResolved)
-  ) {
-    const containerKey = getBlueprintFieldStableIdentityKey(lastResolved)
-    return containerKey
-      ? { kind: 'childAddition', containerKey, childKey: segments[segments.length - 1] }
+  if (resolution.kind === 'existing') {
+    const leafKey = getBlueprintFieldStableIdentityKey(resolution.leafField)
+    return leafKey
+      ? {
+        kind: 'existing',
+        fieldKey: leafKey,
+        fieldChain: [...basePath, ...resolution.fieldChain],
+      }
       : { kind: 'unresolved' }
   }
-  return { kind: 'unresolved' }
-}
-
-const buildBlueprintFieldLookupMaps = (fields: NocodeEditorAiAppBlueprintField[] = []) => {
-  const stableMap = new Map<string, NocodeEditorAiAppBlueprintField>()
-  const nameMap = new Map<string, NocodeEditorAiAppBlueprintField>()
-
-  fields.forEach((field) => {
-    const stableKey = getBlueprintFieldStableIdentityKey(field)
-    if (stableKey) {
-      stableMap.set(stableKey, field)
-    }
-    const nameKey = getBlueprintFieldNameIdentityKey(field)
-    if (nameKey && !nameMap.has(nameKey)) {
-      nameMap.set(nameKey, field)
-    }
-  })
-
-  return {
-    stableMap,
-    nameMap,
+  if (resolution.kind === 'childAddition') {
+    const containerKey = getBlueprintFieldStableIdentityKey(resolution.containerField)
+    return containerKey
+      ? {
+        kind: 'childAddition',
+        containerKey,
+        childKey: resolution.childSegment,
+        containerFieldChain: [...basePath, ...resolution.fieldChain],
+      }
+      : { kind: 'unresolved' }
   }
-}
-
-const resolveCurrentBlueprintField = (
-  nextField: NocodeEditorAiAppBlueprintField,
-  lookupMaps: ReturnType<typeof buildBlueprintFieldLookupMaps>,
-) => {
-  const stableKey = getBlueprintFieldStableIdentityKey(nextField)
-  if (stableKey) {
-    const matchedByStable = lookupMaps.stableMap.get(stableKey)
-    if (matchedByStable) {
-      return matchedByStable
+  if (resolution.kind === 'ambiguous') {
+    return {
+      kind: 'ambiguous',
+      fieldKey: String(fieldKey || '').trim(),
+      candidatePaths: resolution.candidates.map(candidate => [
+        ...basePath,
+        ...resolution.fieldChain,
+        candidate,
+      ]),
     }
   }
-
-  const nameKey = getBlueprintFieldNameIdentityKey(nextField)
-  if (nameKey) {
-    return lookupMaps.nameMap.get(nameKey)
-  }
-
-  return undefined
+  return resolution
 }
 
 const mergeBlueprintFieldWithExisting = (
   nextField: NocodeEditorAiAppBlueprintField,
   currentField?: NocodeEditorAiAppBlueprintField,
-  options: {
-    updateMode?: 'patch' | 'replace'
-    deletedFieldKeys?: Set<string>
-  } = {},
+  options: BlueprintFieldMergeOptions = {},
 ): NocodeEditorAiAppBlueprintField => {
   const currentChildren = Array.isArray(currentField?.children) ? currentField.children : []
-  const currentChildLookupMaps = buildBlueprintFieldLookupMaps(currentChildren)
+  const currentChildLookupMaps = createBlueprintFieldIdentityIndex(currentChildren)
+  const fieldPath = options.fieldPath || (currentField ? [currentField] : [nextField])
 
   const mergedChildren = options.updateMode === 'patch'
-    ? mergeBlueprintFieldsWithExisting(
+    ? mergeBlueprintFieldsWithExistingInternal(
       Array.isArray(nextField.children) ? nextField.children : [],
       currentChildren,
-      options.deletedFieldKeys,
+      {
+        deletionMatcher: options.deletionMatcher,
+        parentPath: fieldPath,
+      },
     )
     : Array.isArray(nextField.children)
       ? nextField.children.map((child) => {
-        const currentChild = resolveCurrentBlueprintField(child, currentChildLookupMaps)
+        const currentChild = resolveBlueprintFieldIdentity(child, currentChildLookupMaps)
         return mergeBlueprintFieldWithExisting(child, currentChild)
       })
       : currentField?.children
 
+  const nextFieldKey = String(nextField.fieldKey || '').trim()
+  const currentFieldKey = String(currentField?.fieldKey || '').trim()
+
   return {
     ...cloneValue(currentField || {}),
     ...cloneValue(nextField),
-    fieldKey: String(nextField.fieldKey || currentField?.fieldKey || '').trim() || undefined,
+    // patch 只更新业务属性，身份由既有字段保持；否则按名称兜底命中时会静默改写公式依赖的 fieldKey
+    fieldKey: options.updateMode === 'patch' && currentFieldKey
+      ? currentFieldKey
+      : nextFieldKey || currentFieldKey || undefined,
     // 片段归一化会把缺失的 name 物化成空串；空名补丁不得覆盖既有字段名（nameless 父壳会把既有名称清空）
     name: pickFirstDefined(
       String(nextField.name || '').trim() || undefined,
@@ -211,128 +167,414 @@ const mergeBlueprintFieldWithExisting = (
   }
 }
 
-const buildBlueprintFieldDescendantIndex = (fields: NocodeEditorAiAppBlueprintField[] = []) => {
-  const descendantByFieldKey = new Map<string, NocodeEditorAiAppBlueprintField>()
-  const visit = (field: NocodeEditorAiAppBlueprintField) => {
-    const children = Array.isArray(field?.children) ? field.children : []
-    children.forEach((child) => {
-      const stableKey = getBlueprintFieldStableIdentityKey(child)
-      if (stableKey && !descendantByFieldKey.has(stableKey)) {
-        descendantByFieldKey.set(stableKey, child)
-      }
-      visit(child)
-    })
-  }
-  fields.forEach(visit)
-  return descendantByFieldKey
+type BlueprintFieldDescendantEntry = {
+  field: NocodeEditorAiAppBlueprintField
+  path: NocodeEditorAiAppBlueprintField[]
 }
 
-// patch 的 fieldKey 命中子表单子字段时原位更新，避免在表单顶层新增同 key 的重复字段
-const applyDescendantBlueprintFieldPatches = (
-  field: NocodeEditorAiAppBlueprintField,
-  descendantPatches: Map<string, NocodeEditorAiAppBlueprintField>,
-  deletedFieldKeys: Set<string>,
-): NocodeEditorAiAppBlueprintField => {
-  const children = Array.isArray(field?.children) ? field.children : []
-  if (!children.length) {
-    return field
+type BlueprintFieldDescendantIndex = {
+  byStableKey: Map<string, BlueprintFieldDescendantEntry[]>
+  byNormalizedStableKey: Map<string, BlueprintFieldDescendantEntry[]>
+  byNameKey: Map<string, BlueprintFieldDescendantEntry[]>
+}
+
+type BlueprintFieldDescendantMatch =
+  | { kind: 'matched'; entry: BlueprintFieldDescendantEntry }
+  | { kind: 'ambiguous'; entries: BlueprintFieldDescendantEntry[] }
+  | { kind: 'none' }
+
+const appendBlueprintFieldDescendantEntry = (
+  entries: Map<string, BlueprintFieldDescendantEntry[]>,
+  key: string,
+  entry: BlueprintFieldDescendantEntry,
+) => {
+  if (!key) {
+    return
   }
-  let changed = false
+  const existing = entries.get(key)
+  if (existing) {
+    existing.push(entry)
+    return
+  }
+  entries.set(key, [entry])
+}
+
+const buildBlueprintFieldDescendantIndex = (
+  fields: NocodeEditorAiAppBlueprintField[] = [],
+  basePath: readonly NocodeEditorAiAppBlueprintField[] = [],
+): BlueprintFieldDescendantIndex => {
+  const byStableKey = new Map<string, BlueprintFieldDescendantEntry[]>()
+  const byNormalizedStableKey = new Map<string, BlueprintFieldDescendantEntry[]>()
+  const byNameKey = new Map<string, BlueprintFieldDescendantEntry[]>()
+  const visit = (
+    field: NocodeEditorAiAppBlueprintField,
+    fieldPath: NocodeEditorAiAppBlueprintField[],
+  ) => {
+    const children = Array.isArray(field?.children) ? field.children : []
+    children.forEach((child) => {
+      const childPath = [...fieldPath, child]
+      const entry = { field: child, path: childPath }
+      const stableKey = getBlueprintFieldStableIdentityKey(child)
+      appendBlueprintFieldDescendantEntry(byStableKey, stableKey, entry)
+      appendBlueprintFieldDescendantEntry(
+        byNormalizedStableKey,
+        normalizeBlueprintIdentityToken(stableKey),
+        entry,
+      )
+      appendBlueprintFieldDescendantEntry(byNameKey, getBlueprintFieldNameIdentityKey(child), entry)
+      visit(child, childPath)
+    })
+  }
+  fields.forEach(field => visit(field, [...basePath, field]))
+  return { byStableKey, byNormalizedStableKey, byNameKey }
+}
+
+const resolveBlueprintFieldDescendantEntries = (
+  entries: BlueprintFieldDescendantEntry[] | undefined,
+): BlueprintFieldDescendantMatch => {
+  if (!entries?.length) {
+    return { kind: 'none' }
+  }
+  if (entries.length === 1) {
+    return { kind: 'matched', entry: entries[0] }
+  }
+  return { kind: 'ambiguous', entries }
+}
+
+// 子字段更新只接受唯一命中；名称兜底仅用于无 key、无点路径的 patch 片段。
+const resolveBlueprintFieldDescendantMatch = (
+  field: NocodeEditorAiAppBlueprintField,
+  index: BlueprintFieldDescendantIndex,
+  options: { allowNameFallback?: boolean } = {},
+): BlueprintFieldDescendantMatch => {
+  const stableKey = getBlueprintFieldStableIdentityKey(field)
+  if (stableKey) {
+    const byStableKey = index.byStableKey.get(stableKey)
+    if (byStableKey?.length) {
+      return resolveBlueprintFieldDescendantEntries(byStableKey)
+    }
+    const normalizedStableKey = normalizeBlueprintIdentityToken(stableKey)
+    const byNormalizedStableKey = normalizedStableKey
+      ? index.byNormalizedStableKey.get(normalizedStableKey)
+      : undefined
+    if (byNormalizedStableKey?.length) {
+      return resolveBlueprintFieldDescendantEntries(byNormalizedStableKey)
+    }
+  }
+  if (options.allowNameFallback) {
+    const nameKey = getBlueprintFieldNameIdentityKey(field)
+    const byNameKey = nameKey ? index.byNameKey.get(nameKey) : undefined
+    if (byNameKey?.length) {
+      return resolveBlueprintFieldDescendantEntries(byNameKey)
+    }
+  }
+  return { kind: 'none' }
+}
+
+const formatBlueprintFieldLabel = (
+  field: Partial<NocodeEditorAiAppBlueprintField> | null | undefined,
+) => String(field?.name || '').trim() || String(field?.fieldKey || '').trim() || '未命名字段'
+
+const formatBlueprintFieldPathLabel = (
+  fieldPath: readonly NocodeEditorAiAppBlueprintField[],
+) => fieldPath.map(field => formatBlueprintFieldLabel(field)).filter(Boolean).join('.')
+
+const formatBlueprintFieldCandidatePaths = (
+  candidatePaths: ReadonlyArray<readonly NocodeEditorAiAppBlueprintField[]>,
+  limit = 3,
+) => {
+  const labels = candidatePaths
+    .map(candidatePath => formatBlueprintFieldPathLabel(candidatePath))
+    .filter(Boolean)
+  const visible = labels.slice(0, limit).join('、')
+  return labels.length > limit ? `${visible} 等 ${labels.length} 个` : visible
+}
+
+const buildDescendantPatchAmbiguityError = (
+  referenceLabel: string,
+  entries: BlueprintFieldDescendantEntry[],
+) => new Error(
+  `patch 的字段${referenceLabel}在当前表单的多个子字段中存在多个匹配：`
+  + `${formatBlueprintFieldCandidatePaths(entries.map(entry => entry.path))}。`
+  + '无法确定更新目标。请改用「父字段.子字段」完整路径（父/子均可使用真实 fieldKey 或字段名），'
+  + '或先调用 editor_get_staged_app_blueprint（detail="structure"）核对当前暂存结构后重试。',
+)
+
+const buildTopLevelPatchAmbiguityError = (
+  referenceLabel: string,
+  matches: NocodeEditorAiAppBlueprintField[],
+) => new Error(
+  `patch 的字段${referenceLabel}在当前表单的多个顶层字段中存在多个匹配：`
+  + `${formatBlueprintFieldCandidatePaths(matches.map(field => [field]))}。`
+  + '请改用真实 fieldKey 或「父字段.子字段」路径，'
+  + '或先调用 editor_get_staged_app_blueprint（detail="structure"）核对当前暂存结构后重试。',
+)
+
+const buildPathPatchAmbiguityError = (
+  fieldKey: string,
+  candidatePaths: ReadonlyArray<readonly NocodeEditorAiAppBlueprintField[]>,
+) => new Error(
+  `patch 的字段路径「${fieldKey}」存在多个匹配：`
+  + `${formatBlueprintFieldCandidatePaths(candidatePaths)}。`
+  + '请改用带稳定 fieldKey 的「父字段.子字段」路径，例如 field-detail.field-amount；'
+  + '或先调用 editor_get_staged_app_blueprint（detail="structure"）核对当前暂存结构后重试。',
+)
+
+const throwDuplicateBlueprintFieldPatchError = (label: string) => {
+  throw new Error(
+    `patch 中有多个字段片段指向同一个字段「${label}」。请合并为一条字段片段后重试。`,
+  )
+}
+
+type BlueprintFieldPathPatchEntry = {
+  patch: NocodeEditorAiAppBlueprintField
+  targetPath: NocodeEditorAiAppBlueprintField[]
+  targetPathTokens: string[]
+}
+
+type BlueprintFieldPathPatchIndex = Map<string, BlueprintFieldPathPatchEntry[]>
+
+const isSameBlueprintFieldPath = (
+  left: readonly NocodeEditorAiAppBlueprintField[],
+  right: readonly NocodeEditorAiAppBlueprintField[],
+) => left.length === right.length && left.every((field, index) => field === right[index])
+
+const hasSameBlueprintFieldPathTokens = (
+  left: readonly string[],
+  right: readonly string[],
+) => {
+  if (left.length !== right.length) {
+    return false
+  }
+  const leftTokens = new Set(left)
+  return right.every(token => leftTokens.has(token))
+}
+
+// 同一字段路径会同时生成 key 路径与名称路径两套 token；
+// 只有两套 token 全部吻合才算命中，避免重复子字段 key 在遍历时被错误消费。
+const findBlueprintFieldPathPatch = (
+  patches: BlueprintFieldPathPatchIndex,
+  targetPath: readonly NocodeEditorAiAppBlueprintField[],
+) => {
+  const fieldTokens = buildBlueprintFieldIdentityPathTokens(targetPath)
+  if (!fieldTokens.length) {
+    return undefined
+  }
+  const candidates = new Set<BlueprintFieldPathPatchEntry>()
+  fieldTokens.forEach((token) => {
+    patches.get(token)?.forEach(entry => candidates.add(entry))
+  })
+  return Array.from(candidates).find(entry => (
+    hasSameBlueprintFieldPathTokens(entry.targetPathTokens, fieldTokens)
+  ))
+}
+
+const registerBlueprintFieldPathPatch = (
+  patches: BlueprintFieldPathPatchIndex,
+  targetPath: readonly NocodeEditorAiAppBlueprintField[],
+  patch: NocodeEditorAiAppBlueprintField,
+) => {
+  const tokens = buildBlueprintFieldIdentityPathTokens(targetPath)
+  if (!tokens.length) {
+    throw new Error(
+      `patch 的字段「${formatBlueprintFieldPathLabel(targetPath)}」缺少可用于定位的 fieldKey 或名称，无法确定更新目标。`
+      + '请先调用 editor_get_staged_app_blueprint（detail="structure"）核对当前暂存结构，再按真实标识重试。',
+    )
+  }
+  for (const token of tokens) {
+    for (const existing of patches.get(token) || []) {
+      if (isSameBlueprintFieldPath(existing.targetPath, targetPath)) {
+        // 子字段追加与容器自身更新可以合并；纯属性更新重复出现仍视为模型重复提交
+        const hasChildrenPatch = Boolean(
+          existing.patch.children?.length || patch.children?.length,
+        )
+        if (hasChildrenPatch) {
+          existing.patch = mergeBlueprintFieldWithExisting(patch, existing.patch, {
+            updateMode: 'patch',
+          })
+          return existing
+        }
+        throwDuplicateBlueprintFieldPatchError(formatBlueprintFieldPathLabel(targetPath))
+      }
+      if (hasSameBlueprintFieldPathTokens(existing.targetPathTokens, tokens)) {
+        throw new Error(
+          `patch 的字段路径「${formatBlueprintFieldPathLabel(targetPath)}」与目标「${formatBlueprintFieldPathLabel(existing.targetPath)}」的标识冲突，无法唯一确定更新目标。`
+          + '请改用带稳定 fieldKey 的完整「父字段.子字段」路径后重试。',
+        )
+      }
+    }
+  }
+  const entry = { patch, targetPath: [...targetPath], targetPathTokens: tokens }
+  tokens.forEach((token) => {
+    const entries = patches.get(token)
+    if (entries) {
+      entries.push(entry)
+      return
+    }
+    patches.set(token, [entry])
+  })
+  return entry
+}
+
+const takeBlueprintFieldPathPatch = (
+  patches: BlueprintFieldPathPatchIndex,
+  fieldPath: readonly NocodeEditorAiAppBlueprintField[],
+) => {
+  const entry = findBlueprintFieldPathPatch(patches, fieldPath)
+  if (!entry) {
+    return undefined
+  }
+  entry.targetPathTokens.forEach((token) => {
+    const entries = patches.get(token)
+    if (!entries) {
+      return
+    }
+    const remaining = entries.filter(item => item !== entry)
+    if (remaining.length) {
+      patches.set(token, remaining)
+      return
+    }
+    patches.delete(token)
+  })
+  return entry.patch
+}
+
+// 按完整字段路径应用 patch，滚动多条子表里出现同 key 时也不会命中错误分支
+const applyBlueprintFieldPatches = (
+  field: NocodeEditorAiAppBlueprintField,
+  patches: BlueprintFieldPathPatchIndex,
+  options: BlueprintFieldMergeOptions,
+  fieldPath: NocodeEditorAiAppBlueprintField[],
+): NocodeEditorAiAppBlueprintField => {
+  const patch = takeBlueprintFieldPathPatch(patches, fieldPath)
+  const nextField = patch
+    ? mergeBlueprintFieldWithExisting(patch, field, {
+      updateMode: 'patch',
+      deletionMatcher: options.deletionMatcher,
+      fieldPath,
+    })
+    : field
+  let changed = Boolean(patch)
+  const children = Array.isArray(nextField?.children) ? nextField.children : []
+  if (!children.length) {
+    return changed ? nextField : field
+  }
   const nextChildren: NocodeEditorAiAppBlueprintField[] = []
   children.forEach((child) => {
-    const childStableKey = getBlueprintFieldStableIdentityKey(child)
-    if (isBlueprintFieldMarkedDeleted(child, deletedFieldKeys)) {
+    const childPath = [...fieldPath, child]
+    if (isBlueprintFieldMarkedDeleted(child, options.deletionMatcher, childPath)) {
       changed = true
       return
     }
-    const childWithDescendantPatches = applyDescendantBlueprintFieldPatches(
-      child,
-      descendantPatches,
-      deletedFieldKeys,
-    )
-    const patch = childStableKey ? descendantPatches.get(childStableKey) : undefined
-    if (patch) {
-      changed = true
-      descendantPatches.delete(childStableKey)
-      nextChildren.push(mergeBlueprintFieldWithExisting(patch, childWithDescendantPatches, {
-        updateMode: 'patch',
-        deletedFieldKeys,
-      }))
-      return
-    }
-    if (childWithDescendantPatches !== child) {
+    const patchedChild = applyBlueprintFieldPatches(child, patches, options, childPath)
+    if (patchedChild !== child) {
       changed = true
     }
-    nextChildren.push(childWithDescendantPatches)
+    nextChildren.push(patchedChild)
   })
   if (!changed) {
     return field
   }
   return {
-    ...cloneValue(field),
+    ...cloneValue(nextField),
     children: nextChildren,
   }
 }
 
-export const mergeBlueprintFieldsWithExisting = (
+const mergeBlueprintFieldsWithExistingInternal = (
   nextFields: NocodeEditorAiAppBlueprintField[],
   currentFields: NocodeEditorAiAppBlueprintField[],
-  deletedFieldKeys: Set<string> = new Set(),
+  options: BlueprintFieldMergeOptions & {
+    parentPath?: readonly NocodeEditorAiAppBlueprintField[]
+  } = {},
 ) => {
-  const currentFieldLookupMaps = buildBlueprintFieldLookupMaps(currentFields)
-  const currentDescendantFieldByKey = buildBlueprintFieldDescendantIndex(currentFields)
-  const descendantFieldPatches = new Map<string, NocodeEditorAiAppBlueprintField>()
+  const parentPath = options.parentPath || []
+  const deletionMatcher = options.deletionMatcher
+  const currentFieldIdentityIndex = createBlueprintFieldIdentityIndex(currentFields)
+  const currentDescendantFieldIndex = buildBlueprintFieldDescendantIndex(currentFields, parentPath)
+  const descendantFieldPatches: BlueprintFieldPathPatchIndex = new Map()
   const nextFieldByCurrent = new Map<NocodeEditorAiAppBlueprintField, NocodeEditorAiAppBlueprintField>()
   const addedFields: NocodeEditorAiAppBlueprintField[] = []
 
   nextFields.forEach((nextField) => {
     const nextFieldKey = getBlueprintFieldStableIdentityKey(nextField)
+    const nextFieldLabel = nextFieldKey
+      ? `fieldKey「${nextFieldKey}」`
+      : `「${formatBlueprintFieldLabel(nextField)}」`
     // 「父.子」点路径先解析为嵌套字段的原位更新/子字段追加，避免沉淀出顶层同名字段副本
-    const pathResolution = resolveBlueprintFieldPathPatch(nextFieldKey, currentFields)
+    const pathResolution = resolveBlueprintFieldPathPatch(nextFieldKey, currentFields, parentPath)
+    if (pathResolution?.kind === 'ambiguous') {
+      throw buildPathPatchAmbiguityError(pathResolution.fieldKey, pathResolution.candidatePaths)
+    }
     if (pathResolution?.kind === 'existing') {
-      if (!descendantFieldPatches.has(pathResolution.fieldKey)) {
-        descendantFieldPatches.set(pathResolution.fieldKey, {
+      registerBlueprintFieldPathPatch(
+        descendantFieldPatches,
+        pathResolution.fieldChain,
+        {
           ...cloneValue(nextField),
           fieldKey: pathResolution.fieldKey,
-        })
-      }
+        },
+      )
       return
     }
     if (pathResolution?.kind === 'childAddition') {
-      const containerPatch = descendantFieldPatches.get(pathResolution.containerKey)
+      const containerPath = pathResolution.containerFieldChain
+      const existingContainerPatch = findBlueprintFieldPathPatch(
+        descendantFieldPatches,
+        containerPath,
+      )
       const childFieldPatch = {
         ...cloneValue(nextField),
         fieldKey: pathResolution.childKey,
       }
-      if (containerPatch) {
-        containerPatch.children = [
-          ...(Array.isArray(containerPatch.children) ? containerPatch.children : []),
+      if (existingContainerPatch) {
+        existingContainerPatch.patch.children = [
+          ...(Array.isArray(existingContainerPatch.patch.children)
+            ? existingContainerPatch.patch.children
+            : []),
           childFieldPatch,
         ]
       } else {
-        const containerField = currentFieldLookupMaps.stableMap.get(pathResolution.containerKey)
-          || currentDescendantFieldByKey.get(pathResolution.containerKey)
-        descendantFieldPatches.set(pathResolution.containerKey, {
-          fieldKey: pathResolution.containerKey,
-          name: containerField?.name || pathResolution.containerKey,
-          children: [childFieldPatch],
-        })
+        const containerField = containerPath[containerPath.length - 1]
+        registerBlueprintFieldPathPatch(
+          descendantFieldPatches,
+          containerPath,
+          {
+            fieldKey: pathResolution.containerKey,
+            name: String(containerField?.name || '').trim() || pathResolution.containerKey,
+            children: [childFieldPatch],
+          },
+        )
       }
       return
     }
 
-    const currentField = resolveCurrentBlueprintField(nextField, currentFieldLookupMaps)
-    if (currentField && !nextFieldByCurrent.has(currentField)) {
-      nextFieldByCurrent.set(currentField, nextField)
+    const currentFieldMatch = resolveBlueprintFieldIdentityMatch(nextField, currentFieldIdentityIndex)
+    if (currentFieldMatch.kind === 'ambiguous') {
+      throw buildTopLevelPatchAmbiguityError(nextFieldLabel, currentFieldMatch.matches)
+    }
+    if (currentFieldMatch.kind === 'matched') {
+      if (nextFieldByCurrent.has(currentFieldMatch.field)) {
+        throwDuplicateBlueprintFieldPatchError(formatBlueprintFieldLabel(currentFieldMatch.field))
+      }
+      nextFieldByCurrent.set(currentFieldMatch.field, nextField)
       return
     }
-    if (
-      !currentField
-      && nextFieldKey
-      && currentDescendantFieldByKey.has(nextFieldKey)
-      && !descendantFieldPatches.has(nextFieldKey)
-    ) {
-      descendantFieldPatches.set(nextFieldKey, nextField)
+    // 裸 key / 无 key 名称兜底都只接受唯一子字段命中；多命中必须让模型改用「父.子」路径
+    const descendantMatch = resolveBlueprintFieldDescendantMatch(
+      nextField,
+      currentDescendantFieldIndex,
+      { allowNameFallback: !nextFieldKey && !pathResolution },
+    )
+    if (descendantMatch.kind === 'ambiguous') {
+      throw buildDescendantPatchAmbiguityError(nextFieldLabel, descendantMatch.entries)
+    }
+    if (descendantMatch.kind === 'matched') {
+      registerBlueprintFieldPathPatch(
+        descendantFieldPatches,
+        descendantMatch.entry.path,
+        nextField,
+      )
       return
     }
     // 点路径完全无法解析且没有命中任何既有字段时会落成新字段——「顶层同名字段副本」事故的入口，显式失败让模型按真实标识重试
@@ -354,54 +596,76 @@ export const mergeBlueprintFieldsWithExisting = (
     addedFields.push(nextField)
   })
 
-  return [
+  const mergedFields = [
     ...currentFields.flatMap((currentField) => {
-      if (isBlueprintFieldMarkedDeleted(currentField, deletedFieldKeys)) {
+      const currentFieldPath = [...parentPath, currentField]
+      if (isBlueprintFieldMarkedDeleted(currentField, deletionMatcher, currentFieldPath)) {
         return []
       }
       const nextField = nextFieldByCurrent.get(currentField)
-      let mergedField = nextField
+      const mergedField = nextField
         ? mergeBlueprintFieldWithExisting(nextField, currentField, {
           updateMode: 'patch',
-          deletedFieldKeys,
+          deletionMatcher,
+          fieldPath: currentFieldPath,
         })
         : cloneValue(currentField)
-      // 点路径追加的子字段以「容器自身补丁」形式收口（顶层容器不经过子级递归补丁通道）
-      const mergedFieldKey = getBlueprintFieldStableIdentityKey(mergedField)
-      const selfPatch = mergedFieldKey ? descendantFieldPatches.get(mergedFieldKey) : undefined
-      if (mergedFieldKey && selfPatch) {
-        descendantFieldPatches.delete(mergedFieldKey)
-        mergedField = mergeBlueprintFieldWithExisting(selfPatch, mergedField, {
-          updateMode: 'patch',
-          deletedFieldKeys,
-        })
-      }
       return [
-        applyDescendantBlueprintFieldPatches(
+        applyBlueprintFieldPatches(
           mergedField,
           descendantFieldPatches,
-          deletedFieldKeys,
+          { updateMode: 'patch', deletionMatcher },
+          currentFieldPath,
         ),
       ]
     }),
     ...addedFields
-      .filter(field => !isBlueprintFieldMarkedDeleted(field, deletedFieldKeys))
-      .map(field => mergeBlueprintFieldWithExisting(field, undefined, {
-        updateMode: 'patch',
-        deletedFieldKeys,
-      })),
+      .filter(field => !isBlueprintFieldMarkedDeleted(
+        field,
+        deletionMatcher,
+        [...parentPath, field],
+      ))
+      .map((field) => {
+        const fieldPath = [...parentPath, field]
+        const mergedField = mergeBlueprintFieldWithExisting(field, undefined, {
+          updateMode: 'patch',
+          deletionMatcher,
+          fieldPath,
+        })
+        return applyBlueprintFieldPatches(
+          mergedField,
+          descendantFieldPatches,
+          { updateMode: 'patch', deletionMatcher },
+          fieldPath,
+        )
+      }),
   ]
+  if (descendantFieldPatches.size) {
+    const targetLabels = Array.from(new Set(
+      Array.from(descendantFieldPatches.values())
+        .flat()
+        .map(entry => formatBlueprintFieldPathLabel(entry.targetPath)),
+    ))
+    throw new Error(
+      `patch 的字段路径未能应用到当前暂存蓝图：${targetLabels.join('、')}。`
+      + '目标可能已被删除或不存在；请先调用 editor_get_staged_app_blueprint（detail="structure"）核对结构后重试。',
+    )
+  }
+  return mergedFields
 }
+
+export const mergeBlueprintFieldsWithExisting = (
+  nextFields: NocodeEditorAiAppBlueprintField[],
+  currentFields: NocodeEditorAiAppBlueprintField[],
+  deletionMatcher?: BlueprintFieldDeletionMatcher,
+) => mergeBlueprintFieldsWithExistingInternal(nextFields, currentFields, { deletionMatcher })
 
 export const mergeBlueprintFormWithExisting = (
   nextForm: NocodeEditorAiAppBlueprintForm,
   currentForm?: NocodeEditorAiAppBlueprintForm,
-  options: {
-    updateMode?: 'patch' | 'replace'
-    deletedFieldKeys?: Set<string>
-  } = {},
+  options: BlueprintFieldMergeOptions = {},
 ): NocodeEditorAiAppBlueprintForm => {
-  const currentFieldLookupMaps = buildBlueprintFieldLookupMaps(
+  const currentFieldIdentityIndex = createBlueprintFieldIdentityIndex(
     Array.isArray(currentForm?.fields) ? currentForm.fields : [],
   )
 
@@ -409,6 +673,8 @@ export const mergeBlueprintFormWithExisting = (
     ...cloneValue(currentForm || {}),
     ...cloneValue(nextForm),
     formKey: String(nextForm.formKey || currentForm?.formKey || '').trim() || undefined,
+    // patch 片段可能只带 formKey，不能让空表名覆盖暂存蓝图的表单身份。
+    tableName: String(nextForm.tableName || currentForm?.tableName || '').trim(),
     groupName: pickFirstDefined(
       String(nextForm.groupName || '').trim() || undefined,
       currentForm?.groupName,
@@ -421,11 +687,11 @@ export const mergeBlueprintFormWithExisting = (
       ? mergeBlueprintFieldsWithExisting(
         nextForm.fields,
         Array.isArray(currentForm?.fields) ? currentForm.fields : [],
-        options.deletedFieldKeys,
+        options.deletionMatcher,
       )
       : nextForm.fields.map(field => mergeBlueprintFieldWithExisting(
         field,
-        resolveCurrentBlueprintField(field, currentFieldLookupMaps),
+        resolveBlueprintFieldIdentity(field, currentFieldIdentityIndex),
       )),
   }
 }

@@ -2,6 +2,11 @@ import {
   buildLogicalPlanningConfirmationContextKey,
   isSamePlanningConfirmationContext,
 } from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
+import {
+  isFlowSchemeContextFormIdLike,
+  resolveFlowSchemeContextFormKey,
+  resolveFlowSchemeFormIdentityKind,
+} from '@common/utils/nocodeEditorFlowSchemeCardIdentity'
 
 export type FlowSchemeArtifactLike = {
   kind?: string | null
@@ -31,6 +36,10 @@ export type FlowSchemeArtifactLike = {
     questions?: Array<{
       id?: string | null
       title?: string | null
+      decisionTarget?: {
+        formKey?: string | null
+        formName?: string | null
+      } | null
     } | null> | null
   } | null
   flowPlan?: {
@@ -123,6 +132,58 @@ const isPendingFlowSchemeArtifact = (
   block?.kind === 'flow-scheme'
   && block.status === 'ready'
   && block.confirmation?.status === 'pending'
+)
+
+// 卡片真正指向的表单优先取题目目标；没有题目目标时才退回方案目标。
+const resolveFlowSchemeArtifactTargetForm = (
+  block?: FlowSchemeArtifactLike | null,
+) => {
+  for (const question of block?.confirmation?.questions || []) {
+    const formKey = String(question?.decisionTarget?.formKey || '').trim()
+    const formName = String(question?.decisionTarget?.formName || '').trim()
+    if (formKey || formName) {
+      return { formKey, formName }
+    }
+  }
+  return {
+    formKey: String(block?.scheme?.target?.formId || '').trim(),
+    formName: String(block?.scheme?.target?.formName || '').trim(),
+  }
+}
+
+// 身份里的表单和题目指向的表单不一致时，身份本身不可信：再拿它跟别的卡比新旧，
+// 唯一可答的卡会被判成过期只读，对话直接走进死胡同。
+// 只比较同一种表单表示（id 对 id、名字对名字），拿不到可比值时不降级。
+export const isFlowSchemeArtifactIdentityMismatched = (
+  block?: FlowSchemeArtifactLike | null,
+) => {
+  const contextFormKey = resolveFlowSchemeContextFormKey(block?.confirmation?.planningContextKey)
+  if (!contextFormKey) {
+    return false
+  }
+
+  const identityKind = resolveFlowSchemeFormIdentityKind({
+    contextFormKey,
+    formId: block?.scheme?.target?.formId,
+    formName: block?.scheme?.target?.formName,
+  }) || (isFlowSchemeContextFormIdLike(contextFormKey) ? 'id' : 'name')
+  const targetForm = resolveFlowSchemeArtifactTargetForm(block)
+  const targetFormKey = identityKind === 'id' ? targetForm.formKey : targetForm.formName
+  return Boolean(targetFormKey && targetFormKey !== contextFormKey)
+}
+
+// preflight 失败后回填的兜底方案块没有确认项也没有可操作入口，只在时间线上
+// 留下死卡；隐藏渲染即可，块本身要保留给自动续跑定位续跑方案。
+export const shouldHideFlowBlueprintPreflightFallbackSchemeArtifact = (input: {
+  block?: FlowSchemeArtifactLike | null
+  messageMetadata?: Record<string, unknown> | null
+  pendingQuestionCount?: number | null
+}) => (
+  String(input.block?.kind || '').trim() === 'flow-scheme'
+  && String(input.block?.status || '').trim() === 'ready'
+  && String(input.messageMetadata?.finishReason || '').trim()
+    === 'blueprint_preflight_no_progress'
+  && Number(input.pendingQuestionCount || 0) <= 0
 )
 
 const resolveFlowSchemeComparablePlanningContextKey = (
@@ -291,6 +352,13 @@ const isReadyFlowPlanArtifact = (
   && block.status === 'ready'
 )
 
+const isReadyFlowSchemeArtifact = (
+  block?: FlowSchemeArtifactLike | null,
+) => (
+  block?.kind === 'flow-scheme'
+  && block.status === 'ready'
+)
+
 const isLowContextPlaceholderFlowSchemeArtifact = (
   block?: FlowSchemeArtifactLike | null,
 ) => {
@@ -375,11 +443,20 @@ const isHigherPriorityFlowSchemeArtifact = (
   const candidateRank = resolveFlowSchemeArtifactRank(candidate)
   const currentRank = resolveFlowSchemeArtifactRank(current)
 
-  if (candidateRank.stagedAt !== currentRank.stagedAt) {
-    return candidateRank.stagedAt > currentRank.stagedAt
+  if (candidateRank.stagedAt > 0 && currentRank.stagedAt > 0) {
+    if (candidateRank.stagedAt !== currentRank.stagedAt) {
+      return candidateRank.stagedAt > currentRank.stagedAt
+    }
+    return candidateRank.revision > currentRank.revision
   }
 
-  return candidateRank.revision > currentRank.revision
+  // 缺少 stagedAt 的卡（如流程收口恢复卡）只带了 revision：按 stagedAt 比会把它当成最旧的一张，
+  // 新版反而被判过期。两卡不能同时给出 stagedAt 时退回 revision，与实际版本号口径一致。
+  if (candidateRank.revision !== currentRank.revision) {
+    return candidateRank.revision > currentRank.revision
+  }
+
+  return candidateRank.stagedAt > currentRank.stagedAt
 }
 
 const resolveFlowSchemeArtifactIdentityKey = (
@@ -399,6 +476,9 @@ const resolveFlowSchemeArtifactIdentityKey = (
   return [
     String(block.kind || '').trim(),
     String(block.status || '').trim(),
+    String(block.version || '').trim(),
+    String(block.revision || '').trim(),
+    String(block.stagedAt || '').trim(),
     String(block.title || '').trim(),
     String(block.summary || '').trim(),
     String(block.confirmation?.status || '').trim(),
@@ -550,6 +630,57 @@ const hasReadyFlowPlanSuccessor = (input: {
   return false
 }
 
+// 同一方案上下文出现更新的 ready 方案（待确认或已确认）后，旧待确认卡应立即退休。
+// 若等到 flow-plan 成功才隐藏，自动续跑失败时旧卡会重新出现，造成卡片一会显示一会隐藏。
+const hasNewerReadyFlowSchemeSuccessor = (input: {
+  block?: FlowSchemeArtifactLike | null
+  blocks?: Array<FlowSchemeArtifactLike | null | undefined> | null
+}) => {
+  const currentBlock = input.block
+  if (!isPendingFlowSchemeArtifact(currentBlock)) {
+    return false
+  }
+
+  const currentBlockIndex = findFlowSchemeArtifactIndexByReference(input)
+  if (currentBlockIndex < 0) {
+    return false
+  }
+
+  const currentComparablePlanningContextKey = resolveFlowSchemeComparablePlanningContextKey(currentBlock)
+  const currentComparableScopeKey = resolveFlowArtifactComparableScopeKey(currentBlock)
+  if (!currentComparablePlanningContextKey && !currentComparableScopeKey) {
+    return false
+  }
+
+  return (input.blocks || []).slice(currentBlockIndex + 1).some((candidate) => {
+    if (!isReadyFlowSchemeArtifact(candidate)) {
+      return false
+    }
+    if (!candidate || !isHigherPriorityFlowSchemeArtifact(candidate, currentBlock as FlowSchemeArtifactLike)) {
+      return false
+    }
+
+    const candidateComparablePlanningContextKey = resolveFlowSchemeComparablePlanningContextKey(candidate)
+    if (
+      currentComparablePlanningContextKey
+      && candidateComparablePlanningContextKey
+      && isSameFlowSchemePlanningContext(
+        currentComparablePlanningContextKey,
+        candidateComparablePlanningContextKey,
+      )
+    ) {
+      return true
+    }
+
+    const candidateComparableScopeKey = resolveFlowArtifactComparableScopeKey(candidate)
+    return Boolean(
+      currentComparableScopeKey
+      && candidateComparableScopeKey
+      && currentComparableScopeKey === candidateComparableScopeKey,
+    )
+  })
+}
+
 export const findFlowSchemeArtifactIndexForPlanningContext = (input: {
   blocks?: Array<FlowSchemeArtifactLike | null | undefined> | null
   planningContextKey?: string | null
@@ -600,7 +731,7 @@ export const resolveFlowSchemeArtifactSyncDecision = (input: {
     }
   }
 
-  if (hasReadyFlowPlanSuccessor(input)) {
+  if (hasReadyFlowPlanSuccessor(input) || hasNewerReadyFlowSchemeSuccessor(input)) {
     return {
       shouldSync: false,
       reason: 'stale_flow_scheme_artifact',

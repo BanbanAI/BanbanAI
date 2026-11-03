@@ -4,6 +4,10 @@ import type {
   NocodeEditorFlowSchemeDependency,
   NocodeEditorFlowSchemeStep,
 } from '@common/utils/nocodeEditorFlowScheme'
+import {
+  inferFlowPersonnelDecision,
+  resolveFlowDependencyPersonnelDecision,
+} from '@common/utils/nocodeEditorFlowDecisionIdentity'
 import type {
   NocodeEditorFlowPersonnelRef,
   NocodeEditorFlowPersonnelRequirement,
@@ -434,24 +438,50 @@ const buildBlockingDependency = (input: {
   kind: NocodeEditorFlowSchemeDependency['kind']
   targetForm?: SummaryForm | null
   fieldRef?: NocodeEditorFlowSchemeDependency['fieldRef']
-}): NocodeEditorFlowSchemeDependency => ({
-  id: `flow-personnel:${input.step.key}:${input.suffix}`,
-  ...(input.suffix === 'source' && input.assessment.requiredFor === 'approval_owner'
-    ? { decisionKey: 'flow.approval.owner' }
-    : {}),
-  kind: input.kind,
-  requiredFor: input.assessment.requiredFor,
-  scopeKind: 'step',
-  scopeKey: input.step.key,
-  scopeTitle: input.step.title,
-  ...(input.targetForm?.tableId ? { targetFormId: input.targetForm.tableId } : {}),
-  ...(input.targetForm?.tableName ? { targetFormName: input.targetForm.tableName } : {}),
-  ...(input.fieldRef ? { fieldRef: input.fieldRef } : {}),
-  riskLevel: 'high',
-  resolutionStatus: 'unresolved',
-  materializationStatus: 'not_available',
-  summary: input.assessment.summary,
-})
+}): NocodeEditorFlowSchemeDependency => {
+  const personnelDecision = resolvePersonnelDependencyDecision(input)
+  return {
+    id: `flow-personnel:${input.step.key}:${input.suffix}`,
+    ...(personnelDecision
+      ? {
+        personnelDecision,
+        decisionKey: personnelDecision.slot === 'source'
+            && input.assessment.requiredFor === 'approval_owner'
+          ? 'flow.approval.owner'
+          : `flow.personnel:${personnelDecision.stepKey}:${personnelDecision.slot}`,
+      }
+      : {}),
+    kind: input.kind,
+    requiredFor: input.assessment.requiredFor,
+    scopeKind: 'step',
+    scopeKey: input.step.key,
+    scopeTitle: input.step.title,
+    ...(input.targetForm?.tableId ? { targetFormId: input.targetForm.tableId } : {}),
+    ...(input.targetForm?.tableName ? { targetFormName: input.targetForm.tableName } : {}),
+    ...(input.fieldRef ? { fieldRef: input.fieldRef } : {}),
+    riskLevel: 'high',
+    resolutionStatus: 'unresolved',
+    materializationStatus: 'not_available',
+    summary: input.assessment.summary,
+  }
+}
+
+const PERSONNEL_DEPENDENCY_SLOT_BY_SUFFIX = {
+  source: 'source',
+  level: 'approval_level',
+  field: 'binding',
+  fallback: 'empty_handler',
+} as const
+
+const resolvePersonnelDependencyDecision = (input: {
+  step: NocodeEditorFlowSchemeStep
+  suffix: string
+}): NonNullable<NocodeEditorFlowSchemeDependency['personnelDecision']> | null => {
+  const slot = PERSONNEL_DEPENDENCY_SLOT_BY_SUFFIX[
+    input.suffix as keyof typeof PERSONNEL_DEPENDENCY_SLOT_BY_SUFFIX
+  ]
+  return slot ? { stepKey: input.step.key, slot } : null
+}
 
 const buildPlannedFieldDependency = (input: {
   step: NocodeEditorFlowSchemeStep
@@ -1040,6 +1070,171 @@ export const assessAndDecorateFlowSchemePersonnelDependencies = (input: {
   flowSummary?: unknown
 }): NocodeEditorFlowScheme => assessFlowSchemePersonnelDependencies(input).scheme
 
+export type FlowPersonnelQuestionReconciliation = {
+  decisionKey: string
+  stepKey: string
+  stepTitle: string
+  slot: 'source' | 'approval_level'
+}
+
+const isFlowPersonnelQuestionAnswered = (
+  question: NocodeEditorAiConfirmQuestion,
+) => Boolean(
+  question.confirmed === true
+  || normalizeText(question.selectedOptionValue)
+  || normalizeText(question.answerSummary)
+  || normalizeText(question.answerDetail)
+  || question.options?.some(option => option.selected === true),
+)
+
+// 来源已定：unresolved 之外都算已确定；固定人员/角色未绑定对象属于“生成后待补”，
+// 由评估链路产出待配置项，不再回头问来源。
+const isFlowPersonnelSourceDecided = (
+  requirement?: NocodeEditorFlowPersonnelRequirement,
+) => Boolean(requirement && requirement.sourceType !== 'unresolved')
+
+// 层级已定：非部门主管来源不需要层级；部门主管则必须已有 departmentManager。
+const isFlowPersonnelSlotDecided = (input: {
+  requirement?: NocodeEditorFlowPersonnelRequirement
+  slot: 'source' | 'approval_level'
+}) => {
+  if (!isFlowPersonnelSourceDecided(input.requirement)) return false
+  if (input.slot === 'source') return true
+  return input.requirement!.sourceType !== 'department_manager'
+    || Boolean(input.requirement!.departmentManager)
+}
+
+const buildFlowPersonnelStepLookup = (scheme: NocodeEditorFlowScheme) => new Map(
+  getStepList(scheme).flatMap(step => {
+    const key = normalizeText(step.key)
+    return key ? [[key, step] as const] : []
+  }),
+)
+
+// 人员题与 personnelRequirement 对齐：已确定来源/层级的槽位不再追问。
+// 只回收未答题，已答题保留为历史；无配置或 unresolved 时不动（安全态）。
+export const reconcilePersonnelQuestionsWithRequirements = (input: {
+  scheme: NocodeEditorFlowScheme
+}): {
+  scheme: NocodeEditorFlowScheme
+  reconciled: FlowPersonnelQuestionReconciliation[]
+} => {
+  const scheme = input.scheme
+  const stepByKey = buildFlowPersonnelStepLookup(scheme)
+  if (!stepByKey.size) {
+    return { scheme, reconciled: [] }
+  }
+  const decisionStepLookup = new Map(
+    [...stepByKey].map(([key, step]) => [key, { key, kind: step.kind }] as const),
+  )
+  const reconciled: FlowPersonnelQuestionReconciliation[] = []
+  const droppedDecisionKeys = new Set<string>()
+  const recordedKeys = new Set<string>()
+
+  const recordDropped = (item: {
+    decisionKey: unknown
+    stepKey: unknown
+    slot: 'source' | 'approval_level'
+  }) => {
+    const step = stepByKey.get(normalizeText(item.stepKey))
+    if (!step) return
+    const decisionKey = normalizeText(item.decisionKey)
+    if (decisionKey) droppedDecisionKeys.add(decisionKey)
+    const recordedKey = `${decisionKey}|${normalizeText(item.stepKey)}|${item.slot}`
+    if (recordedKeys.has(recordedKey)) return
+    recordedKeys.add(recordedKey)
+    reconciled.push({
+      decisionKey,
+      stepKey: normalizeText(step.key),
+      stepTitle: normalizeText(step.title),
+      slot: item.slot,
+    })
+  }
+
+  const isDecided = (decision: {
+    stepKey: string
+    slot: 'source' | 'approval_level'
+  }) => isFlowPersonnelSlotDecided({
+    requirement: stepByKey.get(normalizeText(decision.stepKey))?.personnelRequirement,
+    slot: decision.slot,
+  })
+
+  const questions = (scheme.confirmation?.questions || []).filter((question) => {
+    if (isFlowPersonnelQuestionAnswered(question)) return true
+    const decision = inferFlowPersonnelDecision(question, decisionStepLookup)
+    const slot = decision?.slot
+    if (!decision || (slot !== 'source' && slot !== 'approval_level')) {
+      return true
+    }
+    if (!isDecided({ stepKey: decision.stepKey, slot })) return true
+    recordDropped({
+      decisionKey: normalizeText(question.decisionKey) || normalizeText(question.id),
+      stepKey: decision.stepKey,
+      slot,
+    })
+    return false
+  })
+
+  const openQuestions = (scheme.openQuestions || []).filter((question) => {
+    const key = normalizeText(question.key)
+    if (key && droppedDecisionKeys.has(key)) return false
+    const decision = inferFlowPersonnelDecision({
+      id: key,
+      decisionKey: key,
+      title: '',
+      questionKind: 'single_select',
+      ...(question.scopeKind === 'step' && normalizeText(question.scopeKey)
+        ? { decisionScope: { kind: 'step' as const, id: normalizeText(question.scopeKey) } }
+        : {}),
+    }, decisionStepLookup)
+    const slot = decision?.slot
+    if (!decision || (slot !== 'source' && slot !== 'approval_level')) {
+      return true
+    }
+    if (!isDecided({ stepKey: decision.stepKey, slot })) return true
+    recordDropped({ decisionKey: key, stepKey: decision.stepKey, slot })
+    return false
+  })
+
+  const dependencies = (scheme.dependencies || []).filter((dependency) => {
+    if (dependency.resolutionStatus === 'resolved') return true
+    const decision = resolveFlowDependencyPersonnelDecision(dependency)
+    const slot = decision?.slot
+    if (!decision || (slot !== 'source' && slot !== 'approval_level')) {
+      return true
+    }
+    if (!isDecided({ stepKey: decision.stepKey, slot })) return true
+    recordDropped({
+      decisionKey: normalizeText(dependency.decisionKey) || normalizeText(dependency.id),
+      stepKey: decision.stepKey,
+      slot,
+    })
+    return false
+  })
+
+  if (!reconciled.length) {
+    return { scheme, reconciled }
+  }
+  const confirmation = scheme.confirmation
+    ? {
+      ...scheme.confirmation,
+      status: questions.some(question => question.required !== false && question.confirmed !== true)
+        ? 'pending' as const
+        : 'completed' as const,
+      questions,
+    }
+    : scheme.confirmation
+  return {
+    scheme: {
+      ...scheme,
+      openQuestions,
+      dependencies,
+      ...(confirmation ? { confirmation } : {}),
+    },
+    reconciled,
+  }
+}
+
 export const removeDeferredCapabilityConfirmationQuestions = (
   scheme: NocodeEditorFlowScheme,
 ): NocodeEditorFlowScheme => {
@@ -1051,11 +1246,24 @@ export const removeDeferredCapabilityConfirmationQuestions = (
   const capabilityDecisionKeys = new Set(
     [...deferredNodeKeys].map(nodeKey => `flow-personnel:${nodeKey}:capability`),
   )
+  const isApprovalOwnerSourceDecisionKey = (key: string) => (
+    key === 'approver_source'
+    || key === 'flow.approval.owner'
+    || key === 'flow.approval.owner.source'
+    || /^flow\.approval\.owner\.source:[^:]+$/u.test(key)
+    || /^flow\.[a-z-]+\.owner\.source\.[^:]+$/u.test(key)
+    || /^flow\.personnel:[^:]+:source$/u.test(key)
+  )
+  const resolveConfirmedSourceValue = (question: NocodeEditorAiConfirmQuestion) => String(
+    question.selectedOptionValue
+    || question.options?.find(option => option.selected)?.value
+    || question.options?.find(option => option.selected)?.personnelCandidate?.sourceType
+    || '',
+  ).trim()
   const hasConfirmedDepartmentManagerSource = (scheme.confirmation?.questions || []).some(question => (
-    (String(question.decisionKey || question.id || '').trim() === 'approver_source')
+    isApprovalOwnerSourceDecisionKey(String(question.decisionKey || question.id || '').trim())
     && question.confirmed === true
-    && String(question.selectedOptionValue || question.options?.find(option => option.selected)?.value || '').trim()
-      === 'department_manager'
+    && resolveConfirmedSourceValue(question) === 'department_manager'
   ))
   const isRedundantApprovalOwnerNote = (question: NocodeEditorAiConfirmQuestion) => (
     hasConfirmedDepartmentManagerSource

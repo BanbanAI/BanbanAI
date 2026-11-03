@@ -1,7 +1,9 @@
 import type {
   NocodeEditorBlueprintPlanningCarryover,
   NocodeEditorBlueprintPlanningFieldStrategyHint,
+  NocodeEditorBlueprintPlanningRelationBinding,
 } from './nocodeEditorBlueprintPlanningCarryover'
+import { isSameNocodeEditorBlueprintFormName } from '@common/utils/nocodeEditorBlueprintFormNormalization'
 
 export type BlueprintFieldIntent =
   | 'member-identity'
@@ -33,6 +35,10 @@ export type BlueprintFieldIntentInput = {
   hasChildren: boolean
   enumOptionsCount: number
   planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  // 其他表单已把本字段作为 source 引用时，它就是主数据的定义字段，不应再被问“来自哪个表单”。
+  isReferencedSourceField?: boolean
+  // 该字段已有“要关联”的字段级确认时，全局“不关联”默认不生效。
+  relationConfirmed?: boolean
 }
 
 export type BlueprintFieldIntentSignals = {
@@ -46,6 +52,8 @@ export type BlueprintFieldIntentSignals = {
   enumOptionsCount: number
   hasChildren: boolean
   planningCarryoverFieldStrategyHints: NocodeEditorBlueprintPlanningFieldStrategyHint[]
+  isReferencedSourceField: boolean
+  relationConfirmed: boolean
 }
 
 export type BlueprintFieldIntentDecision = {
@@ -358,6 +366,8 @@ export const buildBlueprintFieldIntentSignals = (
   planningCarryoverFieldStrategyHints: Array.isArray(input.planningCarryover?.fieldStrategyHints)
     ? input.planningCarryover!.fieldStrategyHints
     : [],
+  isReferencedSourceField: Boolean(input.isReferencedSourceField),
+  relationConfirmed: Boolean(input.relationConfirmed),
 })
 
 const includesAny = (text: string, keywords: string[]) => keywords.some(keyword => text.includes(keyword))
@@ -492,13 +502,32 @@ const buildClarificationQuestion = (keyword: string) => {
   return `这里的“${keyword}”是组织内成员，还是业务档案中的人员？`
 }
 
-const buildMasterDataClarificationQuestion = (keyword: string) => `“${keyword}”这类字段通常来自其他表单数据。请确认它要关联哪个表单、显示哪个字段？`
+const buildMasterDataClarificationQuestion = (keyword: string) => `“${keyword}”这类字段通常来自其他表单数据。要关联哪个表单、显示哪个字段？也可以先不关联。`
 
 const buildCollectionClarificationQuestion = (fieldName: string) => `“${fieldName}”是一个多选集合字段。如这些选项来自其他表单，请确认 source；如果是自定义选项，请明确需要哪些值。`
 
 const buildTimeClarificationQuestion = (fieldName: string) => `“${fieldName}”需要记录单个时间点、时间范围，还是仅记录时分秒？`
 
 const buildAttachmentClarificationQuestion = (fieldName: string) => `“${fieldName}”更适合上传图片证据，还是通用文件附件？`
+
+// 题干文本是跨草稿的题目身份：改这里的模板必须同步改检测，所以两者放在同一文件。
+// 只用宿主自己的句首前缀，不锚定句尾，文案微调不会漏判。
+export const isBlueprintFieldClarificationQuestionText = (value: unknown) => {
+  const text = String(value || '').trim()
+  if (!text) {
+    return false
+  }
+  return [
+    /^“.*”这类字段通常来自其他表单数据。/,
+    /^“.*”是一个多选集合字段。/,
+    /^“.*”需要记录单个时间点、时间范围，还是仅记录时分秒？/,
+    /^“.*”更适合上传图片证据，还是通用文件附件？/,
+    /^“.*”需要作为流程节点自动选人，还是只是表单展示字段？/,
+    /^“.*”是要选择一个部门，还是选择该部门对应的负责人成员？/,
+    /^“.*”是组织内成员，还是业务档案中的负责人？/,
+    /^这里的“.*”是组织内成员，还是业务档案中的人员？/,
+  ].some(pattern => pattern.test(text))
+}
 
 const genericFallbackDecision = (): BlueprintFieldIntentDecision => createDecision({
   intent: 'generic',
@@ -584,7 +613,7 @@ const resolveMasterDataRelationDomain = (text: string) => {
 const hasExplicitRelationBindingRequest = (
   signals: BlueprintFieldIntentSignals,
   semanticText: string,
-  hint: NocodeEditorBlueprintPlanningFieldStrategyHint,
+  relationDomain: string,
 ) => {
   if (
     signals.explicitWidgetType === 'widget.form.treeSelect'
@@ -594,12 +623,52 @@ const hasExplicitRelationBindingRequest = (
   }
 
   const normalizedText = normalizeIntentToken(semanticText)
-  const aliases = resolveRelationDomainAliases(hint.relationDomain)
+  const aliases = resolveRelationDomainAliases(relationDomain)
   const hasAlias = aliases.some(alias => normalizedText.includes(normalizeIntentToken(alias)))
   const hasVerb = EXPLICIT_RELATION_BINDING_VERBS.some(token => normalizedText.includes(normalizeIntentToken(token)))
   const hasTarget = EXPLICIT_RELATION_BINDING_TARGETS.some(token => normalizedText.includes(normalizeIntentToken(token)))
 
   return hasAlias && hasVerb && hasTarget
+}
+
+const matchesPlanningTextFirstStrategyHint = (
+  signals: BlueprintFieldIntentSignals,
+  semanticText: string,
+  relationDomain: string,
+  hint: NocodeEditorBlueprintPlanningFieldStrategyHint,
+) => {
+  if (
+    hint.strategyKey !== 'text-first'
+    || hint.suppressSourceClarification !== true
+    || hint.deferSourceBinding !== true
+    || hint.keepWidgetType !== 'widget.form.textInput'
+  ) {
+    return false
+  }
+
+  // 全局默认只约束没有显式关联意图的主数据字段；
+  // 字段级已确认“要关联”时，全局否定不能再覆盖它。
+  if (hint.scope === 'all-master-data') {
+    if (signals.relationConfirmed) {
+      return false
+    }
+    return !hasExplicitRelationBindingRequest(signals, semanticText, relationDomain)
+  }
+
+  const normalizedRelationAliases = resolveRelationDomainAliases(relationDomain)
+    .map(alias => normalizeIntentToken(alias))
+    .filter(Boolean)
+  const hintAliases = resolveRelationDomainAliases(hint.relationDomain)
+    .map(alias => normalizeIntentToken(alias))
+    .filter(Boolean)
+  const sameRelationDomain = hintAliases.some(alias => normalizedRelationAliases.includes(alias))
+  const targetFieldKey = normalizeIntentToken(hint.targetFieldKey)
+  const currentFieldKey = normalizeIntentToken(signals.fieldName)
+  if (!sameRelationDomain && (!targetFieldKey || targetFieldKey !== currentFieldKey)) {
+    return false
+  }
+
+  return !hasExplicitRelationBindingRequest(signals, semanticText, hint.relationDomain)
 }
 
 const resolvePlanningTextFirstStrategyHint = (
@@ -611,38 +680,123 @@ const resolvePlanningTextFirstStrategyHint = (
     return null
   }
 
-  const normalizedRelationAliases = resolveRelationDomainAliases(relationDomain)
-    .map(alias => normalizeIntentToken(alias))
-    .filter(Boolean)
-
-  for (const hint of signals.planningCarryoverFieldStrategyHints) {
-    if (
-      hint.strategyKey !== 'text-first'
-      || hint.suppressSourceClarification !== true
-      || hint.deferSourceBinding !== true
-      || hint.keepWidgetType !== 'widget.form.textInput'
-    ) {
-      continue
-    }
-
-    const hintAliases = resolveRelationDomainAliases(hint.relationDomain)
-      .map(alias => normalizeIntentToken(alias))
-      .filter(Boolean)
-    const sameRelationDomain = hintAliases.some(alias => normalizedRelationAliases.includes(alias))
-    const targetFieldKey = normalizeIntentToken(hint.targetFieldKey)
-    const currentFieldKey = normalizeIntentToken(signals.fieldName)
-    if (!sameRelationDomain && (!targetFieldKey || targetFieldKey !== currentFieldKey)) {
-      continue
-    }
-
-    if (hasExplicitRelationBindingRequest(signals, semanticText, hint)) {
-      continue
-    }
-
-    return hint
+  const hints = signals.planningCarryoverFieldStrategyHints
+  // “先说都不关联、后又说客户要关联”时，字段级的肯定决策必须赢过全局默认。
+  const specificHint = hints.find(hint => (
+    hint.scope !== 'all-master-data'
+    && matchesPlanningTextFirstStrategyHint(signals, semanticText, relationDomain, hint)
+  ))
+  if (specificHint) {
+    return specificHint
   }
 
-  return null
+  return hints.find(hint => (
+    hint.scope === 'all-master-data'
+    && matchesPlanningTextFirstStrategyHint(signals, semanticText, relationDomain, hint)
+  )) || null
+}
+
+// 供宿主在暂存管线里复用同一套匹配判定，不跑完整解释。
+export const isPlanningTextFirstFieldStrategy = (
+  input: BlueprintFieldIntentInput,
+) => {
+  const signals = buildBlueprintFieldIntentSignals(input)
+  const relationSemanticText = buildRelationSemanticText(signals)
+  const relationDomain = resolveMasterDataRelationDomain(relationSemanticText)
+  if (!relationDomain) {
+    return false
+  }
+  if (signals.hasSource || signals.canResolveRelationSource || signals.hasChildren) {
+    return false
+  }
+  return Boolean(resolvePlanningTextFirstStrategyHint(signals, relationSemanticText, relationDomain))
+}
+
+const RELATION_FIELD_NAME_PREFIX_REGEXP = /^(所属|关联|选择|对应|目标|默认|来源|参考|引用|绑定)/
+
+// 域名兜底只认“字段名本身就是这个关系”的字段：费用项目/关联项目 命中，
+// 项目名称、项目编号、项目状态这类属性字段不命中，避免一条批量答复把它们全绑成来源。
+const isRelationDomainFieldName = (fieldName: string, relationDomain: string) => {
+  const nameToken = normalizeIntentToken(fieldName).replace(RELATION_FIELD_NAME_PREFIX_REGEXP, '')
+  if (!nameToken) {
+    return false
+  }
+  return resolveRelationDomainAliases(relationDomain)
+    .map(alias => normalizeIntentToken(alias))
+    .filter(Boolean)
+    .some(alias => nameToken === alias || nameToken.endsWith(alias))
+}
+
+// 规划答复只对作答时那张表生效；绑定没带 owner 时（应用级答复）仍作用于全部表单。
+// 没传 form 时按“不匹配”处理，避免作用域丢失后把绑定又放大成全表单。
+export const matchesPlanningRelationBindingOwnerForm = (
+  binding: NocodeEditorBlueprintPlanningRelationBinding,
+  form?: { formKey?: string; tableName?: string } | null,
+) => {
+  const ownerFormKey = String(binding.ownerFormKey || '').trim()
+  const ownerFormName = String(binding.ownerFormName || '').trim()
+  if (!ownerFormKey && !ownerFormName) {
+    return true
+  }
+  if (!form) {
+    return false
+  }
+  if (ownerFormKey && ownerFormKey === String(form.formKey || '').trim()) {
+    return true
+  }
+  return Boolean(
+    ownerFormName
+    && isSameNocodeEditorBlueprintFormName(form.tableName, ownerFormName),
+  )
+}
+
+export const resolvePlanningRelationBindingForField = (
+  bindings: NocodeEditorBlueprintPlanningRelationBinding[] | undefined,
+  field: {
+    fieldKey?: string
+    fieldName: string
+    description?: string
+    notes?: string[]
+  },
+  options: {
+    // 自动补 source 时开启：只允许“字段名即关系”的字段走域名兜底。
+    relationFieldNameOnly?: boolean
+    // 使用方字段所在的表单：带 owner 的绑定只在这里匹配。
+    form?: { formKey?: string; tableName?: string } | null
+  } = {},
+): NocodeEditorBlueprintPlanningRelationBinding | null => {
+  if (!Array.isArray(bindings) || !bindings.length) {
+    return null
+  }
+
+  const candidates = bindings.filter(binding => (
+    matchesPlanningRelationBindingOwnerForm(binding, options.form)
+  ))
+  if (!candidates.length) {
+    return null
+  }
+
+  const fieldKey = normalizeIntentToken(field.fieldKey)
+  const targeted = candidates.find(binding => (
+    binding.targetFieldKey
+    && normalizeIntentToken(binding.targetFieldKey) === fieldKey
+  ))
+  if (targeted) {
+    return targeted
+  }
+
+  const domain = resolveMasterDataRelationDomain([
+    field.fieldName,
+    field.description,
+    ...(field.notes || []),
+  ].join(' '))
+  if (!domain) {
+    return null
+  }
+  if (options.relationFieldNameOnly && !isRelationDomainFieldName(field.fieldName, domain)) {
+    return null
+  }
+  return candidates.find(binding => binding.relationDomain === domain) || null
 }
 
 const createPlanningTextFirstDecision = (
@@ -659,6 +813,7 @@ const createPlanningTextFirstDecision = (
   requiresClarification: false,
   matchedSignals: [
     `planning-carryover:${hint.strategyKey}`,
+    `planning-scope:${hint.scope || 'relation-domain'}`,
     `planning-question:${hint.sourceQuestionId}`,
   ],
 })
@@ -904,6 +1059,18 @@ const masterDataRelationResolvers: BlueprintFieldIntentResolver[] = [
         confidence: 'high',
         requiresClarification: false,
         matchedSignals: [`master-data:${masterDataDomain}`, 'source'],
+      })
+    }
+
+    if (signals.isReferencedSourceField) {
+      return createDecision({
+        intent: 'relation-master-data',
+        capabilityFamily: 'master-data-relation',
+        widgetType: signals.explicitWidgetType || 'widget.form.textInput',
+        trustedExplicitWidgetType: signals.explicitWidgetType || undefined,
+        confidence: 'high',
+        requiresClarification: false,
+        matchedSignals: [`master-data:${masterDataDomain}`, 'referenced-source-field'],
       })
     }
 

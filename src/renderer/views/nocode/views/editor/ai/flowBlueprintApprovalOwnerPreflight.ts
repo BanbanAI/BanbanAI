@@ -18,6 +18,7 @@ import {
   resolveFlowApprovalOwnerSummaryTarget,
   resolveFlowSchemeDependencyState,
   resolveFlowSchemeSingleDependency,
+  collectFlowSchemeSteps,
   type FlowApprovalOwnerSummaryTarget,
 } from '@common/utils/nocodeEditorFlowApprovalOwnerRules'
 
@@ -169,6 +170,31 @@ const resolveApprovalOwnerDependency = (
   scopeKey: node.nodeKey,
 })
 
+const resolveApprovalOwnerStep = (
+  scheme: NocodeEditorFlowScheme,
+  nodeKey: unknown,
+) => collectFlowSchemeSteps(scheme).find(step => (
+  step.kind === 'approval'
+  && normalizeText(step.key) === normalizeText(nodeKey)
+)) || null
+
+// approval_owner 依赖并不都是表单字段依赖：部门主管、固定角色/人员、提交人等来源
+// 只绑定组织锚点，没有 fieldRef，必须跳过成员/部门字段校验，否则会被误判为非法字段依赖。
+const isNonFieldApprovalOwnerSource = (input: {
+  dependency: NocodeEditorFlowSchemeDependency
+  step: ReturnType<typeof resolveApprovalOwnerStep>
+}) => {
+  if (input.dependency.kind === 'org_anchor_missing') {
+    return true
+  }
+  const sourceType = input.step?.personnelRequirement?.sourceType
+  return Boolean(
+    sourceType
+    && sourceType !== 'form_member'
+    && sourceType !== 'form_department',
+  )
+}
+
 const isLegacyApprovalOwnerReferenceConsistent = (input: {
   scheme: NocodeEditorFlowScheme
   node: NocodeEditorFlowPlanNode
@@ -292,6 +318,12 @@ export const validateFlowBlueprintApprovalOwnerDependencies = (input: {
           nodeKey,
           nodeName,
         })
+        return
+      }
+      if (isNonFieldApprovalOwnerSource({
+        dependency,
+        step: resolveApprovalOwnerStep(input.scheme, node.nodeKey),
+      })) {
         return
       }
 

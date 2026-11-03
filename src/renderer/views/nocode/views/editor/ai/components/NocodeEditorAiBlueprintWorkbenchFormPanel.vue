@@ -129,6 +129,7 @@
                 :draft-persistence-state="draftPersistenceState"
                 :show-draft-issue-list="false"
                 :show-generated-open-action="true"
+                :question-scope="questionScope"
                 @apply-blueprint="handleApply"
                 @continue-blueprint-adjustment="handleContinue"
                 @select-confirmation-option="handleSelectConfirmationOption"
@@ -187,7 +188,7 @@
 <script setup lang="ts">
 import i18next from 'i18next'
 import { computed, ref, watch, type PropType } from 'vue'
-import type { AiAssistantArtifactBlock, AiAssistantFlowPlanArtifactBlock } from '@common/types/ai'
+import type { AiAssistantArtifactBlock } from '@common/types/ai'
 import type { NocodeEditorAiConfirmQuestionOption } from '@common/types/nocodeEditorConfirmation'
 import type { NocodeEditorFlowPlanTriggerBranch } from '@common/utils/nocodeEditorFlowPlan'
 import {
@@ -223,9 +224,8 @@ import type {
   BlueprintWorkbenchHistoryEntry,
   BlueprintWorkbenchMode,
 } from '../blueprintWorkbenchViewModel'
-import { buildBlueprintArtifactVersionFromParts } from '../blueprintArtifactIdentity'
+import { buildBlueprintArtifactBlockFromWorkbenchCard } from './blueprintWorkbenchArtifactBlock'
 import type {
-  NocodeEditorAiAppBlueprint,
   NocodeEditorAiAppBlueprintField,
   NocodeEditorAiAppBlueprintForm,
   NocodeEditorAiArtifactBlock,
@@ -233,6 +233,10 @@ import type {
   NocodeEditorAiGeneratedBlueprintPageTarget,
 } from '../types'
 import type { NocodeEditorAiConfirmationResponseDraftMap } from './confirmationInteraction'
+import {
+  buildBlueprintConfirmationQuestionScope,
+  type BlueprintConfirmationQuestionScope,
+} from './blueprintConfirmationQuestionScope'
 import NocodeEditorAiBlueprintDecisionPanel from './NocodeEditorAiBlueprintDecisionPanel.vue'
 import NocodeEditorAiBlueprintDetailSections from './NocodeEditorAiBlueprintDetailSections.vue'
 import NocodeEditorAiDraftIssueActionList from './NocodeEditorAiDraftIssueActionList.vue'
@@ -362,29 +366,13 @@ const countFields = (fields: NocodeEditorAiAppBlueprintField[] | undefined): num
 }
 
 const blueprintBlock = computed<AiAssistantArtifactBlock | null>(() => (
-  !props.card
-    ? null
-    : {
-      type: 'artifact',
-      kind: 'blueprint',
-      status: 'ready',
-      version: buildBlueprintArtifactVersionFromParts(props.card.item),
-      displayRevision: props.card.item.displayRevision,
-      displayVersionLabel: props.card.item.displayVersionLabel,
-      revision: props.card.item.revision,
-      stagedAt: props.card.item.stagedAt,
-      phase: props.card.item.phase || undefined,
-      title: props.card.item.blueprint.title || props.card.title || i18next.t('nocodeEditorAiBlueprintWorkbenchFormPanel.blueprintDraft'),
-      summary: props.card.item.blueprint.summary || props.card.summary,
-      blueprint: props.card.item.blueprint,
-      confirmation: (
-        props.card.item.blueprint as (NocodeEditorAiAppBlueprint & {
-          confirmation?: AiAssistantFlowPlanArtifactBlock['confirmation']
-        })
-      ).confirmation || undefined,
-      applyResult: props.card.item.applyResult || null,
-      draftPersistenceState: props.card.item.draftPersistenceState || null,
-    }
+  buildBlueprintArtifactBlockFromWorkbenchCard(props.card)
+))
+
+// 工作台一张卡只代表一张表单，字段级确认项按 decisionTarget 归属到对应页签；
+// 蓝图级问题只在首个表单页签出现一次。
+const questionScope = computed<BlueprintConfirmationQuestionScope | null>(() => (
+  buildBlueprintConfirmationQuestionScope(props.card?.item, props.card?.form)
 ))
 
 const canReviewBlueprintActions = computed(() => (

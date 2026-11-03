@@ -18,22 +18,31 @@ export const hasStructuredGenerationArtifact = (
   && STRUCTURED_GENERATION_ARTIFACT_KINDS.has(String(block.kind || '').trim())
 ))
 
+const isTerminalAssistantErrorMetadata = (metadata?: Record<string, unknown> | null) => (
+  metadata?.persistedError === true
+  || Boolean(String(metadata?.errorKind || '').trim())
+)
+
 export const shouldHideStructuredGenerationNarration = (input: {
   metadata?: Record<string, unknown> | null
   blocks?: AiAssistantMessageBlock[]
-}) => (
-  input.metadata?.structuredGenerationActive === true
-  || (
-    hasStructuredGenerationArtifact(input.blocks || [])
-    && input.metadata?.blueprintAppliedFromAction !== true
-    && !(input.blocks || []).some(block => block.type === 'artifact' && block.status === 'error')
-    && !(input.blocks || []).some(block => (
-      block.type === 'artifact'
-      && block.status === 'ready'
-      && (
-        ('flowApplyResult' in block && Boolean(block.flowApplyResult))
-        || ('applyResult' in block && Boolean(block.applyResult))
-      )
-    ))
-  )
-)
+}) => {
+  if (isTerminalAssistantErrorMetadata(input.metadata)) {
+    return false
+  }
+
+  return input.metadata?.structuredGenerationActive === true
+    || (
+      hasStructuredGenerationArtifact(input.blocks || [])
+      && input.metadata?.blueprintAppliedFromAction !== true
+      && !(input.blocks || []).some(block => block.type === 'artifact' && block.status === 'error')
+      && !(input.blocks || []).some(block => (
+        block.type === 'artifact'
+        && block.status === 'ready'
+        && (
+          ('flowApplyResult' in block && Boolean(block.flowApplyResult))
+          || ('applyResult' in block && Boolean(block.applyResult))
+        )
+      ))
+    )
+}

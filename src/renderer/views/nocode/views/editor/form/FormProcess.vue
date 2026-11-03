@@ -1956,7 +1956,9 @@ defineExpose({
 })
 
 onMounted(() => {
-  ensureOrganizeDataReady().catch(() => {})
+  ensureOrganizeDataReady().catch((error) => {
+    console.error('Ensure organize data ready failed:', error)
+  })
 })
 </script>
 

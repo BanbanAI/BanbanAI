@@ -50,7 +50,7 @@ export type FlowPlanGroundingCompatibleField = {
   fieldName: string
   ownerPolicy?: string
   conditionPolicy?: string
-  matchReason?: 'owner_policy_match' | 'condition_policy_match'
+  matchReason?: 'owner_policy_match' | 'condition_policy_match' | 'source_name_match'
 }
 
 export type FlowPlanGroundingDiagnostic = Omit<
@@ -568,6 +568,74 @@ const collectCompatibleConditionFields = (
   return matches
 }
 
+const countSharedTokenBigrams = (left: string, right: string) => {
+  if (left.length < 2 || right.length < 2) {
+    return 0
+  }
+  let count = 0
+  for (let index = 0; index < left.length - 1; index += 1) {
+    if (right.includes(left.slice(index, index + 2))) {
+      count += 1
+    }
+  }
+  return count
+}
+
+// 只有当字段名与引用名存在可解释的关联（包含关系或共享连续字符）时才给候选，避免无关字段误导用户。
+const collectCompatibleSourceFields = (
+  table: FlowSummaryTable | null,
+  candidateText: string,
+): FlowPlanGroundingCompatibleField[] => {
+  if (!table) {
+    return []
+  }
+  const candidateToken = normalizeToken(candidateText)
+  if (!candidateToken) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const scored: Array<{
+    field: FlowSummaryField
+    score: number
+    order: number
+  }> = []
+
+  collectSummaryFields(table.fields).forEach((field, order) => {
+    const fieldId = normalizeText(field.fieldId)
+    const fieldName = normalizeText(field.fieldName)
+    const key = `${fieldId}|${fieldName}`
+    if (!fieldName || seen.has(key) || field.subFields?.length) {
+      return
+    }
+    seen.add(key)
+    const fieldToken = normalizeToken(fieldName)
+    if (!fieldToken) {
+      return
+    }
+
+    let score = 0
+    if (fieldToken === candidateToken) {
+      score = 3
+    } else if (fieldToken.includes(candidateToken) || candidateToken.includes(fieldToken)) {
+      score = 2
+    } else if (countSharedTokenBigrams(candidateToken, fieldToken) > 0) {
+      score = 1
+    }
+    if (score > 0) {
+      scored.push({ field, score, order })
+    }
+  })
+
+  return scored
+    .sort((left, right) => (right.score - left.score) || (left.order - right.order))
+    .map(item => ({
+      fieldId: normalizeText(item.field.fieldId),
+      fieldName: normalizeText(item.field.fieldName),
+      matchReason: 'source_name_match',
+    }))
+}
+
 const validateWriteFieldReference = (
   diagnostics: FlowPlanGroundingDiagnostic[],
   context: FlowVisitContext,
@@ -691,6 +759,7 @@ const validateSourceFieldReference = (
   }
   const field = findSummaryFieldByAny(table, candidateText)
   if (!field) {
+    const compatibleFields = collectCompatibleSourceFields(table, candidateText)
     diagnostics.push({
       code: 'grounding_source_field_missing',
       message: buildGroundingMessage(context, `未找到字段取值来源“${candidateText}”。`),
@@ -703,6 +772,8 @@ const validateSourceFieldReference = (
       fieldRef: {
         fieldName: candidateText,
       },
+      compatibleFields: compatibleFields.slice(0, 3),
+      candidateCount: compatibleFields.length,
     })
   }
 }

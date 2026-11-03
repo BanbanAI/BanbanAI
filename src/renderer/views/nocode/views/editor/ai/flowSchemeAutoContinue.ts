@@ -18,6 +18,12 @@ export const FLOW_BLUEPRINT_AUTO_CONTINUE_MESSAGE = '请继续基于当前已确
 // 蓝图阶段连续同一原因失败时停止自动续跑，避免「自动续跑 → 同样被拒」的死循环。
 export const FLOW_BLUEPRINT_AUTO_CONTINUE_MAX_SAME_CAUSE_FAILURES = 3
 
+// 这些失败要用户先做动作（如打开目标表单），或需要回到方案层重新收敛，自动续跑只会原样再失败一次，直接停。
+export const FLOW_BLUEPRINT_AUTO_CONTINUE_BLOCKED_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'target_form_not_open',
+  'flow_personnel_source_mismatch',
+])
+
 export type FlowBlueprintStageFailureStateLike = {
   planningContextKey?: string
   code?: string
@@ -31,6 +37,9 @@ export const shouldSuppressFlowBlueprintAutoContinueForRepeatedFailure = (input:
   const failureState = input.failureState
   if (!failureState?.code) {
     return false
+  }
+  if (FLOW_BLUEPRINT_AUTO_CONTINUE_BLOCKED_FAILURE_CODES.has(String(failureState.code))) {
+    return true
   }
   if (Number(failureState.count || 0) < FLOW_BLUEPRINT_AUTO_CONTINUE_MAX_SAME_CAUSE_FAILURES) {
     return false
