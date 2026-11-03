@@ -280,3 +280,69 @@ export const repairLikelyUnescapedQuotesInJson = (source: string) => {
 
   return result
 }
+
+const isPlainObjectRecord = (value: unknown): value is Record<string, any> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+)
+
+const isObjectTypeSchema = (schema: unknown) => {
+  if (!isPlainObjectRecord(schema)) {
+    return false
+  }
+  const type = schema.type
+  return type === 'object' || (Array.isArray(type) && type.includes('object'))
+}
+
+// 唯一必填包装键已存在、但模型把包装内的必填字段写到了根层时，把根层字段并回包装对象。
+// 只搬「包装必填、包装内缺失、根 schema 没声明」的键：可选字段不搬，避免把本来会被忽略的根层内容变成有效输入。
+export const mergeSiblingPropertiesIntoSoleRequiredObjectWrapper = (
+  input: Record<string, any>,
+  schema?: Record<string, any>,
+): Record<string, any> => {
+  if (!isPlainObjectRecord(input) || !isObjectTypeSchema(schema)) {
+    return input
+  }
+  const rootSchema = schema as Record<string, any>
+  const requiredKeys = Array.isArray(rootSchema.required)
+    ? rootSchema.required.map(item => String(item || '').trim()).filter(Boolean)
+    : []
+  if (requiredKeys.length !== 1) {
+    return input
+  }
+
+  const wrapperKey = requiredKeys[0]
+  const wrapperValue = input[wrapperKey]
+  const rootProperties = isPlainObjectRecord(rootSchema.properties) ? rootSchema.properties : {}
+  const wrapperSchema = rootProperties[wrapperKey]
+  if (!isPlainObjectRecord(wrapperValue) || !isObjectTypeSchema(wrapperSchema)) {
+    return input
+  }
+  const wrapperProperties = isPlainObjectRecord(wrapperSchema.properties)
+    ? wrapperSchema.properties
+    : {}
+  const wrapperRequiredKeys = new Set(
+    Array.isArray(wrapperSchema.required)
+      ? wrapperSchema.required.map(item => String(item || '').trim()).filter(Boolean)
+      : [],
+  )
+
+  const movableEntries = Object.entries(input).filter(([key]) => (
+    key !== wrapperKey
+    && wrapperRequiredKeys.has(key)
+    && Object.prototype.hasOwnProperty.call(wrapperProperties, key)
+    && !Object.prototype.hasOwnProperty.call(rootProperties, key)
+    && !Object.prototype.hasOwnProperty.call(wrapperValue, key)
+  ))
+  if (!movableEntries.length) {
+    return input
+  }
+
+  const rest: Record<string, any> = { ...input }
+  const mergedWrapper: Record<string, any> = { ...wrapperValue }
+  for (const [key, value] of movableEntries) {
+    mergedWrapper[key] = value
+    delete rest[key]
+  }
+  rest[wrapperKey] = mergedWrapper
+  return rest
+}

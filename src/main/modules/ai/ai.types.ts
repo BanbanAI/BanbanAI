@@ -30,6 +30,7 @@ export enum AiStreamEventType {
   TOOL_RESULT = 'tool-result',
   DONE = 'done',
   ERROR = 'error',
+  STATUS = 'status',
   CONTEXT_COMPACTION_START = 'context_compaction_start',
   CONTEXT_COMPACTION_COMPLETED = 'context_compaction_completed',
 }
@@ -361,6 +362,8 @@ export type AiScenePayload = {
   stagedPlanningSummary?: string
   stagedFlowSummary?: string
   stagedBlueprintSummary?: string
+  hasStagedBlueprint?: boolean
+  hasStagedFlowScheme?: boolean
   pendingBlueprintRepeatIntent?: boolean
   pendingBlueprintClarificationSummary?: string
   pendingBlueprintClarificationKind?: 'planning-question' | 'explicit-confirmation'
@@ -420,6 +423,10 @@ export type AiRelayStreamEvent =
   | {
       type: AiStreamEventType.CONTEXT_COMPACTION_START | AiStreamEventType.CONTEXT_COMPACTION_COMPLETED
       raw?: any
+    }
+  | {
+      type: AiStreamEventType.STATUS
+      statusPhase: string
     }
   | {
       type: AiStreamEventType.DELTA

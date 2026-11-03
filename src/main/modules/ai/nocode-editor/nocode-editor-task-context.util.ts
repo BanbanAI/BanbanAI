@@ -21,8 +21,11 @@ import {
   normalizeNocodeEditorPlanningOutline,
 } from '@common/utils/nocodeEditorPlanningOutline'
 import {
+  bindNocodeEditorFlowEntryIntentTarget,
   buildNocodeEditorPendingFlowIntentFromEntryFlowIntent,
+  isNocodeEditorPendingFlowIntentForTarget,
   matchNocodeEditorPendingFlowIntentTarget,
+  normalizeActiveNocodeEditorPendingFlowIntent,
   normalizeNocodeEditorPendingFlowIntent,
   shouldBlockNocodeEditorPendingFlowIntentRebind,
   type NocodeEditorPendingFlowIntent,
@@ -86,7 +89,9 @@ import { reconcileNocodeEditorConfirmationDecisions } from '@common/utils/nocode
 import {
   buildLogicalPlanningConfirmationContextKey,
   isSamePlanningConfirmationContext,
+  parsePlanningConfirmationContextKey,
 } from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
+import { resolveNocodeEditorAppliedPrimaryForm } from '@common/utils/nocodeEditorAppliedFlowTarget'
 import { isCurrentFlowSchemeRevision } from '@common/utils/nocodeEditorFlowConfirmationTrust'
 import {
   buildStablePlanningQuestionId,
@@ -362,6 +367,8 @@ const resolveActionResultPostFormFlowRelease = (input: {
   latestTaskSummary?: NocodeEditorTaskSummaryLike
   planningScope: NocodeEditorPlanningScope
   pendingFlowIntent?: NocodeEditorPendingFlowIntent | null
+  targetFormId?: unknown
+  targetFormName?: unknown
 }) => {
   const metadata = asRecord(input.result?.metadata)
   const output = asRecord(input.result?.output)
@@ -398,6 +405,8 @@ const resolveActionResultPostFormFlowRelease = (input: {
       typeof resolveNocodeEditorPostFormFlowRelease
     >[0]['formulaSummary'],
     pendingFlowIntent: input.pendingFlowIntent,
+    targetFormId: input.targetFormId,
+    targetFormName: input.targetFormName,
   })
 }
 
@@ -789,8 +798,7 @@ export const reconcileNocodeEditorScenePayloadWithTaskSummary = (input: {
     return scenePayload
   }
 
-  ;[
-    'planningScope',
+  [
     'pendingFlowIntent',
     'postFormFlowFollowUp',
     'postFormFlowOpportunity',
@@ -802,6 +810,15 @@ export const reconcileNocodeEditorScenePayloadWithTaskSummary = (input: {
     }
     scenePayload[key] = (taskSummary as NocodeEditorTaskContextObject)[key] ?? null
   })
+
+  // planningScope 描述的是本轮请求的规划层级，请求侧给出具体值时优先于持久任务摘要；
+  // 否则旧任务的 scope 会覆盖新请求，连带影响阶段契约和范围守卫。
+  if (
+    normalizeNocodeEditorPlanningScopeValue(scenePayload.planningScope) === 'unknown'
+    && Object.prototype.hasOwnProperty.call(taskSummary, 'planningScope')
+  ) {
+    scenePayload.planningScope = taskSummary.planningScope ?? null
+  }
 
   return scenePayload
 }
@@ -854,10 +871,16 @@ const normalizeLineSummary = (label: string, value: unknown) => {
   return `${label}：${(compacted.length ? compacted : lines.slice(0, 4)).join(' / ')}`
 }
 
+const resolveOpenQuestionText = (item: unknown) => (
+  isPlainObject(item)
+    ? normalizeText(item.title || item.question || item.name)
+    : normalizeText(item)
+)
+
 const normalizeOpenQuestions = (value: unknown) => (
   Array.isArray(value)
     ? value
-      .map(item => normalizeText(item))
+      .map(item => resolveOpenQuestionText(item))
       .filter(Boolean)
       .slice(0, 3)
     : []
@@ -883,7 +906,7 @@ const buildFlowIssueRoutingSummary = (routingValue: unknown) => {
 const normalizeOpenQuestionsWithoutLimit = (value: unknown) => (
   Array.isArray(value)
     ? value
-      .map(item => normalizeText(item))
+      .map(item => resolveOpenQuestionText(item))
       .filter(Boolean)
     : []
 )
@@ -903,9 +926,11 @@ const buildConfirmationDecisionContextLines = (value: unknown) => (
       .filter(isPlainObject)
       .map((item) => {
         const questionId = normalizeText(item.questionId)
+        const decisionKey = normalizeText(item.decisionKey)
         const questionTitle = normalizeText(item.questionTitle)
         const selectedOptionValue = normalizeText(item.selectedOptionValue)
         const answerSummary = normalizeText(item.answerSummary)
+        const answerDetail = normalizeText(item.answerDetail)
         const planningContextKey = normalizeText(item.planningContextKey)
         const approvalOwnerSource = normalizeText(item.approvalOwnerSource)
         const decisionTarget = isPlainObject(item.decisionTarget)
@@ -915,9 +940,11 @@ const buildConfirmationDecisionContextLines = (value: unknown) => (
           : ''
         return [
           questionId ? `问题=${questionId}` : '',
+          decisionKey ? `决策=${decisionKey}` : '',
           questionTitle ? `标题=${questionTitle}` : '',
           selectedOptionValue ? `选项=${selectedOptionValue}` : '',
           answerSummary ? `结论=${answerSummary}` : '',
+          answerDetail && answerDetail !== answerSummary ? `说明=${answerDetail.slice(0, 80)}` : '',
           decisionTarget,
           approvalOwnerSource ? `审批人来源=${approvalOwnerSource}` : '',
           planningContextKey ? `上下文=${planningContextKey}` : '',
@@ -1002,7 +1029,9 @@ const normalizeBlueprintConfirmationDecisions = (
           ? {
             kind: 'field-source' as const,
             formKey: normalizeText(rawDecisionTarget?.formKey) || undefined,
+            formName: normalizeText(rawDecisionTarget?.formName) || undefined,
             fieldKey: decisionTargetFieldKey,
+            fieldName: normalizeText(rawDecisionTarget?.fieldName) || undefined,
           }
           : undefined
         return {
@@ -1200,6 +1229,32 @@ const parseStructuredPlanningConfirmationReply = (value: unknown) => {
   return answers.filter(item => item.title)
 }
 
+const FLOW_PERSONNEL_KEEP_PREDICATE_PATTERN = /(?:审批人|审批人员)[^。！？!?；;\n]{0,20}(保留|保持|仍是|仍为|继续由|仍由)/u
+const FLOW_PERSONNEL_NEGATION_MARKER_PATTERN = /[不别没未无]/u
+
+// 仅肯定极性才允许自动确认：“不保留/不再保持/不要继续由”等否定表述保持待答（安全态），
+// 不能被词面命中反向写成确认答案。
+const hasExplicitFlowPersonnelKeepIntent = (userMessage: string) => {
+  const match = FLOW_PERSONNEL_KEEP_PREDICATE_PATTERN.exec(userMessage)
+  if (!match || match.index === undefined) {
+    return false
+  }
+  const predicateOffset = match.index + match[0].length - match[1].length
+  const clauseStart = Math.max(
+    userMessage.lastIndexOf('，', match.index),
+    userMessage.lastIndexOf('。', match.index),
+    userMessage.lastIndexOf('；', match.index),
+    userMessage.lastIndexOf('！', match.index),
+    userMessage.lastIndexOf('？', match.index),
+    userMessage.lastIndexOf(';', match.index),
+    userMessage.lastIndexOf('!', match.index),
+    userMessage.lastIndexOf('?', match.index),
+    userMessage.lastIndexOf('\n', match.index),
+  ) + 1
+  const leadIn = userMessage.slice(clauseStart, predicateOffset)
+  return !FLOW_PERSONNEL_NEGATION_MARKER_PATTERN.test(leadIn)
+}
+
 const applyExplicitFlowPersonnelConfirmationFromMessage = (
   taskSummary: NocodeEditorTaskSummaryLike,
   userMessage: string,
@@ -1209,7 +1264,7 @@ const applyExplicitFlowPersonnelConfirmationFromMessage = (
     : []
   if (
     normalizeText(taskSummary.flowConfirmationStatus) === 'completed'
-    || !/(?:审批人|审批人员).{0,20}(?:保留|保持|仍是|仍为|继续由|仍由)/u.test(userMessage)
+    || !hasExplicitFlowPersonnelKeepIntent(userMessage)
   ) {
     return taskSummary
   }
@@ -2279,9 +2334,9 @@ export const buildNocodeEditorTaskSummary = (input: {
   )
   const fallbackEntryFlowIntent = isFreshNewFormRequest
     ? resolveNocodeEditorFlowEntryIntentWithSignal({
-        userMessage: taskBoundaryUserMessage,
-        modelSignal: null,
-      })
+      userMessage: taskBoundaryUserMessage,
+      modelSignal: null,
+    })
     : hasRequestScopedEntryFlowIntent
       ? sceneEntryFlowIntent
       : (
@@ -2313,9 +2368,9 @@ export const buildNocodeEditorTaskSummary = (input: {
     ? actionPlanningScope
     : isFreshNewFormRequest
       ? requestPlanningScope
-    : normalizeNocodeEditorPlanningScopeValue(
-      input.scenePayload?.planningScope || latestTaskSummary?.planningScope,
-    )
+      : normalizeNocodeEditorPlanningScopeValue(
+        input.scenePayload?.planningScope || latestTaskSummary?.planningScope,
+      )
   const canUsePostFormFlow = isNocodeEditorPostFormFlowEnabledForScope(
     resolvedPlanningScope,
   )
@@ -2348,6 +2403,12 @@ export const buildNocodeEditorTaskSummary = (input: {
   )
     ? resolvedEntryFlowIntentFromSignal
     : fallbackEntryFlowIntent
+  // 这条需求曾在哪张表单上落过挂账，就沿用那张表单；补确认/应用蓝图轮不能因为
+  // 当前激活表单变了就把旧需求重新绑到新表单上。
+  const boundEntryFlowIntent = bindNocodeEditorFlowEntryIntentTarget({
+    entryFlowIntent,
+    pendingFlowIntent: latestPendingFlowIntent,
+  }) || entryFlowIntent
   const pendingFlowIntent = resolveNextPendingFlowIntent({
     latest: latestPendingFlowIntent,
     latestAction: latestActionName,
@@ -2368,6 +2429,8 @@ export const buildNocodeEditorTaskSummary = (input: {
     latestTaskSummary,
     planningScope: resolvedPlanningScope,
     pendingFlowIntent: resolvedPendingFlowIntent,
+    targetFormId: latestActionTargetIdentity.targetFormId,
+    targetFormName: latestActionTargetIdentity.targetFormName,
   })
   const canPublishPostFormFlowFollowUp = Boolean(
     canUsePostFormFlow
@@ -2375,20 +2438,20 @@ export const buildNocodeEditorTaskSummary = (input: {
     && resolvedPostFormFlowRelease.canPlan
   )
   const actionPostFormFlowSignals = resolveActionResultPostFormFlowSignals(latestSuccessfulAction)
-  const resolvedPostFormFlowSignals = entryFlowIntent?.state === 'none'
+  const resolvedPostFormFlowSignals = boundEntryFlowIntent?.state === 'none'
     ? (
       actionPostFormFlowSignals
       || (isFreshNewFormRequest ? null : latestPostFormFlowSignals)
     )
     : null
   const createdPostFormFlowOpportunity = (
-    entryFlowIntent?.state === 'none'
+    boundEntryFlowIntent?.state === 'none'
     && latestActionName === 'editor_apply_staged_app_blueprint'
     && canPublishPostFormFlowFollowUp
   )
     ? decideNocodeEditorPostFormFlowOpportunity({
       planningScope: resolvedPlanningScope,
-      entryFlowIntent,
+      entryFlowIntent: boundEntryFlowIntent,
       postFormFlowSignals: actionPostFormFlowSignals,
       targetFormId: latestActionTargetIdentity.targetFormId,
       targetFormName: latestActionTargetIdentity.targetFormName,
@@ -2407,27 +2470,30 @@ export const buildNocodeEditorTaskSummary = (input: {
         actionName: latestActionName,
         actionTab: latestActionTab,
       })
-        ? clearNocodeEditorPostFormFlowOpportunity({
-          opportunity: latestPostFormFlowOpportunity,
-          clearReason: 'fresh_new_form',
-          now: updatedAt,
+      ? clearNocodeEditorPostFormFlowOpportunity({
+        opportunity: latestPostFormFlowOpportunity,
+        clearReason: 'fresh_new_form',
+        now: updatedAt,
+      })
+      : isNocodeEditorFlowMainlineAction({
+        actionName: latestActionName,
+        actionTab: latestActionTab,
+      })
+        ? matchPostFormTargetIdentity({
+          targetFormId: latestPostFormFlowOpportunity?.targetFormId,
+          targetFormName: latestPostFormFlowOpportunity?.targetFormName,
+          latestActionTargetFormId: latestActionTargetIdentity.targetFormId,
+          latestActionTargetFormName: latestActionTargetIdentity.targetFormName,
         })
-        : isNocodeEditorFlowMainlineAction({
-          actionName: latestActionName,
-          actionTab: latestActionTab,
-        })
-          ? matchPostFormTargetIdentity({
-            targetFormId: latestPostFormFlowOpportunity?.targetFormId,
-            targetFormName: latestPostFormFlowOpportunity?.targetFormName,
-            latestActionTargetFormId: latestActionTargetIdentity.targetFormId,
-            latestActionTargetFormName: latestActionTargetIdentity.targetFormName,
-          })
-            ? consumeNocodeEditorPostFormFlowOpportunity({
-              opportunity: latestPostFormFlowOpportunity,
-              consumedBy: 'flow_mainline_started',
-              now: updatedAt,
-            }) || latestPostFormFlowOpportunity
-            : latestPostFormFlowOpportunity
+          ? consumeNocodeEditorPostFormFlowOpportunity({
+            opportunity: latestPostFormFlowOpportunity,
+            consumedBy: 'flow_mainline_started',
+            now: updatedAt,
+          }) || latestPostFormFlowOpportunity
+          : latestPostFormFlowOpportunity
+        : latestActionName === 'editor_apply_staged_app_blueprint'
+        // 应用回合只发布本回合按落地表单生成的承接状态，不能把上一张表单的卡片带过来。
+          ? createdPostFormFlowOpportunity
           : createdPostFormFlowOpportunity || latestPostFormFlowOpportunity
   const createdPostFormFlowFollowUp = (
     latestActionName === 'editor_apply_staged_app_blueprint'
@@ -2435,7 +2501,7 @@ export const buildNocodeEditorTaskSummary = (input: {
   )
     ? decideNocodeEditorPostFormFlowFollowUp({
       planningScope: resolvedPlanningScope,
-      entryFlowIntent,
+      entryFlowIntent: boundEntryFlowIntent,
       pendingFlowIntent: resolvedPendingFlowIntent,
       postFormFlowOpportunity: resolvedPendingFlowIntent ? null : resolvedPostFormFlowOpportunity,
       postFormFlowSignals: actionPostFormFlowSignals,
@@ -2467,7 +2533,9 @@ export const buildNocodeEditorTaskSummary = (input: {
           })
             ? null
             : latestPostFormFlowFollowUp
-          : createdPostFormFlowFollowUp || latestPostFormFlowFollowUp
+          : latestActionName === 'editor_apply_staged_app_blueprint'
+            ? createdPostFormFlowFollowUp
+            : createdPostFormFlowFollowUp || latestPostFormFlowFollowUp
 
   const flowConfirmationTargetFormId = shouldExcludeFlowConfirmation
     ? ''
@@ -2492,7 +2560,7 @@ export const buildNocodeEditorTaskSummary = (input: {
     userGoal: shouldKeepPriorFlowGoal
       ? normalizeText(latestTaskSummary?.userGoal).slice(0, 120)
       : normalizedUserMessage,
-    entryFlowIntent,
+    entryFlowIntent: boundEntryFlowIntent,
     flowIntent: latestFlowIntentSignal || (
       isFreshNewFormRequest
         ? null
@@ -2839,7 +2907,7 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
             ? 'flow'
             : latestAction === 'editor_stage_app_plan' || latestAction === 'editor_stage_single_form_plan'
               ? 'planning'
-        : ''
+              : ''
         )
         : ''
 
@@ -3008,20 +3076,6 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
   }
 
   const parsedReply = parseStructuredPlanningConfirmationReply(reply)
-  if (parsedReply.length < questions.length) {
-    return latestTaskSummary
-  }
-
-  const existingResultSummary = resolveStageResultSummary(targetStage)
-  const existingSummaryByQuestionKey = new Map<string, string>()
-  completionQuestions.forEach((question, index) => {
-    const answerSummary = normalizeText(existingResultSummary[index])
-    if (!answerSummary) {
-      return
-    }
-    existingSummaryByQuestionKey.set(normalizeQuestionKey(question), answerSummary)
-  })
-
   const remainingReplyItems = [...parsedReply]
   const replySummaryByQuestionKey = new Map<string, string>()
   questions.forEach((question) => {
@@ -3029,14 +3083,41 @@ export const resolveNocodeEditorTaskSummaryForIncomingUserMessage = (input: {
     const matchedIndex = remainingReplyItems.findIndex(item => (
       normalizeQuestionKey(item.title) === questionKey
     ))
-    const matchedItem = matchedIndex >= 0
-      ? remainingReplyItems.splice(matchedIndex, 1)[0]
-      : remainingReplyItems.shift()
-    const answerSummary = normalizeText(matchedItem?.answerSummary)
+    if (matchedIndex < 0) {
+      return
+    }
+    const answerSummary = normalizeText(remainingReplyItems.splice(matchedIndex, 1)[0]?.answerSummary)
     if (answerSummary) {
       replySummaryByQuestionKey.set(questionKey, answerSummary)
     }
   })
+  // 结构化回复只按题目标题结算：条目数够但标题对不上时（例如卡片里只答了其中一题），
+  // 不能再按顺序把上一题的答案顶给下一题；只要还有待答题没配上，就保持摘要原样。
+  const hasUnmatchedPendingQuestion = questions.some(question => (
+    !replySummaryByQuestionKey.has(normalizeQuestionKey(question))
+  ))
+  if (hasUnmatchedPendingQuestion) {
+    return latestTaskSummary
+  }
+
+  // 已答结论按题目标题取，不按数组下标：下标口径在换题/重排后会把别的题的答案挪过来。
+  const existingSummaryByQuestionKey = new Map<string, string>()
+  completionQuestionRecords.forEach((record) => {
+    const questionKey = normalizeQuestionKey(record.title)
+    const answerSummary = normalizeText(record.answerSummary)
+    if (questionKey && answerSummary) {
+      existingSummaryByQuestionKey.set(questionKey, answerSummary)
+    }
+  })
+  if (!completionQuestionRecords.length) {
+    const existingResultSummary = resolveStageResultSummary(targetStage)
+    completionQuestions.forEach((question, index) => {
+      const answerSummary = normalizeText(existingResultSummary[index])
+      if (answerSummary) {
+        existingSummaryByQuestionKey.set(normalizeQuestionKey(question), answerSummary)
+      }
+    })
+  }
 
   const completedQuestionRecords = completionQuestions
     .map((question, index) => {
@@ -3283,6 +3364,23 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
     metadata,
     'pendingFlowIntent',
   )
+  const metadataBlueprintApplyBlock = metadata.blueprintAppliedFromAction
+    ? (
+      findLatestRealBlueprintArtifactBlock({
+        assistantBlocks,
+        actionResults: [],
+      }) || [...assistantBlocks]
+        .reverse()
+        .find(block => (
+          normalizeText(block.kind) === 'blueprint'
+          && isPlainObject(block.applyResult)
+        )) || null
+    )
+    : null
+  // 本轮真正落地的是哪些表单：续跑、卡片文案都以它为准。
+  const metadataAppliedTargetIdentity = resolveExternalBlueprintApplyTargetIdentity({
+    blueprintBlock: metadataBlueprintApplyBlock,
+  })
   const metadataPendingFlowIntent = resolveExternalAssistantMessagePendingFlowIntent({
     metadata,
     latestTaskSummary,
@@ -3322,6 +3420,8 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
     latestTaskSummary,
     planningScope: metadataPlanningScope,
     pendingFlowIntent: metadataPendingFlowIntent,
+    targetFormId: metadataAppliedTargetIdentity.targetFormId,
+    targetFormName: metadataAppliedTargetIdentity.targetFormName,
   })
   const metadataPostFormFlowFollowUp = resolveExternalAssistantMessagePostFormFlowFollowUp({
     metadata,
@@ -3336,16 +3436,7 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
   })
 
   if (metadata.blueprintAppliedFromAction) {
-    const latestBlueprintBlock = findLatestRealBlueprintArtifactBlock({
-      assistantBlocks,
-      actionResults: [],
-    })
-    const latestBlueprintApplyBlock = latestBlueprintBlock || [...assistantBlocks]
-      .reverse()
-      .find(block => (
-        normalizeText(block.kind) === 'blueprint'
-        && isPlainObject(block.applyResult)
-      )) || null
+    const latestBlueprintApplyBlock = metadataBlueprintApplyBlock
     const resolvedPendingFlowIntent = resolveExternalBlueprintApplyPendingFlowIntent({
       metadataPendingFlowIntent: hasExplicitMetadataPendingFlowIntent
         ? metadataPendingFlowIntent
@@ -3390,15 +3481,8 @@ export const deriveNocodeEditorTaskSummaryFromExternalAssistantMessage = (input:
           entryFlowIntent: pinnedEntryFlowIntent,
           pendingFlowIntent: resolvedPendingFlowIntent,
           postFormFlowSignals: metadataPostFormFlowSignals,
-          targetFormId: resolvedPendingFlowIntent.targetFormId
-            || resolveExternalBlueprintApplyTargetIdentity({
-              blueprintBlock: latestBlueprintApplyBlock,
-            }).targetFormId,
-          targetFormName: resolvedPendingFlowIntent.targetFormName
-            || resolveExternalBlueprintApplyTargetIdentity({
-              blueprintBlock: latestBlueprintApplyBlock,
-            }).targetFormName
-            || pinnedEntryFlowIntent?.targetFormName,
+          targetFormId: metadataAppliedTargetIdentity.targetFormId,
+          targetFormName: metadataAppliedTargetIdentity.targetFormName,
           now: updatedAt,
         })
         : resolvedPendingFlowIntent
@@ -3501,18 +3585,19 @@ const resolveExternalBlueprintApplyTargetIdentity = (input: {
   const forms = Array.isArray(applyResult.forms)
     ? applyResult.forms.filter(isPlainObject) as NocodeEditorTaskContextObject[]
     : []
-
-  if (forms.length !== 1) {
-    return {
-      targetFormId: '',
-      targetFormName: '',
-    }
-  }
-
-  const form = forms[0]
+  const blueprint = asRecord(input.blueprintBlock?.blueprint)
+  const blueprintConfirmation = asRecord(blueprint?.confirmation)
+  const planningContextKey = normalizeText(
+    input.blueprintBlock?.sourcePlanningContextKey || blueprintConfirmation?.planningContextKey,
+  )
+  // 表单规划会把当前表单关联到的来源表一并生成；主表单取规划上下文，不再按“只剩一张”判定。
+  const identity = resolveNocodeEditorAppliedPrimaryForm(forms, {
+    primaryFormKey: parsePlanningConfirmationContextKey(planningContextKey).primaryFormKey,
+    primaryFormName: normalizeText(blueprint?.title),
+  })
   return {
-    targetFormId: normalizeText(form.tableId),
-    targetFormName: normalizeText(form.tableName || form.formName),
+    targetFormId: identity.targetFormId || '',
+    targetFormName: identity.targetFormName || '',
   }
 }
 
@@ -3520,40 +3605,71 @@ const resolveExternalBlueprintApplyPendingFlowIntent = (input: {
   metadataPendingFlowIntent?: NocodeEditorPendingFlowIntent | null
   latestEntryFlowIntent?: NocodeEditorFlowEntryIntentLike | null
   latestBlueprintBlock?: NocodeEditorTaskContextObject | null
-  latestPendingFlowIntent?: NocodeEditorTaskContextObject | null
+  latestPendingFlowIntent?: unknown
   updatedAt: number
 }) => {
   const latestEntryFlowIntent = normalizeEntryFlowIntent(input.latestEntryFlowIntent)
-  const latestPendingFlowIntent = normalizeNocodeEditorPendingFlowIntent(input.latestPendingFlowIntent)
+  // 新应用表单只回收活动挂账；但重绑判定需要看到最近一笔挂账（含 completed），
+  // 否则旧需求原本绑定的表单会丢失，被重新挂到新表单上。
+  const metadataPendingFlowIntent = normalizeActiveNocodeEditorPendingFlowIntent(
+    input.metadataPendingFlowIntent,
+  )
+  const existingPendingFlowIntent = normalizeNocodeEditorPendingFlowIntent(
+    input.latestPendingFlowIntent,
+  )
+  // 被拦下时只保留活动挂账；已完成的挂账只是绑定证据，不能当成当前挂账继续返回
+  const retainedPendingFlowIntent = normalizeActiveNocodeEditorPendingFlowIntent(
+    existingPendingFlowIntent,
+  )
   const targetIdentity = resolveExternalBlueprintApplyTargetIdentity({
     blueprintBlock: input.latestBlueprintBlock,
   })
+  const appliedTargetVerifiable = Boolean(
+    targetIdentity.targetFormId || targetIdentity.targetFormName,
+  )
 
-  if (input.metadataPendingFlowIntent) {
+  if (metadataPendingFlowIntent) {
     if (shouldBlockNocodeEditorPendingFlowIntentRebind({
       entryFlowIntent: latestEntryFlowIntent,
-      existingPendingFlowIntent: latestPendingFlowIntent,
-      candidateTargetFormId: input.metadataPendingFlowIntent.targetFormId,
-      candidateTargetFormName: input.metadataPendingFlowIntent.targetFormName,
+      existingPendingFlowIntent,
+      candidateTargetFormId: metadataPendingFlowIntent.targetFormId,
+      candidateTargetFormName: metadataPendingFlowIntent.targetFormName,
     })) {
-      return latestPendingFlowIntent
+      return retainedPendingFlowIntent
     }
-    return input.metadataPendingFlowIntent
+    // 请求里带来的挂账必须属于本次落地的表单；对不上说明它是上一张表单的流程欠账，
+    // 只能继续留在原表单上，不能跟着这次应用一起发布。
+    if (
+      appliedTargetVerifiable
+      && !isNocodeEditorPendingFlowIntentForTarget({
+        pendingFlowIntent: metadataPendingFlowIntent,
+        targetFormId: targetIdentity.targetFormId,
+        targetFormName: targetIdentity.targetFormName,
+      })
+    ) {
+      return retainedPendingFlowIntent
+    }
+    return metadataPendingFlowIntent
   }
 
   if (latestEntryFlowIntent?.state !== 'explicit_positive') {
     return null
   }
 
+  // 只把挂账绑到本轮真正落地的表单上；识别不到落地表单时保持原状态，不按入口意图
+  // 里“当时打开的表单”去猜目标。
+  if (!appliedTargetVerifiable) {
+    return retainedPendingFlowIntent
+  }
   const targetFormId = targetIdentity.targetFormId || undefined
-  const targetFormName = targetIdentity.targetFormName || latestEntryFlowIntent.targetFormName || undefined
+  const targetFormName = targetIdentity.targetFormName || undefined
   if (shouldBlockNocodeEditorPendingFlowIntentRebind({
     entryFlowIntent: latestEntryFlowIntent,
-    existingPendingFlowIntent: latestPendingFlowIntent,
+    existingPendingFlowIntent,
     candidateTargetFormId: targetFormId,
     candidateTargetFormName: targetFormName,
   })) {
-    return latestPendingFlowIntent
+    return retainedPendingFlowIntent
   }
 
   return buildNocodeEditorPendingFlowIntentFromEntryFlowIntent({

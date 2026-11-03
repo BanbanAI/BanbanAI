@@ -44,6 +44,7 @@ export const resolveNocodeEditorStreamErrorKind = (
 export type NocodeEditorProviderRoundRetryReason =
   | 'first_event_timeout'
   | 'total_timeout_compact'
+  | 'total_timeout_retry'
   | 'none'
 
 export type NocodeEditorProviderRoundRetryDecision = {
@@ -58,6 +59,9 @@ export const resolveNocodeEditorProviderRoundRetryDecision = (options: {
   hasRoundOutput: boolean
   hasRoundToolCall: boolean
   aborted: boolean
+  // 压缩是否真的让请求变小。为 false 时仍然重试（历史策略：压缩不是重试前提），
+  // 只是 reason 不再宣称走 compact；重试仍会清空本轮半成品输出，避免重复拼接。
+  compactionEffective?: boolean
 }): NocodeEditorProviderRoundRetryDecision => {
   const timeout = options.error instanceof AiProviderStreamTimeoutError
     ? options.error
@@ -69,7 +73,13 @@ export const resolveNocodeEditorProviderRoundRetryDecision = (options: {
     return { retry: true, forceCompact: false, reason: 'first_event_timeout' }
   }
   if (timeout.phase === 'total' && !options.hasRoundToolCall) {
-    return { retry: true, forceCompact: true, reason: 'total_timeout_compact' }
+    const compactionEffective = options.compactionEffective !== false
+    return {
+      retry: true,
+      // 即使压缩无效也要重试一次，仍需要清空本轮半成品输出，避免重试后重复拼接。
+      forceCompact: true,
+      reason: compactionEffective ? 'total_timeout_compact' : 'total_timeout_retry',
+    }
   }
   return { retry: false, forceCompact: false, reason: 'none' }
 }

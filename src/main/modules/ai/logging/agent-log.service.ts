@@ -22,9 +22,13 @@ export class AiAgentLogService {
     roundRetryCount?: number
     retryReason?: string
     forceCompact?: boolean
+    compactionEffective?: boolean
     retrying?: boolean
     promptChars?: number
     promptBytes?: number
+    compactedPromptBytes?: number
+    compressiblePromptBytes?: number
+    compactedCompressiblePromptBytes?: number
     inputTokens?: number
     toolFailureSignatures?: Array<{
       signature: string
@@ -43,9 +47,12 @@ export class AiAgentLogService {
       Number.isFinite(payload.roundRetryCount) ? `本轮重试次数: ${payload.roundRetryCount}` : '',
       payload.retryReason && payload.retryReason !== 'none' ? `重试原因: ${payload.retryReason}` : '',
       typeof payload.forceCompact === 'boolean' ? `强制压缩: ${payload.forceCompact ? '是' : '否'}` : '',
+      typeof payload.compactionEffective === 'boolean' ? `压缩是否见效: ${payload.compactionEffective ? '是' : '否'}` : '',
       typeof payload.retrying === 'boolean' ? `即将重试: ${payload.retrying ? '是' : '否'}` : '',
       Number.isFinite(payload.promptChars) ? `Prompt 字符数: ${payload.promptChars}` : '',
       Number.isFinite(payload.promptBytes) ? `Prompt 字节数: ${payload.promptBytes}` : '',
+      Number.isFinite(payload.compressiblePromptBytes) ? `可压缩消息字节数: ${payload.compressiblePromptBytes}` : '',
+      Number.isFinite(payload.compactedCompressiblePromptBytes) ? `压缩后消息字节数: ${payload.compactedCompressiblePromptBytes}` : '',
       Number.isFinite(payload.inputTokens) ? `累计 inputTokens: ${payload.inputTokens}` : '',
       payload.toolFailureSignatures?.length
         ? `本轮工具失败签名: ${payload.toolFailureSignatures

@@ -1,11 +1,13 @@
 ﻿import type { AiAssistantMarkdownBlock } from '@common/types/ai'
 import {
+  isNocodeEditorPlanningFormArtifact,
   normalizeNocodeEditorAppBuilderExecutionLevelToken,
   normalizeNocodeEditorAppBuilderPlanningModeToken,
   resolveNocodeEditorAppBuilderExecutionLevelLabel,
   resolveNocodeEditorAppBuilderPlanningArtifactTypeLabel,
   resolveNocodeEditorAppBuilderPlanningModeLabel,
 } from '@common/utils/nocodeEditorAppBuilderPlanningLabels'
+import { buildNocodeEditorPlanningFallbackForms } from '@common/utils/nocodeEditorPlanningArtifactForms'
 import { extractNocodeEditorAppBuilderPlanningNarrationLead } from '@common/utils/nocodeEditorAppBuilderPlanningStreamGuard'
 import {
   getNocodeEditorAppPlanningAiHandlingText,
@@ -177,18 +179,20 @@ const appendMissingArtifactForms = (
     forms.map(item => normalizeMatchText(item.tableName)).filter(Boolean),
   )
 
-  artifacts.forEach((artifact, index) => {
-    const key = normalizeMatchText(artifact.name)
-    if (!key || existingNames.has(key)) {
-      return
-    }
-    forms.push({
-      formKey: `artifact-${forms.length + index + 1}`,
-      tableName: artifact.name,
-      description: artifact.purpose,
+  artifacts
+    .filter(isNocodeEditorPlanningFormArtifact)
+    .forEach((artifact, index) => {
+      const key = normalizeMatchText(artifact.name)
+      if (!key || existingNames.has(key)) {
+        return
+      }
+      forms.push({
+        formKey: `artifact-${forms.length + index + 1}`,
+        tableName: artifact.name,
+        description: artifact.purpose,
+      })
+      existingNames.add(key)
     })
-    existingNames.add(key)
-  })
 
   return forms
 }
@@ -205,11 +209,7 @@ const normalizeOutlineForms = (
     .filter((item): item is NocodeEditorAppBuilderPlanningOutlineForm => Boolean(item))
 
   if (!normalizedForms.length) {
-    return artifacts.map((artifact, index) => ({
-      formKey: `artifact-${index + 1}`,
-      tableName: artifact.name,
-      description: artifact.purpose,
-    }))
+    return buildNocodeEditorPlanningFallbackForms(artifacts)
   }
 
   return appendMissingArtifactForms(normalizedForms, artifacts)

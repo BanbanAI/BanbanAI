@@ -1,4 +1,5 @@
 import { sanitizeNocodeEditorUnsupportedBlueprintProtocol } from '@common/utils/nocodeEditorUnsupportedBlueprintProtocol'
+import { isNocodeEditorFlowSchemeReviewResultText, normalizeNocodeEditorFlowScheme } from '@common/utils/nocodeEditorFlowScheme'
 import type { AiActionResult } from '../ai.types'
 import { getNocodeEditorUnsupportedBlueprintProtocolRepairFailedMessage } from './nocode-editor-blueprint-auto-repair.util'
 import { buildNocodeEditorToolResultAssistantMessage } from './nocode-editor-tool-result-messages'
@@ -153,6 +154,16 @@ export const buildNocodeEditorFallbackAssistantText = (_results: AiActionResult[
   }
 
   if (latestSuccess?.name === 'editor_plan_flow_scheme') {
+    // 暂存结果的真实状态（是否还有待确认题）只有方案本身知道；
+    // 静态文案在已收敛时会让用户去找并不存在的确认题。
+    if (normalizeNocodeEditorFlowScheme(latestSuccess.output?.scheme)) {
+      const summaryContent = String(
+        buildNocodeEditorToolResultAssistantMessage(latestSuccess)?.content || '',
+      ).trim()
+      if (summaryContent) {
+        return summaryContent
+      }
+    }
     return global.i18next.t('nocodeEditorLoopFallback.flowSchemeStaged')
   }
 
@@ -215,6 +226,12 @@ export const buildNocodeEditorToolLoopFinalAssistantText = (options: {
   }
 
   const latestRoundAssistantText = sanitizeNocodeEditorAssistantText(String(options.latestRoundAssistantText || '').trim())
+
+  // 模型有时会在普通轮里原样吐出内部复核协议体（历史里留着复核提示词）；
+  // 这不是给用户看的答复，退回本轮动作的业务说明。
+  if (isNocodeEditorFlowSchemeReviewResultText(latestRoundAssistantText)) {
+    return buildNocodeEditorFallbackAssistantText(options.actionResults)
+  }
 
   return latestRoundAssistantText
     || buildNocodeEditorFallbackAssistantText(options.actionResults)

@@ -1253,6 +1253,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
       '严格格式要求：工具 input 顶层只能有 scheme 这一个字段。不要把 title、summary、trigger、mainPath、branches、confirmedFacts、assumptions、openQuestions、confirmation、target、id 直接平铺在 input 顶层，也不要同时传顶层字段和 scheme 内字段的重复版本。',
       'scheme.openQuestions[].key 必须与唯一一条 confirmation.questions[].decisionKey 一致；仍留在 openQuestions 的题在 confirmation.questions 中必须保持未回答壳子，不要预填 selectedOptionValue、answerSummary、answerDetail，不要把 options[].selected 或 confirmed 设为 true。',
       '流程 confirmation.questions 的每一题都必须显式声明依赖：没有前置关系时填写 dependsOn: []，依赖前置决策时填写 dependsOn 或 prerequisites；人员决策题一题只表达一个决策槽位。',
+      '正确示例：{ "scheme": { "title": "...", "summary": "...", "trigger": { "type": "submit", "description": "..." }, "mainPath": [], "branches": [], "confirmedFacts": [], "assumptions": [], "openQuestions": [], "confirmation": { "questions": [] } } }',
     ],
     inputSchema: {
       type: 'object',
@@ -1400,7 +1401,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                         validationFormat: { type: 'string', description: '限定格式，例如 email、ID-number。' },
                         enumOptions: {
                           type: 'array',
-                          description: '自定义枚举选项，可传字符串数组或 {label,value} 数组；单选/多选/下拉字段必须提供。行业通用枚举按业务常识给常用值，确实无法确定时留空并在 description 标注“生成后补充选项”。',
+                          description: '自定义枚举选项，可传字符串数组或 {label,value} 数组；单选/多选/下拉字段必须提供。行业通用枚举按业务常识给常用值，确实无法确定时留空并在 description 标注“生成后补充选项”。value 必须是与 label 一致的中文业务文案，不要使用英文键。',
                           items: {
                             oneOf: [
                               { type: 'string' },

@@ -25,6 +25,10 @@ import {
   AiTokenUsage,
 } from '../ai.types'
 import { AiAgentLogService } from '../logging/agent-log.service'
+import {
+  buildProviderToolChoiceModelKey,
+  resolveProviderRequiredToolChoiceDecision,
+} from './ai-provider-tool-choice'
 import { AiConfigService } from '../config/ai-config.service'
 import { AiRuntimeUserActionableError, isAiRuntimeUserActionableError } from '../errors/ai-runtime-error'
 import { AiAnalysisChartPolicyService } from '../runtime/ai-analysis-chart-policy.service'
@@ -43,14 +47,16 @@ import {
   type AiProviderStreamLifecycle,
   createAiProviderStreamLifecycle,
 } from './ai-provider-stream-lifecycle'
+import { resolveAiProviderChunkActivity } from './ai-provider-chunk-activity'
 import {
-  applyNocodeEditorOutputLimit,
+  buildChatModelOutputOptions,
   resolveOutputLimitModelKwargs,
   throwIfIncompleteToolOutputAtLimit,
 } from './ai-provider-output-policy'
 import {
   type ToolArgumentRepairDiagnostic,
   isToolArgumentRepairApplied,
+  mergeSiblingPropertiesIntoSoleRequiredObjectWrapper,
   tryParseToolArgumentJsonObject,
 } from './ai-openai-tool-argument-repair.util'
 import { AiAttachmentService } from '../thread/ai-attachment.service'
@@ -90,6 +96,7 @@ type OpenAiRuntimeSettings = {
   effectiveReasoningLevel?: AiReasoningLevel
   reasoningMode?: AiReasoningMode
   supportsParallelToolCalls?: boolean
+  supportsRequiredToolChoice?: boolean
   capabilities: AiProviderModel['capabilities']
   inputModalities: AiProviderModel['inputModalities']
   outputModalities: AiProviderModel['outputModalities']
@@ -111,6 +118,20 @@ type StructuredJsonInvokeOptions = {
   maxRetries: number
 }
 
+export const NOCODE_EDITOR_PROVIDER_RETRY_TOTAL_TIMEOUT_MS = 90_000
+
+// 近 96 个成功 provider 轮次 p99 约 183s，最长 182.6s（均为流程方案规划轮）。
+// 流程轮收紧到 240s，仍高于观测到的成功长尾，同时比默认 300s 少 1 分钟。
+export const NOCODE_EDITOR_FLOW_ROUND_TOTAL_TIMEOUT_MS = 240_000
+
+// 实测同一请求首包 43.7s 成功、90s 无首包，流程轮给到 120s 留出供应商尾延迟。
+// 与前端 STREAM_CONTENT_IDLE_TIMEOUT_MS(150s) 耦合：改到 >=150s 必须同步调整。
+export const NOCODE_EDITOR_FLOW_ROUND_FIRST_EVENT_TIMEOUT_MS = 120_000
+
+// provider 仍在产出 chunk、但本轮没有可展示正文（reasoning / tool_call 参数块）时，
+// 用这个间隔告诉前端“连接还活着”，避免客户端内容空闲兜底（150s）误判断流。
+export const NOCODE_EDITOR_PROVIDER_PROGRESS_INTERVAL_MS = 5_000
+
 @Injectable()
 export class AiOpenAiService {
   private static readonly TRACE_HEADER_NAME = 'X-AI-Trace-Id';
@@ -125,6 +146,8 @@ export class AiOpenAiService {
   private cacheModels: string[];
   private modelsTimeout = 0;
   private readonly contextSummaryCache = new Map<string, string>()
+  private readonly requiredToolChoiceRejectedModels = new Set<string>()
+  private readonly requiredToolChoiceCapabilityWarnedModels = new Set<string>()
 
   constructor(
     private readonly agentLogService: AiAgentLogService,
@@ -419,16 +442,17 @@ export class AiOpenAiService {
     const sdkApiKey = settings.apiKey || AiOpenAiService.NO_AUTH_PROVIDER_API_KEY
     const structuredJsonOptions = request?.metadata?.structuredJsonOptions as StructuredJsonInvokeOptions | undefined
     const outputLimit = this.resolveOutputLimit(request, settings)
-    const modelKwargs = applyNocodeEditorOutputLimit({
-      scene: request.metadata?.scene,
+    const outputOptions = buildChatModelOutputOptions({
       modelKwargs: outputLimit.modelKwargs,
+      effectiveOutputTokens: outputLimit.effectiveOutputTokens,
+      preferredLimitKey: outputLimit.preferredLimitKey,
     })
 
     return new ChatOpenAI({
       apiKey: sdkApiKey,
       model: settings.model,
       temperature: settings.temperature,
-      modelKwargs,
+      ...outputOptions,
       organization: settings.organization,
       useResponsesApi: false,
       streamUsage: true,
@@ -468,7 +492,8 @@ export class AiOpenAiService {
         parentSignal: request.signal,
         firstEventTimeoutMs: this.resolveNocodeEditorProviderStreamTimeoutMs(
           'NOCODE_EDITOR_AI_FIRST_EVENT_TIMEOUT_MS',
-          AiOpenAiService.NOCODE_EDITOR_PROVIDER_FIRST_EVENT_TIMEOUT_MS,
+          this.resolveNocodeEditorProviderTimeoutMs(request.metadata?.providerFirstEventTimeoutMs)
+          || AiOpenAiService.NOCODE_EDITOR_PROVIDER_FIRST_EVENT_TIMEOUT_MS,
         ),
         idleTimeoutMs: this.resolveNocodeEditorProviderStreamTimeoutMs(
           'NOCODE_EDITOR_AI_IDLE_TIMEOUT_MS',
@@ -476,7 +501,8 @@ export class AiOpenAiService {
         ),
         totalTimeoutMs: this.resolveNocodeEditorProviderStreamTimeoutMs(
           'NOCODE_EDITOR_AI_TOTAL_TIMEOUT_MS',
-          AiOpenAiService.NOCODE_EDITOR_PROVIDER_TOTAL_TIMEOUT_MS,
+          this.resolveNocodeEditorProviderTimeoutMs(request.metadata?.providerTotalTimeoutMs)
+            || AiOpenAiService.NOCODE_EDITOR_PROVIDER_TOTAL_TIMEOUT_MS,
         ),
       })
     }
@@ -493,13 +519,17 @@ export class AiOpenAiService {
     envName: string,
     defaultValue: number,
   ) {
-    const parsedValue = Math.round(Number(process.env[envName] || ''))
+    return this.resolveNocodeEditorProviderTimeoutMs(process.env[envName]) || defaultValue
+  }
+
+  private resolveNocodeEditorProviderTimeoutMs(value: unknown) {
+    const parsedValue = Math.round(Number(value || ''))
     if (
       !Number.isFinite(parsedValue)
       || parsedValue < AiOpenAiService.NOCODE_EDITOR_PROVIDER_TIMEOUT_MS_MIN
       || parsedValue > AiOpenAiService.NOCODE_EDITOR_PROVIDER_TIMEOUT_MS_MAX
     ) {
-      return defaultValue
+      return 0
     }
     return parsedValue
   }
@@ -3188,7 +3218,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     if (promptDiagnostics.estimatedTokens + toolSchemaTokens > inputBudget) {
       this.logger.warn(`AI prompt estimate exceeds input budget; allowing one provider attempt after preflight projection (${promptDiagnostics.estimatedTokens + toolSchemaTokens}/${inputBudget})`)
     }
-    const toolChoice = this.resolveToolChoice(projectedRequest)
+    const toolChoice = this.resolveToolChoice(projectedRequest, settings)
     const parallelToolCalls = await this.resolveParallelToolCalls(projectedRequest, settings)
     const toolBindingOptions = this.buildToolBindingOptions(toolChoice, parallelToolCalls)
     const responseRequest: AiRelayTurnRequest = {
@@ -3212,10 +3242,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
         signal: lifecycle.signal,
       })
       let aggregatedChunk: AIMessageChunk | null = null
+      let lastProviderProgressAt = 0
 
       for await (const chunk of stream as AsyncIterable<unknown>) {
         lifecycle.throwIfTimedOut()
-        lifecycle.markProviderEvent()
         this.throwIfAborted(request.signal)
         if (!AIMessageChunk.isInstance(chunk)) {
           continue
@@ -3223,7 +3253,23 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
 
         aggregatedChunk = aggregatedChunk ? aggregatedChunk.concat(chunk) : chunk
         const deltaText = this.extractChunkText(chunk)
+        const chunkActivity = resolveAiProviderChunkActivity({ chunk, text: deltaText })
+        if (chunkActivity.alive) {
+          lifecycle.markProviderEvent()
+        }
         if (!deltaText) {
+          // 纯思考帧没有正文，但上游仍在推进，仍要发心跳避免客户端误判断流。
+          if (!chunkActivity.alive) {
+            continue
+          }
+          const now = Date.now()
+          if (now - lastProviderProgressAt >= NOCODE_EDITOR_PROVIDER_PROGRESS_INTERVAL_MS) {
+            lastProviderProgressAt = now
+            yield {
+              type: AiStreamEventType.STATUS,
+              statusPhase: 'provider_progress',
+            }
+          }
           continue
         }
 
@@ -3720,12 +3766,37 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     return lines.join('\n')
   }
 
-  private extractToolCalls(response: any, actions: AiActionDefinition[]) {
-    const rawCalls = this.extractRawToolCallsWithDiagnostics(response).calls
+  private mapToolCallsWithDiagnostics(rawCalls: any[], actions: AiActionDefinition[]) {
+    const calls: AiActionCall[] = []
+    const droppedToolCalls: Array<{ name: string; reason: 'unknown_tool' | 'invalid_arguments' }> = []
 
-    return rawCalls
-      .map((call: any) => this.toActionCall(call, actions))
-      .filter(Boolean) as AiActionCall[]
+    for (const rawCall of rawCalls) {
+      const actionName = String(rawCall?.name || rawCall?.function?.name || '').trim()
+      const actionDefinition = actions.find(item => item.name === actionName)
+      if (!actionDefinition) {
+        droppedToolCalls.push({
+          name: actionName || 'unknown_tool',
+          reason: 'unknown_tool',
+        })
+        continue
+      }
+
+      const actionCall = this.toActionCall(rawCall, actions)
+      if (!actionCall) {
+        droppedToolCalls.push({
+          name: actionName,
+          reason: 'invalid_arguments',
+        })
+        continue
+      }
+
+      calls.push(actionCall)
+    }
+
+    return {
+      calls,
+      droppedToolCalls,
+    }
   }
 
   private extractRawToolCallsWithDiagnostics(response: any) {
@@ -4006,7 +4077,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       return null
     }
 
-    return this.normalizeToolArgumentsBySchema(input, actionDefinition.inputSchema)
+    return this.normalizeToolArgumentsBySchema(
+      mergeSiblingPropertiesIntoSoleRequiredObjectWrapper(input, actionDefinition.inputSchema),
+      actionDefinition.inputSchema,
+    )
   }
 
   private validateReadAppDataActionInput(input: Record<string, any>) {
@@ -4373,11 +4447,17 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
     promptDiagnostics?: AiPromptDiagnostics,
   ): AsyncGenerator<AiRelayStreamEvent, void, void> {
     const usage = this.extractUsage(response)
-    const toolCalls = this.extractToolCalls(response, request.actions)
     const {
       calls: rawToolCalls,
       repairs: toolArgumentRepairs,
     } = this.extractRawToolCallsWithDiagnostics(response)
+    const {
+      calls: toolCalls,
+      droppedToolCalls,
+    } = this.mapToolCallsWithDiagnostics(rawToolCalls, request.actions)
+    const unrecognizedToolCallCount = droppedToolCalls
+      .filter(item => item.reason === 'unknown_tool')
+      .length
     const invalidToolCallCount = Array.isArray(response?.invalid_tool_calls)
       ? response.invalid_tool_calls.length
       : 0
@@ -4414,6 +4494,8 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       toolProtocolSignals,
       toolCalls,
       rawToolCalls,
+      droppedToolCalls,
+      unrecognizedToolCallCount,
       invalidToolCalls: response?.invalid_tool_calls || [],
       invalidToolCallCount,
       toolCallRepairAttempted,
@@ -4421,6 +4503,16 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       additionalKwargs: response?.additional_kwargs || {},
       responseMetadata: response?.response_metadata || {},
     })
+
+    if (droppedToolCalls.length) {
+      this.logger.warn([
+        `OpenAI 返回 ${droppedToolCalls.length} 个无法执行的工具调用`,
+        droppedToolCalls
+          .slice(0, 5)
+          .map(item => `${item.name}(${item.reason})`)
+          .join(', '),
+      ].join('：'))
+    }
 
     if (
       toolCalls.length
@@ -4480,6 +4572,9 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
           reasoningMode: settings.reasoningMode,
           reasoningReasonCodes: request.reasoning?.reasonCodes,
           toolCallCount: toolCalls.length,
+          droppedToolCalls: droppedToolCalls.slice(0, 5),
+          droppedToolCallCount: droppedToolCalls.length,
+          unrecognizedToolCallCount,
           invalidToolCalls: this.summarizeInvalidToolCalls(response?.invalid_tool_calls),
           invalidToolCallCount,
           toolCallRepairAttempted,
@@ -4519,6 +4614,10 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
         effectiveReasoningLevel: settings.effectiveReasoningLevel,
         reasoningMode: settings.reasoningMode,
         reasoningReasonCodes: request.reasoning?.reasonCodes,
+        toolCallCount: toolCalls.length,
+        droppedToolCalls: droppedToolCalls.slice(0, 5),
+        droppedToolCallCount: droppedToolCalls.length,
+        unrecognizedToolCallCount,
         invalidToolCalls: this.summarizeInvalidToolCalls(response?.invalid_tool_calls),
         invalidToolCallCount,
         toolCallRepairAttempted,
@@ -4532,10 +4631,61 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       }
     }
 
-  private resolveToolChoice(request: AiRelayTurnRequest) {
-    return request.metadata?.toolChoice === 'required'
-      ? 'required'
-      : 'auto'
+  // 部分思考模式模型（如 qwen3.7-plus）会以 400 拒绝 tool_choice=required，只有明确验证过
+  // require-any 能力且不走网关托管推理的模型才强制下发，其余回退 auto。
+  private resolveToolChoice(request: AiRelayTurnRequest, settings: OpenAiRuntimeSettings) {
+    const decision = resolveProviderRequiredToolChoiceDecision({
+      requested: request.metadata?.toolChoice === 'required',
+      supportsRequiredToolChoice: settings.supportsRequiredToolChoice === true,
+      reasoningMode: settings.reasoningMode,
+      rejectedByProvider: this.requiredToolChoiceRejectedModels.has(
+        buildProviderToolChoiceModelKey(request),
+      ),
+    })
+    if (decision.toolChoice === 'required') {
+      return 'required' as const
+    }
+
+    const context = [
+      `providerId=${settings.providerId || '-'}`,
+      `model=${settings.model || '-'}`,
+      `modelId=${settings.effectiveModelId || settings.publicModelId || request.modelId || '-'}`,
+      `reasoningMode=${settings.reasoningMode || '-'}`,
+      `baseUrl=${settings.baseUrl || '-'}`,
+    ].join(' ')
+    if (decision.fallbackReason === 'capability_unverified') {
+      // 能力声明是确定状态，同一生效模型只在首次降级时告警，避免每轮 preflight 刷 warn。
+      const key = buildProviderToolChoiceModelKey({
+        providerId: settings.providerId,
+        modelId: settings.effectiveModelId || settings.publicModelId || request.modelId,
+        model: settings.model,
+      })
+      if (!key || !this.requiredToolChoiceCapabilityWarnedModels.has(key)) {
+        if (key) {
+          this.requiredToolChoiceCapabilityWarnedModels.add(key)
+        }
+        this.logger.warn(`强制工具选择未启用（能力未验证），回退 auto：${context}`)
+      }
+    } else if (decision.fallbackReason === 'builtin_route') {
+      this.logger.debug(`强制工具选择回退 auto（网关托管推理）：${context}`)
+    } else if (decision.fallbackReason === 'provider_rejected') {
+      this.logger.debug(`强制工具选择回退 auto（provider 已拒绝过）：${context}`)
+    }
+    return 'auto' as const
+  }
+
+  markRequiredToolChoiceRejected(input: {
+    providerId?: string | null
+    modelId?: string | null
+    model?: string | null
+  }) {
+    const key = buildProviderToolChoiceModelKey(input)
+    if (!key) {
+      // 空 key 会静默失效，下一次仍会先吃一次 400；至少留下可检索的告警。
+      this.logger.warn(`强制工具选择拉黑跳过：providerId ${input.providerId || '-'} / model ${input.modelId || input.model || '-'} 不完整`)
+      return
+    }
+    this.requiredToolChoiceRejectedModels.add(key)
   }
 
   private buildToolBindingOptions(toolChoice: 'auto' | 'required', parallelToolCalls: boolean) {
@@ -4986,6 +5136,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       effectiveReasoningLevel: fallbackRuntimeConfig.effectiveReasoningLevel,
       reasoningMode: fallbackRuntimeConfig.reasoningMode,
       supportsParallelToolCalls: fallbackRuntimeConfig.supportsParallelToolCalls,
+      supportsRequiredToolChoice: fallbackRuntimeConfig.supportsRequiredToolChoice,
       capabilities: fallbackRuntimeConfig.capabilities,
       inputModalities: fallbackRuntimeConfig.inputModalities,
       outputModalities: fallbackRuntimeConfig.outputModalities,
@@ -5413,6 +5564,7 @@ private buildActionResultPromptProfilePreamble(conversationProfile?: AiConversat
       effectiveReasoningLevel: runtimeConfig.effectiveReasoningLevel,
       reasoningMode: runtimeConfig.reasoningMode,
       supportsParallelToolCalls: runtimeConfig.supportsParallelToolCalls,
+      supportsRequiredToolChoice: runtimeConfig.supportsRequiredToolChoice,
       capabilities: runtimeConfig.capabilities,
       inputModalities: runtimeConfig.inputModalities,
       outputModalities: runtimeConfig.outputModalities,

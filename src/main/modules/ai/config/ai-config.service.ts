@@ -70,6 +70,7 @@ type AiRuntimeConfig = {
   effectiveReasoningLevel?: AiReasoningLevel
   reasoningMode?: AiReasoningMode
   supportsParallelToolCalls?: boolean
+  supportsRequiredToolChoice?: boolean
   capabilities: AiProviderModel['capabilities']
   inputModalities: AiProviderModel['inputModalities']
   outputModalities: AiProviderModel['outputModalities']
@@ -471,6 +472,7 @@ export class AiConfigService {
         effectiveReasoningLevel: routeResolution.effectiveReasoningLevel,
         reasoningMode: routeResolution.reasoningMode,
         supportsParallelToolCalls: Boolean(routeResolution.model.toolCapabilities?.parallel),
+        supportsRequiredToolChoice: Boolean(routeResolution.model.toolCapabilities?.requireAny),
         capabilities: routeResolution.model.capabilities,
         inputModalities: routeResolution.model.inputModalities,
         outputModalities: routeResolution.model.outputModalities,
@@ -520,6 +522,7 @@ export class AiConfigService {
       effectiveReasoningLevel: externalReasoningConfig.effectiveReasoningLevel,
       reasoningMode: externalReasoningConfig.reasoningMode,
       supportsParallelToolCalls: Boolean(externalReasoningConfig.model.toolCapabilities?.parallel),
+      supportsRequiredToolChoice: Boolean(externalReasoningConfig.model.toolCapabilities?.requireAny),
       capabilities: externalReasoningConfig.model.capabilities,
       inputModalities: externalReasoningConfig.model.inputModalities,
       outputModalities: externalReasoningConfig.model.outputModalities,

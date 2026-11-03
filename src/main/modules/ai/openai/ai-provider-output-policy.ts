@@ -27,6 +27,8 @@ const normalizeTokenLimit = (value: unknown) => {
   return numericValue
 }
 
+export type AiProviderOutputLimitKey = 'max_tokens' | 'max_completion_tokens'
+
 export const resolveOutputLimitModelKwargs = (options: {
   scene?: unknown
   modelKwargs?: Record<string, unknown>
@@ -35,19 +37,16 @@ export const resolveOutputLimitModelKwargs = (options: {
   workbenchDefaultOutputTokens?: number | null
   editorDefaultOutputTokens?: number | null
 }) => {
-  const nextModelKwargs = options.modelKwargs ? { ...options.modelKwargs } : {}
-  const completionLimit = normalizeTokenLimit(nextModelKwargs.max_completion_tokens)
-  const legacyLimit = normalizeTokenLimit(nextModelKwargs.max_tokens)
-  const preferredKey = completionLimit !== null || (
-    Object.prototype.hasOwnProperty.call(nextModelKwargs, 'max_completion_tokens') && legacyLimit === null
-  )
+  const sourceModelKwargs = options.modelKwargs || {}
+  const nextModelKwargs = { ...sourceModelKwargs }
+  const completionLimit = normalizeTokenLimit(sourceModelKwargs.max_completion_tokens)
+  const legacyLimit = normalizeTokenLimit(sourceModelKwargs.max_tokens)
+  // 兼容网关只认 max_completion_tokens：配置里显式给出该键时保留它，不再改写成 max_tokens。
+  const preferredLimitKey: AiProviderOutputLimitKey = completionLimit !== null
     ? 'max_completion_tokens'
     : 'max_tokens'
-  const sceneDefault = isNocodeEditorScene(options.scene)
-    ? (normalizeTokenLimit(options.editorDefaultOutputTokens) || NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
-    : (normalizeTokenLimit(options.workbenchDefaultOutputTokens) || WORKBENCH_DEFAULT_OUTPUT_TOKENS)
-  const explicitLimit = preferredKey === 'max_completion_tokens'
-    ? (completionLimit ?? legacyLimit)
+  const explicitLimit = preferredLimitKey === 'max_completion_tokens'
+    ? completionLimit
     : (legacyLimit ?? completionLimit)
   const capabilityLimit = normalizeTokenLimit(options.maxOutputTokens)
   const contextWindow = normalizeTokenLimit(options.contextWindow)
@@ -56,35 +55,46 @@ export const resolveOutputLimitModelKwargs = (options: {
     capabilityLimit || Number.POSITIVE_INFINITY,
     contextWindow ? Math.max(1, contextWindow - 1) : Number.POSITIVE_INFINITY,
   )
-  const effectiveOutputTokens = Math.min(explicitLimit || sceneDefault, hardLimit)
-  delete nextModelKwargs[preferredKey === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens']
-  nextModelKwargs[preferredKey] = effectiveOutputTokens
-  return { modelKwargs: nextModelKwargs, effectiveOutputTokens }
+  const sceneDefault = isNocodeEditorScene(options.scene)
+    ? (normalizeTokenLimit(options.editorDefaultOutputTokens) || NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
+    : normalizeTokenLimit(options.workbenchDefaultOutputTokens)
+  const requestedLimit = explicitLimit ?? sceneDefault
+  // 非 nocode 场景不再默认压到 8192：没有显式上限时不带输出上限，预算估算仍按 8192 兜底。
+  const effectiveOutputTokens = requestedLimit === null
+    ? null
+    : Math.min(requestedLimit, hardLimit)
+  // 上限键统一从 modelKwargs 剥离，交给 buildChatModelOutputOptions 输出唯一来源。
+  delete nextModelKwargs.max_tokens
+  delete nextModelKwargs.max_completion_tokens
+  return { modelKwargs: nextModelKwargs, effectiveOutputTokens, preferredLimitKey }
 }
 
-export const applyNocodeEditorOutputLimit = (options: {
-  scene?: unknown
+// ChatOpenAI 的 invocationParams 会在展开 modelKwargs 后用 this.maxTokens 覆盖 max_tokens /
+// max_completion_tokens，所以上限只能有一个来源：要么传 maxTokens，要么保留网关要求的键并省略 maxTokens。
+export const buildChatModelOutputOptions = (options: {
   modelKwargs?: Record<string, unknown>
+  effectiveOutputTokens?: number | null
+  preferredLimitKey?: AiProviderOutputLimitKey
 }) => {
-  const clonedModelKwargs = options.modelKwargs
-    ? { ...options.modelKwargs }
-    : undefined
-
-  if (!isNocodeEditorScene(options.scene)) {
-    return clonedModelKwargs
+  const {
+    max_tokens: _legacyLimit,
+    max_completion_tokens: _completionLimit,
+    ...restModelKwargs
+  } = options.modelKwargs || {}
+  const modelKwargs = options.modelKwargs ? restModelKwargs : undefined
+  const effectiveOutputTokens = normalizeTokenLimit(options.effectiveOutputTokens)
+  if (options.preferredLimitKey === 'max_completion_tokens' && effectiveOutputTokens !== null) {
+    return {
+      modelKwargs: {
+        ...(modelKwargs || {}),
+        max_completion_tokens: effectiveOutputTokens,
+      },
+    }
   }
-
-  const nextModelKwargs: Record<string, unknown> = clonedModelKwargs
-    ? { ...clonedModelKwargs }
-    : {}
-  const preferredKey = Object.prototype.hasOwnProperty.call(nextModelKwargs, 'max_completion_tokens')
-    ? 'max_completion_tokens'
-    : 'max_tokens'
-  const currentLimit = normalizeTokenLimit(nextModelKwargs[preferredKey])
-  nextModelKwargs[preferredKey] = currentLimit === null
-    ? NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS
-    : Math.min(currentLimit, NOCODE_EDITOR_MAX_OUTPUT_TOKENS)
-  return nextModelKwargs
+  return {
+    ...(modelKwargs ? { modelKwargs } : {}),
+    ...(effectiveOutputTokens !== null ? { maxTokens: effectiveOutputTokens } : {}),
+  }
 }
 
 export const throwIfIncompleteToolOutputAtLimit = (options: {

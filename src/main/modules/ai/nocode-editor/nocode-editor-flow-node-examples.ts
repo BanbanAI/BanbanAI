@@ -960,7 +960,7 @@ const editDataExample: NocodeEditorFlowNodeExample = {
       ],
     },
     mapping: {
-      description: '更新字段映射',
+      description: '更新字段映射。两种写法二选一：取其他字段的当前值写 valueFieldName；回写固定取值（如审批状态、审批结论）写 value，例如 {"targetFieldName":"审批状态","value":"已通过"}，value 必须是目标字段已有的选项文字。不要把固定取值写进 valueFieldName，运行时会把它当作来源字段而找不到。',
       type: 'array',
       requiredWhen: '必填',
       exampleValue: [
