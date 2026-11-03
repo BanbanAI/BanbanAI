@@ -434,6 +434,7 @@ export class AiThreadController {
           error: error instanceof Error ? error.message : String(error),
           metadata: {
             agentId: thread.agentId,
+            ...((error as { metadata?: Record<string, unknown> })?.metadata || {}),
           },
         })
       }

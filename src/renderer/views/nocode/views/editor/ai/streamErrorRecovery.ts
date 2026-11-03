@@ -35,6 +35,7 @@ export const resolveNocodeEditorStreamErrorRecovery = (
     traceId: normalizeTraceId(rawMetadata.traceId),
     errorKind: (
       rawMetadata.errorKind === 'payload_too_large'
+      || rawMetadata.errorKind === 'context_window_exceeded'
       || rawMetadata.errorKind === 'provider_timeout'
       || rawMetadata.errorKind === 'provider_output_overflow'
       || rawMetadata.errorKind === 'stream_error'
@@ -44,8 +45,16 @@ export const resolveNocodeEditorStreamErrorRecovery = (
     retryable: rawMetadata.retryable === true,
     userMessagePersisted: rawMetadata.userMessagePersisted === true,
     recoveryAction: rawMetadata.recoveryAction === 'continue_generation'
-      ? 'continue_generation'
+      || rawMetadata.recoveryAction === 'compact_context'
+      ? rawMetadata.recoveryAction
       : undefined,
+    contextRecoveryAttempt: Number.isFinite(Number(rawMetadata.contextRecoveryAttempt))
+      ? Number(rawMetadata.contextRecoveryAttempt)
+      : undefined,
+    contextBudgetExceededReason: rawMetadata.contextBudgetExceededReason === 'body'
+      ? 'body'
+      : rawMetadata.contextBudgetExceededReason === 'token' ? 'token' : undefined,
+    sourceTraceId: normalizeTraceId(rawMetadata.sourceTraceId),
     timeoutPhase: (
       rawMetadata.timeoutPhase === 'first_event'
       || rawMetadata.timeoutPhase === 'idle'
@@ -105,6 +114,19 @@ export const buildContinueGenerationRequest = (options: {
   providerPromptContent: '请基于这次对话里已经确认并已保存的信息继续生成，不要重复询问或重复提交确认。',
   requestMetadata: {
     recoveryAction: 'continue_generation' as const,
+    retryOfTraceId: normalizeTraceId(options.retryOfTraceId),
+    previousErrorKind: options.errorKind,
+  },
+})
+
+export const buildCompactContextRetryRequest = (options: {
+  retryOfTraceId?: string
+  errorKind?: NocodeEditorAiStreamErrorKind
+}) => ({
+  userFacingContent: '压缩上下文后重试上一条请求',
+  providerPromptContent: '请重新处理最近一条失败的用户请求。压缩更早的冗余上下文，忽略此前的错误提示，并保留原请求中的明确约束。',
+  requestMetadata: {
+    recoveryAction: 'compact_context' as const,
     retryOfTraceId: normalizeTraceId(options.retryOfTraceId),
     previousErrorKind: options.errorKind,
   },

@@ -21,6 +21,8 @@ export type NocodeEditorProviderContextProjectionResult = {
   }>
 }
 
+export type NocodeEditorContextProjectionMode = 'full' | 'focused' | 'minimal'
+
 type NocodeEditorProviderContextProjectionStageResult = Omit<
   NocodeEditorProviderContextProjectionResult,
   'estimatedBytes'
@@ -63,9 +65,6 @@ const SINGLE_FORM_PLAN_TOOL_NAME = 'editor_stage_single_form_plan'
 const FORMULA_STAGE_TOOL_NAME = 'editor_stage_formula_plan'
 // The staged blueprint read result is already compacted by the host and must stay intact for later updates.
 const STAGED_BLUEPRINT_TOOL_NAMES = new Set([
-  'editor_stage_app_blueprint',
-])
-const STAGED_BLUEPRINT_TOOL_CALL_NAMES = new Set([
   'editor_stage_app_blueprint',
 ])
 const STAGED_PLANNING_TOOL_NAMES = new Set([
@@ -970,6 +969,28 @@ const compactPlanningConfirmationForContext = (value: unknown) => {
     : undefined
 }
 
+const compactStagedPlanningFlowIntentForContext = (value: unknown) => {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+
+  const evidence = compactStructuredStringListForContext(value.evidence, {
+    limit: 3,
+    maxChars: 60,
+  })
+  const nextFlowIntent: Record<string, unknown> = {
+    state: normalizeCompactText(value.state) || undefined,
+    targetFormName: truncateCompactText(value.targetFormName, 80) || undefined,
+    evidence: evidence.length ? evidence : undefined,
+  }
+
+  return Object.values(nextFlowIntent).some(valueItem => (
+    Array.isArray(valueItem) ? valueItem.length > 0 : valueItem !== undefined
+  ))
+    ? nextFlowIntent
+    : undefined
+}
+
 const compactPlanningOutlineForContext = (value: unknown) => {
   if (!isPlainObject(value)) {
     return undefined
@@ -983,6 +1004,7 @@ const compactPlanningOutlineForContext = (value: unknown) => {
         formKey: normalizeCompactText(record.formKey) || undefined,
         tableName: normalizeCompactText(record.tableName) || undefined,
         groupName: normalizeCompactText(record.groupName) || undefined,
+        description: truncateCompactText(record.description, 120) || undefined,
       }
     }).filter(item => item.formKey || item.tableName)
     : []
@@ -1027,6 +1049,7 @@ const compactPlanningOutlineForContext = (value: unknown) => {
     id: normalizeCompactText(value.id) || undefined,
     title: truncateCompactText(value.title, 120) || undefined,
     summary: truncateCompactText(value.summary, 220) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(value.flowIntent),
     forms: forms.length ? forms : undefined,
     modules: modules.length ? modules : undefined,
     flows: flows.length ? flows : undefined,
@@ -1060,6 +1083,7 @@ const compactStagedAppPlanForContext = (plan: unknown) => {
     id: normalizeCompactText(plan.id) || undefined,
     mode: normalizeCompactText(plan.mode) || undefined,
     goal: truncateCompactText(plan.goal, 220) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(plan.flowIntent),
     objects: objects.length ? objects : undefined,
     artifacts: artifacts.length ? artifacts : undefined,
     openQuestions: openQuestions.length ? openQuestions : undefined,
@@ -1106,6 +1130,7 @@ const compactStagedAppPlanToolCallInputForContext = (plan: unknown) => {
     id: normalizeCompactText(plan.id) || undefined,
     mode: normalizeCompactText(plan.mode) || undefined,
     goal: truncateCompactText(plan.goal, 140) || undefined,
+    flowIntent: compactStagedPlanningFlowIntentForContext(plan.flowIntent),
     objectCount: objectCount || undefined,
     artifactCount: artifactCount || undefined,
     openQuestionCount: openQuestionCount || undefined,
@@ -1520,9 +1545,11 @@ const collectContextProjectedBlueprintFieldEntries = (
         currentPath,
       )
       const widgetType = normalizeCompactText(fieldRecord.widgetType || fieldRecord.type)
+      const fieldKey = normalizeCompactText(fieldRecord.fieldKey)
       const currentEntry = currentPath
         ? [{
           name: currentPath,
+          ...(fieldKey ? { fieldKey } : {}),
           ...(widgetType ? { widgetType } : {}),
         }]
         : []
@@ -1579,6 +1606,7 @@ const resolveBlueprintContextFocusedFormIndexes = (
 ) => {
   const formList = Array.isArray(forms) ? forms : []
   const latestUserMatchText = normalizeBlueprintContextMatchText(latestUserContent)
+  const fieldKeywords = extractBlueprintContextFieldKeywords(latestUserContent)
   const indexes = extractBlueprintFocusedFormOrdinals(latestUserContent)
 
   formList.forEach((form, index) => {
@@ -1590,6 +1618,22 @@ const resolveBlueprintContextFocusedFormIndexes = (
       || (groupName && latestUserMatchText.includes(groupName))
     ) {
       indexes.add(index + 1)
+      return
+    }
+    // 用户直接点名表单内字段时，也要聚焦该字段所在表单；
+    // 否则裁剪会把整张表单的 fields 去掉，模型只能看到表单壳，续改时容易提交空 patch。
+    if (fieldKeywords.length) {
+      const matchedByField = collectContextProjectedBlueprintFieldNames(formRecord.fields)
+        .some((fieldName) => {
+          const normalizedFieldName = normalizeBlueprintContextMatchText(fieldName)
+          return Boolean(normalizedFieldName) && fieldKeywords.some(keyword => (
+            normalizedFieldName.includes(keyword)
+            || keyword.includes(normalizedFieldName)
+          ))
+        })
+      if (matchedByField) {
+        indexes.add(index + 1)
+      }
     }
   })
 
@@ -1790,11 +1834,17 @@ const compactStagedBlueprintToolOutputForContext = (
             focusedFieldFallbackCount,
           )
           : flattenedFieldNames
+        const focusedFieldEntries = focused && focusedFieldProjection !== 'names'
+          ? collectContextProjectedBlueprintFieldEntries(fields)
+          : []
+        const visibleFieldEntries = filterFocusedFieldsByLatestUser
+          ? focusedFieldEntries.filter(entry => focusedFieldNames.includes(String(entry.name || '')))
+          : focusedFieldEntries
         const projectedFields = focused
           ? (
             focusedFieldProjection === 'names'
               ? focusedFieldNames
-              : collectContextProjectedBlueprintFieldEntries(fields)
+              : visibleFieldEntries
           )
           : (
             options.omitNonFocusedFields
@@ -1861,6 +1911,7 @@ const projectStagedBlueprintToolMessageForContext = (
 
 export const projectStagedBlueprintToolMessagesForContext = (
   messages: AiProviderMessage[],
+  options: StagedBlueprintContextProjectionOptions = {},
 ) => {
   const normalizedMessages = Array.isArray(messages) ? messages : []
   const beforeBytes = measureUtf8JsonBytes(normalizedMessages)
@@ -1869,7 +1920,7 @@ export const projectStagedBlueprintToolMessagesForContext = (
     ? String(normalizedMessages[latestUserIndex]?.content || '')
     : ''
   const projectedMessages = normalizedMessages.map(message => (
-    projectStagedBlueprintToolMessageForContext(message, latestUserContent)
+    projectStagedBlueprintToolMessageForContext(message, latestUserContent, options)
   ))
   const changedMessages = projectedMessages.filter((message, index) => (
     message.content !== normalizedMessages[index]?.content
@@ -1882,149 +1933,6 @@ export const projectStagedBlueprintToolMessagesForContext = (
     projections: changedMessages > 0
       ? [{
         strategy: 'nocode-editor-staged-blueprint-tool-result-compaction',
-        changedMessages,
-        beforeBytes,
-        afterBytes,
-      }]
-      : [],
-  }
-}
-
-const compactStagedBlueprintDefinitionForContext = (
-  blueprint: Record<string, any>,
-  latestUserContent: string,
-) => {
-  const projected = compactStagedBlueprintToolOutputForContext(
-    {
-      blueprint,
-    },
-    latestUserContent,
-    {
-      omitNonFocusedFields: true,
-      focusedFieldProjection: 'names',
-      filterFocusedFieldsByLatestUser: true,
-      focusedFieldFallbackCount: 2,
-    },
-  )
-
-  return isPlainObject(projected.blueprint)
-    ? projected.blueprint
-    : blueprint
-}
-
-const compactStagedBlueprintPlanValueForContext = (
-  value: unknown,
-  latestUserContent: string,
-) => {
-  const parsed = typeof value === 'string'
-    ? tryParseJsonObject(value)
-    : isPlainObject(value)
-      ? value
-      : null
-  if (!parsed) {
-    return value
-  }
-
-  if (isPlainObject(parsed.blueprint)) {
-    return {
-      ...parsed,
-      blueprint: compactStagedBlueprintDefinitionForContext(parsed.blueprint, latestUserContent),
-    }
-  }
-
-  if (Array.isArray(parsed.forms)) {
-    return compactStagedBlueprintDefinitionForContext(parsed as Record<string, any>, latestUserContent)
-  }
-
-  return value
-}
-
-const compactStagedBlueprintToolCallInputForContext = (
-  input: Record<string, any>,
-  latestUserContent: string,
-) => {
-  let changed = false
-  const nextInput = {
-    ...input,
-  }
-
-  if (isPlainObject(input.blueprint)) {
-    const nextBlueprint = compactStagedBlueprintDefinitionForContext(input.blueprint, latestUserContent)
-    if (JSON.stringify(nextBlueprint) !== JSON.stringify(input.blueprint)) {
-      nextInput.blueprint = nextBlueprint
-      changed = true
-    }
-  }
-
-  if (Object.prototype.hasOwnProperty.call(input, 'plan')) {
-    const nextPlan = compactStagedBlueprintPlanValueForContext(input.plan, latestUserContent)
-    if (JSON.stringify(nextPlan) !== JSON.stringify(input.plan)) {
-      nextInput.plan = nextPlan
-      changed = true
-    }
-  }
-
-  return changed ? nextInput : input
-}
-
-const projectStagedBlueprintToolCallMessageForContext = (
-  message: AiProviderMessage,
-  latestUserContent: string,
-) => {
-  if (message.role !== AiMessageRole.ASSISTANT) {
-    return message
-  }
-
-  const toolCall = message.metadata?.modelToolExchangeCall
-  if (!toolCall) {
-    return message
-  }
-
-  const toolName = resolveToolCallName(message)
-  if (!STAGED_BLUEPRINT_TOOL_CALL_NAMES.has(toolName) || !isPlainObject(toolCall.input)) {
-    return message
-  }
-
-  const nextInput = compactStagedBlueprintToolCallInputForContext(toolCall.input, latestUserContent)
-  if (JSON.stringify(nextInput) === JSON.stringify(toolCall.input)) {
-    return message
-  }
-
-  return {
-    ...message,
-    metadata: {
-      ...message.metadata,
-      modelToolExchangeCall: {
-        ...toolCall,
-        input: nextInput,
-      },
-    },
-  }
-}
-
-const projectStagedBlueprintToolCallMessagesForContext = (
-  messages: AiProviderMessage[],
-) => {
-  const normalizedMessages = Array.isArray(messages) ? messages : []
-  const beforeBytes = measureUtf8JsonBytes(normalizedMessages)
-  const latestUserIndex = findLatestUserMessageIndex(normalizedMessages)
-  const latestUserContent = latestUserIndex >= 0
-    ? String(normalizedMessages[latestUserIndex]?.content || '')
-    : ''
-  const projectedMessages = normalizedMessages.map(message => (
-    projectStagedBlueprintToolCallMessageForContext(message, latestUserContent)
-  ))
-  const changedMessages = projectedMessages.filter((message, index) => (
-    JSON.stringify(message) !== JSON.stringify(normalizedMessages[index])
-  )).length
-  const afterBytes = measureUtf8JsonBytes(projectedMessages)
-
-  return {
-    messages: projectedMessages,
-    compacted: changedMessages > 0,
-    projections: changedMessages > 0
-      ? [{
-        strategy: 'nocode-editor-staged-blueprint-tool-call-compaction',
         changedMessages,
         beforeBytes,
         afterBytes,
@@ -2195,7 +2103,7 @@ export const projectSameTurnPrereadCarryoverMessagesForContext = (
           latestUserContent,
           {
             omitNonFocusedFields: true,
-            focusedFieldProjection: 'names',
+            focusedFieldProjection: 'entries',
             filterFocusedFieldsByLatestUser: options.filterFocusedFieldsByLatestUser,
             focusedFieldFallbackCount: 2,
           },
@@ -2236,6 +2144,235 @@ export const projectSameTurnPrereadCarryoverMessagesForContext = (
   }
 }
 
+const NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN = 2
+const NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_STRATEGY = 'nocode-editor-consecutive-tool-failure-fold'
+
+const collectAllModelToolExchangePairs = (messages: AiProviderMessage[]): ModelToolExchangePair[] => {
+  const pendingCallsById = new Map<string, ModelToolExchangeMessageRef[]>()
+  const pairs: ModelToolExchangePair[] = []
+
+  messages.forEach((message, index) => {
+    const round = getModelToolExchangeRound(message)
+    const resultCallId = getModelToolExchangeResultCallId(message)
+    if (resultCallId) {
+      const pendingCalls = pendingCallsById.get(resultCallId)
+      if (pendingCalls?.length) {
+        const call = pendingCalls.shift()
+        if (!pendingCalls.length) {
+          pendingCallsById.delete(resultCallId)
+        }
+        if (call) {
+          pairs.push({
+            call,
+            result: { message, index, round },
+            round: round ?? call.round,
+          })
+        }
+      }
+    }
+
+    const callId = getModelToolExchangeCallId(message)
+    if (callId) {
+      const pendingCalls = pendingCallsById.get(callId) || []
+      pendingCalls.push({ message, index, round })
+      pendingCallsById.set(callId, pendingCalls)
+    }
+  })
+
+  return pairs
+}
+
+const resolveConsecutiveToolFailureSignature = (message: AiProviderMessage) => {
+  const result = message.metadata?.modelToolExchangeResult
+  if (!result || result.ok !== false) {
+    return ''
+  }
+  const parsed = tryParseJsonObject(message.content)
+  const code = String(parsed?.repair?.code || parsed?.error || result.error || '').trim()
+  if (!code) {
+    return ''
+  }
+  return `${String(result.name || '').trim()}\u0000${code}`
+}
+
+// 同因连败之间只允许存在模型自述；指令消息或其它工具结果都视为轮次/因果边界。
+const hasConsecutiveFailureFoldBoundary = (
+  messages: AiProviderMessage[],
+  fromIndex: number,
+  toIndex: number,
+) => {
+  for (let index = fromIndex + 1; index < toIndex; index += 1) {
+    const message = messages[index]
+    if (!message) {
+      continue
+    }
+    if (
+      isInstructionRole(message.role)
+      || message.role === AiMessageRole.USER
+      || message.role === AiMessageRole.TOOL
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+const annotateFoldedToolFailureResultMessage = (
+  message: AiProviderMessage,
+  fold: {
+    count: number
+    firstRound: number | null
+    lastRound: number | null
+    firstFailure?: {
+      round?: number
+      inputKeys: string[]
+      inputPreview: string
+    }
+  },
+) => {
+  const parsed = tryParseJsonObject(message.content)
+  if (!parsed) {
+    return message
+  }
+  const repeatSummary = fold.firstRound !== null
+    ? `同一失败已重复 ${fold.count} 次，最早出现于第 ${fold.firstRound} 轮`
+    : `同一失败已重复 ${fold.count} 次`
+  return {
+    ...message,
+    content: JSON.stringify({
+      ...parsed,
+      repeatedFailure: {
+        count: fold.count,
+        firstRound: fold.firstRound ?? undefined,
+        lastRound: fold.lastRound ?? undefined,
+        note: `${repeatSummary}；请先修正根因再重试，不要原样重发。`,
+        ...(fold.firstFailure ? { firstFailure: fold.firstFailure } : {}),
+      },
+    }),
+  }
+}
+
+const FOLDED_FAILURE_INPUT_PREVIEW_LIMIT = 600
+
+// 折叠会删掉前面的失败调用；保留首条调用的入参形状，模型才有对照证据判断根因。
+const summarizeFoldedFailureCall = (
+  message: AiProviderMessage,
+): {
+  round?: number
+  inputKeys: string[]
+  inputPreview: string
+} | undefined => {
+  const call = isPlainObject(message?.metadata?.modelToolExchangeCall)
+    ? message.metadata.modelToolExchangeCall
+    : null
+  const input = isPlainObject(call?.input) ? call.input : null
+  if (!input) {
+    return undefined
+  }
+  const argumentText = JSON.stringify(input)
+  return {
+    round: getModelToolExchangeRound(message) ?? undefined,
+    inputKeys: Object.keys(input),
+    inputPreview: argumentText.length > FOLDED_FAILURE_INPUT_PREVIEW_LIMIT
+      ? `${argumentText.slice(0, FOLDED_FAILURE_INPUT_PREVIEW_LIMIT)}…`
+      : argumentText,
+  }
+}
+
+const projectConsecutiveToolFailureMessagesForContext = (
+  messages: AiProviderMessage[],
+): NocodeEditorProviderContextProjectionStageResult => {
+  const normalizedMessages = Array.isArray(messages) ? messages : []
+  const pairs = collectAllModelToolExchangePairs(normalizedMessages)
+  if (pairs.length < NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN) {
+    return {
+      messages: normalizedMessages,
+      compacted: false,
+      projections: [],
+    }
+  }
+
+  const beforeBytes = measureUtf8JsonBytes(normalizedMessages)
+  const droppedIndexes = new Set<number>()
+  const foldAnnotations = new Map<number, {
+    count: number
+    firstRound: number | null
+    lastRound: number | null
+    firstFailure?: {
+      round?: number
+      inputKeys: string[]
+      inputPreview: string
+    }
+  }>()
+  let runStart = 0
+  while (runStart < pairs.length) {
+    const signature = resolveConsecutiveToolFailureSignature(pairs[runStart].result.message)
+    if (!signature) {
+      runStart += 1
+      continue
+    }
+    let runEnd = runStart + 1
+    while (runEnd < pairs.length) {
+      if (hasConsecutiveFailureFoldBoundary(
+        normalizedMessages,
+        pairs[runEnd - 1].result.index,
+        pairs[runEnd].call.index,
+      )) {
+        break
+      }
+      if (resolveConsecutiveToolFailureSignature(pairs[runEnd].result.message) !== signature) {
+        break
+      }
+      runEnd += 1
+    }
+    const runLength = runEnd - runStart
+    if (runLength >= NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_MIN) {
+      for (let index = runStart; index < runEnd - 1; index += 1) {
+        droppedIndexes.add(pairs[index].call.index)
+        droppedIndexes.add(pairs[index].result.index)
+      }
+      const lastPair = pairs[runEnd - 1]
+      foldAnnotations.set(lastPair.result.index, {
+        count: runLength,
+        firstRound: pairs[runStart].round,
+        lastRound: lastPair.round,
+        firstFailure: summarizeFoldedFailureCall(pairs[runStart].call.message),
+      })
+    }
+    runStart = runEnd
+  }
+
+  if (!droppedIndexes.size) {
+    return {
+      messages: normalizedMessages,
+      compacted: false,
+      projections: [],
+    }
+  }
+
+  const projectedMessages = normalizedMessages.flatMap((message, index) => {
+    if (droppedIndexes.has(index)) {
+      return []
+    }
+    const fold = foldAnnotations.get(index)
+    return [fold ? annotateFoldedToolFailureResultMessage(message, fold) : message]
+  })
+  const changedMessages = (normalizedMessages.length - projectedMessages.length)
+    + foldAnnotations.size
+  const afterBytes = measureUtf8JsonBytes(projectedMessages)
+
+  return {
+    messages: projectedMessages,
+    compacted: true,
+    projections: [{
+      strategy: NOCODE_EDITOR_CONSECUTIVE_TOOL_FAILURE_FOLD_STRATEGY,
+      changedMessages,
+      beforeBytes,
+      afterBytes,
+    }],
+  }
+}
+
 const aggregateNocodeEditorProviderContextProjection = (
   messages: AiProviderMessage[],
   projectors: Array<(messages: AiProviderMessage[]) => NocodeEditorProviderContextProjectionStageResult>,
@@ -2262,19 +2399,37 @@ export const projectNocodeEditorProviderMessagesForContext = (
   options: {
     compactKeptAvailableWidgetTypes?: boolean
     keptAvailableWidgetTypesMode?: AvailableWidgetTypesProjectionMode
+    projectionMode?: NocodeEditorContextProjectionMode
   } = {},
 ): NocodeEditorProviderContextProjectionResult => {
+  const projectionMode = options.projectionMode || 'full'
+  const focusedProjectionOptions: StagedBlueprintContextProjectionOptions = projectionMode === 'full'
+    ? {}
+    : {
+      omitNonFocusedFields: true,
+      focusedFieldProjection: projectionMode === 'minimal' ? 'names' : 'entries',
+      filterFocusedFieldsByLatestUser: true,
+    }
+  // 不要压缩历史工具调用参数：模型会把它当作下一次调用的结构示例，
+  // 一旦 children 被压平成顶层字段，后续 patch 就会把子字段落到表单根上。
   const projected = aggregateNocodeEditorProviderContextProjection(messages, [
     projectLongAssistantHistoryMessagesForContext,
     projectStagedPlanningToolMessagesForContext,
     projectStagedPlanningToolCallMessagesForContext,
-    projectStagedBlueprintToolMessagesForContext,
-    projectStagedBlueprintToolCallMessagesForContext,
+    currentMessages => projectStagedBlueprintToolMessagesForContext(currentMessages, focusedProjectionOptions),
     projectSameTurnPrereadCarryoverMessagesForContext,
     currentMessages => projectSameTurnPrereadCarryoverMessagesForContext(currentMessages, {
       filterFocusedFieldsByLatestUser: true,
     }),
-    currentMessages => projectFormSummaryToolMessagesForContext(currentMessages, options),
+    currentMessages => projectFormSummaryToolMessagesForContext(currentMessages, {
+      ...options,
+      keptAvailableWidgetTypesMode: projectionMode === 'minimal'
+        ? 'type-name'
+        : projectionMode === 'focused'
+          ? 'single-alias'
+          : options.keptAvailableWidgetTypesMode,
+    }),
+    projectConsecutiveToolFailureMessagesForContext,
   ])
 
   return {
@@ -2283,15 +2438,22 @@ export const projectNocodeEditorProviderMessagesForContext = (
   }
 }
 
-export const estimateNocodeEditorProviderBodyBytes = (input: {
+export const estimateProviderRequestBodyBytes = (input: {
+  model?: string
   systemPrompt: string
   actions: AiActionDefinition[]
   messages: AiProviderMessage[]
+  modelKwargs?: Record<string, unknown>
+  reasoning?: unknown
+  temperature?: number
+  stream?: boolean
 }) => (
   measureUtf8JsonBytes({
-    model: 'context-projection-estimate',
-    temperature: 0.7,
-    stream: true,
+    ...(input.modelKwargs || {}),
+    model: input.model || 'context-projection-estimate',
+    temperature: input.temperature ?? 0.7,
+    stream: input.stream ?? true,
+    reasoning: input.reasoning,
     tools: buildEstimatedOpenAiTools(input.actions),
     messages: [
       { role: 'system', content: String(input.systemPrompt || '') },
@@ -2314,3 +2476,14 @@ export const estimateNocodeEditorProviderBodyBytes = (input: {
   })
   + estimateLangChainToolSchemaOverheadBytes(input.actions)
 )
+
+export const estimateNocodeEditorProviderBodyBytes = (input: {
+  systemPrompt: string
+  actions: AiActionDefinition[]
+  messages: AiProviderMessage[]
+}) => estimateProviderRequestBodyBytes({
+  ...input,
+  model: 'context-projection-estimate',
+  temperature: 0.7,
+  stream: true,
+})

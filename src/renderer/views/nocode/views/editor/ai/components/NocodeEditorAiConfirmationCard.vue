@@ -1,6 +1,9 @@
 <template>
   <section class="ai-confirmation-card">
-    <div class="ai-confirmation-card__head is-pending">
+    <div
+      class="ai-confirmation-card__head"
+      :class="expired ? 'is-expired' : 'is-pending'"
+    >
       <div class="ai-confirmation-card__title-wrap">
         <div class="ai-confirmation-card__title">{{ title }}</div>
         <span
@@ -17,6 +20,13 @@
         {{ statusBadgeText }}
       </span>
     </div>
+
+    <p
+      v-if="expired"
+      class="ai-confirmation-card__expired-hint"
+    >
+      {{ $t('nocodeEditorAiConfirmationCard.expiredHint') }}
+    </p>
 
     <div
       v-if="showStateSummary"
@@ -121,6 +131,7 @@
           :class="{
             'is-ready': inlineBatchConfirmLabel && !isCompleted,
           }"
+          :loading="isLoadingPhase"
           :disabled="isPrimaryDisabled"
           @click="handlePrimaryAction"
         >
@@ -161,6 +172,7 @@ import {
   getNocodeEditorCompletedDefaultsContinueLabel,
   getNocodeEditorPendingContinueLabel,
 } from '@common/utils/nocodeEditorConfirmationCopy'
+import { isFlowConfirmationQuestionAnswered } from '@common/utils/nocodeEditorFlowConfirmationPendingQuestions'
 import {
   canPreviewAiArtifact,
   resolveAiArtifactConfirmation,
@@ -168,8 +180,10 @@ import {
   resolveAiArtifactConfirmationSummary,
   resolveAiArtifactConfirmationStatus,
   resolveAiArtifactContinueLabel,
+  resolveAiArtifactCurrentRoundQuestions,
   resolveAiArtifactPendingQuestions,
   resolveAiArtifactQuestions,
+  resolveAiArtifactRecordQuestions,
   resolveAiArtifactTitle,
   resolveAiArtifactViewLabel,
   type AiArtifactConfirmationQuestion,
@@ -201,6 +215,7 @@ const props = defineProps<{
   statusTagText?: string
   readonlyVersion?: boolean
   versionTagText?: string
+  expired?: boolean
   actionDisabled?: boolean
 }>()
 
@@ -258,8 +273,9 @@ const isCompleted = computed(() => (
   || resolvedPhase.value === 'error'
 ))
 const readonlyVersion = computed(() => Boolean(props.readonlyVersion))
+const expired = computed(() => Boolean(props.expired))
 const versionTagText = computed(() => String(props.versionTagText || '').trim())
-const isQuestionReadonly = computed(() => isCompleted.value || readonlyVersion.value)
+const isQuestionReadonly = computed(() => isCompleted.value || readonlyVersion.value || expired.value)
 const isCompletedActionPhase = computed(() => resolvedPhase.value === 'completed')
 const readonlyActionsHint = computed(() => (
   readonlyVersion.value && !isCompletedActionPhase.value
@@ -272,13 +288,20 @@ const confirmation = computed(() => resolveAiArtifactConfirmation(props.block))
 const continueLabel = computed(() => resolveAiArtifactContinueLabel(props.block))
 const allQuestions = computed(() => resolveAiArtifactQuestions(props.block))
 const pendingQuestions = computed(() => resolveAiArtifactPendingQuestions(props.block))
-const shouldLockFlowSchemeQuestionsToCurrentRound = computed(() => (
-  props.block.kind === 'flow-scheme' && !isCompleted.value
-))
+const currentRoundQuestions = computed(() => resolveAiArtifactCurrentRoundQuestions(props.block))
+const recordQuestions = computed(() => resolveAiArtifactRecordQuestions(props.block))
 const displayQuestions = computed(() => (
-  shouldLockFlowSchemeQuestionsToCurrentRound.value
-    ? pendingQuestions.value
-    : (isCompleted.value ? allQuestions.value : pendingQuestions.value)
+  isCompleted.value
+    ? (
+      props.block.kind === 'flow-scheme'
+        ? currentRoundQuestions.value
+        : allQuestions.value
+    )
+    : (
+      expired.value || readonlyVersion.value
+        ? recordQuestions.value
+        : pendingQuestions.value
+    )
 ))
 const stagedResponses = computed(() => (
   buildStagedConfirmationResponses(pendingQuestions.value, props.responseDrafts || {})
@@ -443,24 +466,27 @@ const defaultStatusBadgeText = computed(() => {
   return pendingBadgeText.value
 })
 const statusBadgeText = computed(() => (
-  props.statusTagText
-  || defaultStatusBadgeText.value
+  expired.value
+    ? i18next.t('nocodeEditorAiConfirmationCard.expiredBadge')
+    : (props.statusTagText || defaultStatusBadgeText.value)
 ))
 const questionSectionTitle = computed(() => (
-  isCompleted.value ? i18next.t('nocodeEditorAiConfirmationCard.confirmedResults') : pendingTitle.value
+  isCompleted.value || displayQuestions.value.every(isFlowConfirmationQuestionAnswered)
+    ? i18next.t('nocodeEditorAiConfirmationCard.confirmedResults')
+    : pendingTitle.value
 ))
 const questionSectionHint = computed(() => (
-  isCompleted.value ? '' : pendingDraftHint.value
+  isCompleted.value || expired.value ? '' : pendingDraftHint.value
 ))
 const showQuestionSection = computed(() => (
   showReadyBody.value && displayQuestions.value.length > 0
 ))
 const primaryActionLabel = computed(() => {
-  if (isCompletedActionPhase.value) {
+  if (isCompletedActionPhase.value || isLoadingPhase.value) {
     return completedPrimaryLabel.value
   }
 
-  if (isLoadingPhase.value || isErrorPhase.value) {
+  if (isErrorPhase.value) {
     return ''
   }
 
@@ -469,19 +495,17 @@ const primaryActionLabel = computed(() => {
 const secondaryActionText = computed(() => (
   isCompleted.value ? '' : pendingSecondaryLabel.value
 ))
+// 只读卡片（历史版本 / 过期版本 / 自动续跑后保留的已确认方案）不提供任何操作，避免再次触发暂存提交。
 const showActionsSection = computed(() => (
   showReadyBody.value
   && !isReadyWithoutConfirmation.value
-  && !isLoadingPhase.value
   && !isErrorPhase.value
+  && !readonlyVersion.value
+  && !expired.value
   && (
-    readonlyVersion.value
-      ? (isCompletedActionPhase.value && Boolean(primaryActionLabel.value))
-      : (
-        Boolean(primaryActionLabel.value)
-        || Boolean(secondaryActionText.value)
-        || Boolean(readonlyActionsHint.value)
-      )
+    Boolean(primaryActionLabel.value)
+    || Boolean(secondaryActionText.value)
+    || Boolean(readonlyActionsHint.value)
   )
 ))
 const showPrimaryAction = computed(() => (
@@ -514,6 +538,7 @@ const showPreviewAction = computed(() => Boolean(previewActionText.value))
 const isPrimaryDisabled = computed(() => (
   readonlyVersion.value
   || props.actionDisabled
+  || isLoadingPhase.value
   || (isCompletedActionPhase.value && !isCompletedContinuationActionable.value)
   || (!inlineBatchConfirmLabel.value && isPendingPrimaryDisabled.value)
 ))
@@ -559,7 +584,7 @@ const handleSelectOption = (payload: {
   question: AiArtifactConfirmationQuestion
   option: NocodeEditorAiConfirmQuestionOption
 }) => {
-  if (props.readonlyVersion) {
+  if (props.readonlyVersion || expired.value) {
     return
   }
 
@@ -606,7 +631,7 @@ const handleSecondaryAction = () => {
 }
 
 const handleFocusInput = (question: AiArtifactConfirmationQuestion) => {
-  if (props.readonlyVersion) {
+  if (props.readonlyVersion || expired.value) {
     return
   }
 
@@ -675,6 +700,18 @@ const handlePreviewAction = () => {
 .ai-confirmation-card__badge {
   background: rgba(255, 190, 92, 0.16);
   color: #b67310;
+}
+
+.ai-confirmation-card__head.is-expired .ai-confirmation-card__badge {
+  background: #f2f3f5;
+  color: #909399;
+}
+
+.ai-confirmation-card__expired-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #909399;
 }
 
 .ai-confirmation-card__title {

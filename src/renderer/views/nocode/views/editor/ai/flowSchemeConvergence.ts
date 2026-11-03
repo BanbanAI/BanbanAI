@@ -238,6 +238,7 @@ const getDeferredConfigDedupeKey = (
   item: NocodeEditorFlowSchemeDeferredConfigItem,
 ) => [
   normalizeText(item.nodeKey),
+  normalizeText(item.settingPath),
   normalizeRelatedIssueCodes(item.relatedIssueCodes).join(','),
   normalizeText(item.category),
 ].join('|')
@@ -319,6 +320,14 @@ export const buildFlowSchemeDeferredConfigItemFromIssue = (
     id: `flow-deferred:${normalizeText(issue.id) || code}`,
     nodeKey: normalizeText(issue.schemeNodeKey || issue.targetId) || undefined,
     nodeTitle: normalizeText(issue.fieldLabel || issue.displayMessage || issue.targetLabel) || undefined,
+    settingPath: code.includes('approver_missing') ? 'options.approver'
+      : code.includes('transactor_missing') ? 'options.transactor'
+        : code.includes('notifier_missing') ? 'options.notifier'
+          : code.includes('reporter_missing') ? 'options.reporter'
+            : code.includes('empty_handler') ? 'options.emptyHandler'
+              : code.includes('message_push') ? 'options.messagePush'
+                : code === 'approval_same_as_submitter_missing' ? 'options.approverSameAsSubmitter'
+                  : undefined,
     category: catalog.category,
     requirementLevel: 'required',
     supportStatus: NEEDS_RUNTIME_SUPPORT_ISSUE_CODES.has(code)

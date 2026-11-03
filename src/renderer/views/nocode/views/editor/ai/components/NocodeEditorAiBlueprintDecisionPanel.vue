@@ -87,9 +87,9 @@
         <span class="ai-blueprint-decision-panel__question-badge">{{ questionBadgeText }}</span>
       </div>
       <nocode-editor-ai-confirmation-question-list
-        v-if="questions.length"
+        v-if="displayQuestions.length"
         class="ai-blueprint-decision-panel__confirmation-list"
-        :questions="questions"
+        :questions="displayQuestions"
         :response-drafts="responseDrafts"
         :active-input-question-ids="activeInputQuestionIds"
         :inline-note-question-ids="inlineNoteQuestionIds"
@@ -101,7 +101,42 @@
         @toggle-note-input="handleToggleInlineNoteInput"
         @update-note="handleUpdateInlineNote"
       />
-      <p v-if="appliedQuestionSectionHint" class="ai-blueprint-decision-panel__section-hint">
+      <div
+        v-if="defaultHandledQuestions.length"
+        class="ai-blueprint-decision-panel__notice-group"
+      >
+        <div class="ai-blueprint-decision-panel__notice-head">
+          <h4 class="ai-blueprint-decision-panel__notice-title">
+            {{ $t('nocodeEditorAiBlueprintDecisionPanel.defaultHandledGroupTitle') }}
+          </h4>
+          <span class="ai-blueprint-decision-panel__notice-badge">
+            {{ $t('nocodeEditorAiBlueprintDecisionPanel.defaultHandledGroupBadge', { count: defaultHandledQuestions.length }) }}
+          </span>
+        </div>
+        <p class="ai-blueprint-decision-panel__section-hint">
+          {{ $t('nocodeEditorAiBlueprintDecisionPanel.defaultHandledGroupHint') }}
+        </p>
+        <nocode-editor-ai-confirmation-question-list
+          class="ai-blueprint-decision-panel__confirmation-list"
+          :questions="defaultHandledQuestions"
+          :response-drafts="responseDrafts"
+          :active-input-question-ids="activeInputQuestionIds"
+          :inline-note-question-ids="inlineNoteQuestionIds"
+          :show-inline-note-input="!isQuestionReadonly"
+          :readonly="isQuestionReadonly"
+          :supplement-action-label="$t('nocodeEditorAiBlueprintDecisionPanel.adjustDefaultHandledAction')"
+          compact
+          muted
+          :show-supplement-action="!isQuestionReadonly"
+          @select-option="handleSelectConfirmationOption"
+          @toggle-note-input="handleToggleInlineNoteInput"
+          @update-note="handleUpdateInlineNote"
+        />
+      </div>
+      <p v-if="questionScopeHint" class="ai-blueprint-decision-panel__section-hint">
+        {{ questionScopeHint }}
+      </p>
+      <p v-else-if="appliedQuestionSectionHint" class="ai-blueprint-decision-panel__section-hint">
         {{ appliedQuestionSectionHint }}
       </p>
       <div v-else-if="questionEmptyText" class="ai-blueprint-decision-panel__action-note">
@@ -123,7 +158,9 @@ import {
   normalizeBlueprintPhase,
 } from '@common/utils/nocodeEditorBlueprintLifecycle'
 import {
+  resolveAiArtifactDefaultHandledQuestions,
   resolveAiArtifactPendingQuestionCount,
+  resolveAiArtifactPendingQuestions,
   resolveAiArtifactQuestions,
   type AiArtifactConfirmationQuestion,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
@@ -133,8 +170,13 @@ import {
 } from '../draftIssueActionList'
 import {
   countUnansweredConfirmationQuestions,
+  hasConfirmationResponseDraftNote,
   type NocodeEditorAiConfirmationResponseDraftMap,
 } from './confirmationInteraction'
+import {
+  isBlueprintConfirmationQuestionInScope,
+  type BlueprintConfirmationQuestionScope,
+} from './blueprintConfirmationQuestionScope'
 import NocodeEditorAiConfirmationQuestionList from './NocodeEditorAiConfirmationQuestionList.vue'
 import NocodeEditorAiDraftIssueActionList from './NocodeEditorAiDraftIssueActionList.vue'
 import type {
@@ -180,6 +222,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  historical: {
+    type: Boolean,
+    default: false,
+  },
   showActions: {
     type: Boolean,
     default: true,
@@ -211,6 +257,10 @@ const props = defineProps({
   showGeneratedOpenAction: {
     type: Boolean,
     default: false,
+  },
+  questionScope: {
+    type: Object as PropType<BlueprintConfirmationQuestionScope | null>,
+    default: null,
   },
 })
 
@@ -254,6 +304,45 @@ const showOpenGeneratedButton = computed(() => (
 ))
 
 const questions = computed(() => resolveAiArtifactQuestions(props.block))
+const pendingQuestions = computed(() => resolveAiArtifactPendingQuestions(props.block))
+
+// 已确认的记录只在历史版本和已应用状态回看；当前待确认的版本只列待确认项，避免重复展示上一轮的结论。
+const showConfirmedRecords = computed(() => props.historical || isAppliedState.value)
+
+const displayQuestions = computed(() => {
+  if (showConfirmedRecords.value || !props.questionScope) {
+    return showConfirmedRecords.value ? questions.value : pendingQuestions.value
+  }
+  return pendingQuestions.value.filter(question => (
+    isBlueprintConfirmationQuestionInScope(question, props.questionScope)
+  ))
+})
+
+// 待确认项按所属表单分页展示；提交门禁仍按整份蓝图统计，避免在单个页签漏答后直接提交。
+const questionScopeHint = computed(() => {
+  if (showConfirmedRecords.value || !props.questionScope) {
+    return ''
+  }
+  return pendingQuestions.value.length > displayQuestions.value.length
+    ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.questionScopeElsewhereHint')
+    : ''
+})
+
+// “已按默认处理”的说明项独立成组：不计数、不阻塞生成，但补充说明后可随确认一起提交。
+const allDefaultHandledQuestions = computed(() => (
+  showConfirmedRecords.value
+    ? []
+    : resolveAiArtifactDefaultHandledQuestions(props.block)
+))
+
+const defaultHandledQuestions = computed(() => {
+  if (!props.questionScope) {
+    return allDefaultHandledQuestions.value
+  }
+  return allDefaultHandledQuestions.value.filter(question => (
+    isBlueprintConfirmationQuestionInScope(question, props.questionScope)
+  ))
+})
 
 const pendingQuestionCount = computed(() => resolveAiArtifactPendingQuestionCount(props.block))
 
@@ -265,12 +354,24 @@ const draftActionIssues = computed(() => draftPersistenceState.value?.actionIssu
 const draftIssueCount = computed(() => getDraftPersistenceActionIssueCount(draftPersistenceState.value))
 const draftIssueResolved = computed(() => isDraftPersistenceStateResolved(draftPersistenceState.value))
 
+// “确认中 (x/y)”与提交门禁只统计待确认项：规划继承的已确认记录和默认处理说明都不需要逐项作答。
 const remainingDraftQuestionCount = computed(() => (
-  countUnansweredConfirmationQuestions(questions.value, props.responseDrafts || {})
+  countUnansweredConfirmationQuestions(pendingQuestions.value, props.responseDrafts || {})
+))
+
+const hasNoticeDraftResponses = computed(() => (
+  allDefaultHandledQuestions.value.some(question => (
+    hasConfirmationResponseDraftNote(props.responseDrafts?.[question.id])
+  ))
 ))
 
 const hasCompleteDraftResponses = computed(() => (
-  hasOpenQuestions.value && remainingDraftQuestionCount.value === 0
+  (hasOpenQuestions.value || hasNoticeDraftResponses.value)
+  && remainingDraftQuestionCount.value === 0
+))
+
+const isNoticeOnlyAdjustment = computed(() => (
+  !hasOpenQuestions.value && hasNoticeDraftResponses.value
 ))
 
 const canSubmitConfirmation = computed(() => (
@@ -278,7 +379,7 @@ const canSubmitConfirmation = computed(() => (
 ))
 
 const stagedConfirmedCount = computed(() => (
-  Math.max(0, questions.value.length - remainingDraftQuestionCount.value)
+  Math.max(0, pendingQuestions.value.length - remainingDraftQuestionCount.value)
 ))
 
 const resultSectionTitle = computed(() => (
@@ -442,14 +543,18 @@ const actionState = computed<BlueprintActionState>(() => {
   if (canSubmitConfirmation.value) {
     const submitButton: BlueprintActionButton = {
       key: 'submit-confirmation',
-      label: i18next.t('nocodeEditorAiBlueprintDecisionPanel.submitConfirmationAdjustBlueprint'),
+      label: isNoticeOnlyAdjustment.value
+        ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.submitNoticeAdjustBlueprint')
+        : i18next.t('nocodeEditorAiBlueprintDecisionPanel.submitConfirmationAdjustBlueprint'),
       primary: true,
       loading: props.submittingConfirmation,
       onClick: () => emit('submit-confirmation-responses'),
     }
 
     return {
-      reason: i18next.t('nocodeEditorAiBlueprintDecisionPanel.readyToSubmitConfirmationReason'),
+      reason: isNoticeOnlyAdjustment.value
+        ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.readyToSubmitNoticeReason')
+        : i18next.t('nocodeEditorAiBlueprintDecisionPanel.readyToSubmitConfirmationReason'),
       supportNotes: [
         i18next.t('nocodeEditorAiBlueprintDecisionPanel.submitConfirmationSupportNote'),
       ],
@@ -459,6 +564,17 @@ const actionState = computed<BlueprintActionState>(() => {
           .filter(button => button.key !== 'continue')
           .map(button => ({ ...button, primary: false })),
       ],
+      note: '',
+    }
+  }
+
+  if (props.historical && !isAppliedState.value) {
+    return {
+      reason: i18next.t('nocodeEditorAiBlueprintDecisionPanel.supersededReviewReason'),
+      supportNotes: [
+        i18next.t('nocodeEditorAiBlueprintDecisionPanel.supersededReturnToLatestNote'),
+      ],
+      buttons: [],
       note: '',
     }
   }
@@ -484,7 +600,7 @@ const actionState = computed<BlueprintActionState>(() => {
           key: 'continue',
           label: i18next.t('nocodeEditorAiBlueprintDecisionPanel.confirmingProgressAdjustBlueprint', {
             confirmedCount: stagedConfirmedCount.value,
-            totalCount: questions.value.length,
+            totalCount: pendingQuestions.value.length,
           }),
           primary: true,
           disabled: true,
@@ -588,25 +704,34 @@ const visibleActionCount = computed(() => (
   + (showOpenGeneratedButton.value ? 1 : 0)
 ))
 
-const questionBadgeText = computed(() => (
-  isAppliedDraftState.value
-    ? (
-      questions.value.length
-        ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.preDraftRecordCount', { count: questions.value.length })
-        : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noConfirmationRecordsThisRound')
-    )
-    : isAppliedSavedState.value
-      ? (
-        questions.value.length
-          ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.preGenerationRecordCount', { count: questions.value.length })
-          : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noConfirmationRecordsThisRound')
-      )
-      : (
-        hasOpenQuestions.value
-          ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.pendingQuestionCount', { count: questions.value.length })
-          : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noNewConfirmation')
-      )
+// 页签角标与面板角标都按当前表单范围统计；提交门禁仍按整份蓝图（hasOpenQuestions）。
+const scopedPendingQuestionCount = computed(() => (
+  showConfirmedRecords.value
+    ? pendingQuestionCount.value
+    : displayQuestions.value.length
 ))
+
+const questionBadgeText = computed(() => {
+  if (isAppliedDraftState.value) {
+    return questions.value.length
+      ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.preDraftRecordCount', { count: questions.value.length })
+      : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noConfirmationRecordsThisRound')
+  }
+  if (isAppliedSavedState.value) {
+    return questions.value.length
+      ? i18next.t('nocodeEditorAiBlueprintDecisionPanel.preGenerationRecordCount', { count: questions.value.length })
+      : i18next.t('nocodeEditorAiBlueprintDecisionPanel.noConfirmationRecordsThisRound')
+  }
+  if (!hasOpenQuestions.value) {
+    return i18next.t('nocodeEditorAiBlueprintDecisionPanel.noNewConfirmation')
+  }
+  if (!scopedPendingQuestionCount.value) {
+    return i18next.t('nocodeEditorAiBlueprintDecisionPanel.noPendingInThisForm')
+  }
+  return i18next.t('nocodeEditorAiBlueprintDecisionPanel.pendingQuestionCount', {
+    count: scopedPendingQuestionCount.value,
+  })
+})
 </script>
 
 <style scoped lang="scss">
@@ -820,6 +945,36 @@ const questionBadgeText = computed(() => (
 
 .ai-blueprint-decision-panel__confirmation-list {
   margin-top: 0;
+}
+
+.ai-blueprint-decision-panel__notice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(219, 229, 240, 0.88);
+}
+
+.ai-blueprint-decision-panel__notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-blueprint-decision-panel__notice-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: #4e5969;
+}
+
+.ai-blueprint-decision-panel__notice-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: #86909c;
 }
 
 .ai-blueprint-decision-panel__section-hint {

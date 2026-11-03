@@ -166,12 +166,10 @@ export const resolveNocodeEditorFlowEntryIntentWithSignal = (input: {
   }
 
   const sourceUserMessage = normalizeText(input.userMessage)
-  const activeFormName = normalizeText(input.activeFormName)
   const noneIntent: NocodeEditorFlowEntryIntent = {
     state: 'none',
     evidence: [],
     sourceUserMessage,
-    targetFormName: activeFormName || undefined,
   }
   const modelSignal = normalizeNocodeEditorFlowIntentSignal(input.modelSignal)
 
@@ -192,7 +190,7 @@ export const resolveNocodeEditorFlowEntryIntentWithSignal = (input: {
         state: 'explicit_negative',
         evidence: groundedEvidence,
         sourceUserMessage,
-        targetFormName: modelSignal.targetFormName || activeFormName || undefined,
+        targetFormName: modelSignal.targetFormName || undefined,
       }
       : noneIntent
   }
@@ -205,6 +203,6 @@ export const resolveNocodeEditorFlowEntryIntentWithSignal = (input: {
     state: 'explicit_positive',
     evidence: groundedEvidence,
     sourceUserMessage,
-    targetFormName: modelSignal.targetFormName || activeFormName || undefined,
+    targetFormName: modelSignal.targetFormName || undefined,
   }
 }

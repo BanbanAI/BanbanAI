@@ -785,6 +785,10 @@ const focusTextarea = async () => {
   textareaRef.value?.focus();
 };
 
+const blurTextarea = () => {
+  textareaRef.value?.blur();
+};
+
 const setValue = (value: string) => {
   inputValue.value = value;
 };
@@ -800,6 +804,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   focusTextarea,
+  blurTextarea,
   setValue,
 });
 </script>

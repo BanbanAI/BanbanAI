@@ -3,6 +3,9 @@ import type {
   AiAssistantMessageBlock,
 } from '@common/types/ai'
 import i18next from 'i18next'
+import {
+  isNocodeEditorSuppressedFailedStageSummaryReason,
+} from '@common/utils/nocodeEditorToolResultSummaryState'
 import { reduceNocodeEditorAssistantContent } from './streamContentState'
 
 type ToolResultContentInput = {
@@ -19,10 +22,6 @@ const shouldReplaceAssistantContentWithSummary = (metadata?: Record<string, unkn
 
 const isBlueprintSummaryStage = (metadata?: Record<string, unknown> | null) => (
   String(metadata?.summaryStage || '').trim().toLowerCase() === 'blueprint'
-)
-
-const getSummarySuppressionReason = (metadata?: Record<string, unknown> | null) => (
-  String(metadata?.summarySuppressionReason || '').trim()
 )
 
 const normalizeContent = (value: unknown) => String(value || '').trim()
@@ -70,7 +69,7 @@ export const isNocodeEditorSuppressedIntermediateSummary = (
   metadata?: Record<string, unknown> | null,
 ) => (
   Boolean(metadata?.suppressedIntermediateSummary)
-  && getSummarySuppressionReason(metadata) === 'transient_failed_app_plan_followed_by_success'
+  && isNocodeEditorSuppressedFailedStageSummaryReason(metadata?.summarySuppressionReason)
 )
 
 export const shouldMergeNocodeEditorToolResultBlocks = (

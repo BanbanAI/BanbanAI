@@ -30,6 +30,7 @@ export enum AiStreamEventType {
   TOOL_RESULT = 'tool-result',
   DONE = 'done',
   ERROR = 'error',
+  STATUS = 'status',
   CONTEXT_COMPACTION_START = 'context_compaction_start',
   CONTEXT_COMPACTION_COMPLETED = 'context_compaction_completed',
 }
@@ -361,6 +362,8 @@ export type AiScenePayload = {
   stagedPlanningSummary?: string
   stagedFlowSummary?: string
   stagedBlueprintSummary?: string
+  hasStagedBlueprint?: boolean
+  hasStagedFlowScheme?: boolean
   pendingBlueprintRepeatIntent?: boolean
   pendingBlueprintClarificationSummary?: string
   pendingBlueprintClarificationKind?: 'planning-question' | 'explicit-confirmation'
@@ -422,6 +425,10 @@ export type AiRelayStreamEvent =
       raw?: any
     }
   | {
+      type: AiStreamEventType.STATUS
+      statusPhase: string
+    }
+  | {
       type: AiStreamEventType.DELTA
       text: string
     }
@@ -480,6 +487,7 @@ export type AiChatStreamMetadata = Record<string, any> & {
 
 export type NocodeEditorStreamErrorKind =
   | 'payload_too_large'
+  | 'context_window_exceeded'
   | 'provider_timeout'
   | 'provider_output_overflow'
   | 'stream_error'
@@ -491,7 +499,10 @@ export type NocodeEditorStreamErrorMetadata = {
   errorKind: NocodeEditorStreamErrorKind
   retryable: boolean
   userMessagePersisted: boolean
-  recoveryAction?: 'continue_generation'
+  recoveryAction?: 'continue_generation' | 'compact_context'
+  contextRecoveryAttempt?: number
+  contextBudgetExceededReason?: 'token' | 'body'
+  sourceTraceId?: string
   timeoutPhase?: 'first_event' | 'idle' | 'total'
   timeoutMs?: number
 }

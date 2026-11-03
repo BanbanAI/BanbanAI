@@ -34,6 +34,9 @@
 
             <div class="ai-confirmation-drawer__title">{{ drawerTitle }}</div>
             <p v-if="drawerSummary" class="ai-confirmation-drawer__summary">{{ drawerSummary }}</p>
+            <p v-if="expired" class="ai-confirmation-drawer__expired-hint">
+              {{ $t('nocodeEditorAiConfirmationDrawer.expiredHint') }}
+            </p>
           </header>
 
           <div class="ai-confirmation-drawer__body">
@@ -177,6 +180,7 @@ import {
   resolveAiArtifactQuestionAnswerSummary,
   resolveAiArtifactQuestionSelectedOption,
   resolveAiArtifactQuestions,
+  resolveAiArtifactRecordQuestions,
   resolveAiArtifactTitle,
   type AiArtifactConfirmationQuestion,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
@@ -202,6 +206,8 @@ const props = defineProps<{
   focusQuestionId?: string | null
   submitting?: boolean
   readonly?: boolean
+  expired?: boolean
+  actionDisabled?: boolean
   responseDrafts?: NocodeEditorAiConfirmationResponseDraftMap
   statusTagText?: string
 }>()
@@ -231,7 +237,10 @@ const emit = defineEmits<{
 const confirmationStatus = computed(() => resolveAiArtifactConfirmationStatus(props.block))
 const isCompleted = computed(() => confirmationStatus.value === 'completed')
 const isReadonly = computed(() => Boolean(props.readonly))
-const isInteractionDisabled = computed(() => isReadonly.value || Boolean(props.submitting))
+const expired = computed(() => Boolean(props.expired))
+const isInteractionDisabled = computed(() => (
+  isReadonly.value || Boolean(props.submitting) || Boolean(props.actionDisabled)
+))
 const title = computed(() => (props.block ? resolveAiArtifactTitle(props.block) : i18next.t('nocodeEditorAiConfirmationDrawer.fullConfirmation')))
 const summary = computed(() => (
   props.block
@@ -251,7 +260,12 @@ const drawerSummary = computed(() => (
     : summary.value || i18next.t('nocodeEditorAiConfirmationDrawer.confirmationDrawerTip')
 ))
 const allQuestions = computed(() => resolveAiArtifactQuestions(props.block))
-const questions = computed(() => resolveAiArtifactPendingQuestions(props.block))
+// 只读（历史/过期）抽屉要回看这一版问过什么，已答题不能被决策契约过滤掉。
+const questions = computed(() => (
+  isReadonly.value
+    ? resolveAiArtifactRecordQuestions(props.block)
+    : resolveAiArtifactPendingQuestions(props.block)
+))
 const completedQuestions = computed(() => (
   allQuestions.value.filter(question => (
     Boolean(question.confirmed)
@@ -799,6 +813,14 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 20px;
   color: #86909c;
+  padding-right: 12px;
+}
+
+.ai-confirmation-drawer__expired-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: #faad14;
   padding-right: 12px;
 }
 

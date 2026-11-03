@@ -56,9 +56,9 @@
                     class="ai-blueprint-detail-sections__field-tag is-child"
                   >{{ $t('nocodeEditorAiBlueprintDetailSections.childField') }}</span>
                   <span
-                    v-if="fieldEntry.field.source?.formName || fieldEntry.field.source?.fieldName"
+                    v-if="resolveFieldSourceTarget(fieldEntry.field)"
                     class="ai-blueprint-detail-sections__field-tag is-shared"
-                  >{{ $t('nocodeEditorAiBlueprintDetailSections.sharedField') }}</span>
+                  >{{ $t('nocodeEditorAiBlueprintDetailSections.sharedFieldSource', { target: resolveFieldSourceTarget(fieldEntry.field) }) }}</span>
                   <span
                     v-if="fieldEntry.field.enumOptions?.length"
                     class="ai-blueprint-detail-sections__field-tag is-link"
@@ -85,6 +85,31 @@
               >
                 {{ fieldEntry.field.description }}
               </p>
+              <div
+                v-if="getFieldOptionLabels(fieldEntry.field).length"
+                class="ai-blueprint-detail-sections__field-options"
+              >
+                <span class="ai-blueprint-detail-sections__field-options-label">
+                  {{ $t('nocodeEditorAiBlueprintDetailSections.optionsLabel') }}
+                </span>
+                <span
+                  v-for="(optionLabel, optionIndex) in getVisibleFieldOptionLabels(fieldEntry.key, fieldEntry.field)"
+                  :key="`${fieldEntry.key}:${optionIndex}:${optionLabel}`"
+                  class="ai-blueprint-detail-sections__field-option"
+                >{{ optionLabel }}</span>
+                <button
+                  v-if="getFieldOptionLabels(fieldEntry.field).length > FIELD_OPTION_PREVIEW_LIMIT"
+                  type="button"
+                  class="ai-blueprint-detail-sections__field-options-toggle"
+                  @click="toggleFieldOptions(fieldEntry.key)"
+                >
+                  {{ isFieldOptionsExpanded(fieldEntry.key)
+                    ? $t('nocodeEditorAiBlueprintDetailSections.collapseOptions')
+                    : $t('nocodeEditorAiBlueprintDetailSections.expandOptions', {
+                      count: getFieldOptionLabels(fieldEntry.field).length - FIELD_OPTION_PREVIEW_LIMIT,
+                    }) }}
+                </button>
+              </div>
               <div
                 v-if="hasBlueprintDefaultValue(fieldEntry.field)"
                 class="ai-blueprint-detail-sections__default-value-line"
@@ -149,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, type PropType } from 'vue'
+import { computed, ref, type PropType } from 'vue'
 import { resolveBlueprintWidgetTypeLabel } from '@common/utils/nocodeEditorBlueprintWidgetLabel'
 import { resolveSupportedBlueprintWidgetType } from '../blueprintWidgetTypeSupport'
 import {
@@ -204,6 +229,27 @@ const props = defineProps({
 const normalizeText = (value: unknown, fallback = '') => {
   const text = String(value || '').trim()
   return text || fallback
+}
+
+// 关联字段必须显示取值目标；只有表名或只有字段名时降级显示其中一半。
+// source 常常只带 formKey（模型按规划键引用表单），直接展示会把内部键暴露给用户；
+// 用本次蓝图里的表单身份把 formKey 还原成表名，未命中时才回退原值。
+const resolveFieldSourceFormName = (field: NocodeEditorAiAppBlueprintField) => {
+  const formName = normalizeText(field.source?.formName)
+  const formKey = normalizeText(field.source?.formKey)
+  const referencedForm = formKey
+    ? props.forms.find(form => normalizeText(form.formKey) === formKey)
+    : undefined
+  return normalizeText(referencedForm?.tableName) || formName || formKey
+}
+
+const resolveFieldSourceTarget = (field: NocodeEditorAiAppBlueprintField) => {
+  const formName = resolveFieldSourceFormName(field)
+  const fieldName = normalizeText(field.source?.fieldName || field.source?.fieldKey)
+  if (formName && fieldName) {
+    return `${formName}.${fieldName}`
+  }
+  return formName || fieldName
 }
 
 const flattenFormFields = (
@@ -302,6 +348,44 @@ const getFieldTypeLabel = (widgetType?: string) => {
 
   return resolveBlueprintWidgetTypeLabel(resolvedWidgetType.widgetType)
 }
+
+const FIELD_OPTION_PREVIEW_LIMIT = 8
+const expandedOptionFieldKeys = ref<Set<string>>(new Set())
+
+const getFieldOptionLabels = (field: NocodeEditorAiAppBlueprintField) => (
+  (Array.isArray(field.enumOptions) ? field.enumOptions : []).flatMap((option) => {
+    if (typeof option === 'string') {
+      const label = option.trim()
+      return label ? [label] : []
+    }
+    const label = String(option?.label || option?.value || '').trim()
+    return label ? [label] : []
+  })
+)
+
+const getVisibleFieldOptionLabels = (
+  fieldKey: string,
+  field: NocodeEditorAiAppBlueprintField,
+) => {
+  const labels = getFieldOptionLabels(field)
+  return expandedOptionFieldKeys.value.has(fieldKey)
+    ? labels
+    : labels.slice(0, FIELD_OPTION_PREVIEW_LIMIT)
+}
+
+const isFieldOptionsExpanded = (fieldKey: string) => (
+  expandedOptionFieldKeys.value.has(fieldKey)
+)
+
+const toggleFieldOptions = (fieldKey: string) => {
+  const nextKeys = new Set(expandedOptionFieldKeys.value)
+  if (nextKeys.has(fieldKey)) {
+    nextKeys.delete(fieldKey)
+  } else {
+    nextKeys.add(fieldKey)
+  }
+  expandedOptionFieldKeys.value = nextKeys
+}
 </script>
 
 <style scoped lang="scss">
@@ -383,6 +467,45 @@ const getFieldTypeLabel = (widgetType?: string) => {
   font-size: 12px;
   line-height: 20px;
   color: var(--blueprint-text-secondary);
+}
+
+.ai-blueprint-detail-sections__field-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-blueprint-detail-sections__field-options-label {
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--blueprint-text-tertiary);
+}
+
+.ai-blueprint-detail-sections__field-option {
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(219, 229, 240, 0.9);
+  background: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--blueprint-text-secondary);
+}
+
+.ai-blueprint-detail-sections__field-options-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--blueprint-brand);
+  cursor: pointer;
+}
+
+.ai-blueprint-detail-sections__field-options-toggle:hover {
+  text-decoration: underline;
 }
 
 .ai-blueprint-detail-sections__field-grid {

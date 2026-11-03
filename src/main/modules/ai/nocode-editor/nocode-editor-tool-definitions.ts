@@ -1,5 +1,6 @@
 import { AiActionDefinition, AiActionKind } from '../ai.types'
 import { NOCODE_EDITOR_FLOW_PATCH_MAX_OPERATIONS } from '@common/utils/nocodeEditorFlowPatch'
+import { NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT } from '@common/utils/nocodeEditorConfirmationDecisionProjection'
 
 const nocodeEditorConfirmationSchema = {
   type: 'object',
@@ -30,11 +31,23 @@ const nocodeEditorConfirmationSchema = {
     },
     questions: {
       type: 'array',
-      description: 'Structured confirmation questions. An explicit empty array is allowed.',
+      maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
+      description: `Structured confirmation questions. An explicit empty array is allowed; ask no more than ${NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT} questions in one confirmation card.`,
       items: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Question identifier.' },
+          decisionKey: { type: 'string', description: 'Stable business decision key. Keep it across stages and revisions when the same decision is reworded.' },
+          decisionTarget: {
+            type: 'object',
+            description: 'For field-source decisions, identify the affected field so later blueprint stages can reuse the answer.',
+            properties: {
+              kind: { type: 'string', enum: ['field-source'] },
+              formKey: { type: 'string' },
+              fieldKey: { type: 'string' },
+            },
+            required: ['kind', 'fieldKey'],
+          },
           title: { type: 'string', description: 'Question title.' },
           scopeKind: {
             type: 'string',
@@ -48,10 +61,10 @@ const nocodeEditorConfirmationSchema = {
           questionKind: {
             type: 'string',
             enum: ['binary', 'single_select', 'note_only'],
-            description: 'Question type. Use binary for yes/no style questions, single_select for true single-choice questions, and note_only when the answer should come from supplemental text instead of clickable options.',
+            description: 'Question type. Use binary only when the title is a clear yes/no proposition and provide the yes/no options explicitly. If the user must choose between distinct outcomes, use single_select with explicit outcome labels; do not encode an either/or question as yes/no. Never ask about node operation permissions (transfer, return, reject, stash, finishing early) or rejection handling; those follow node defaults. Use note_only when the answer should come from supplemental text instead of clickable options. The runtime never synthesizes options: a binary or single_select question without options is only answerable by supplemental text.',
           },
           description: { type: 'string', description: 'Optional question details.' },
-          required: { type: 'boolean', description: 'Optional required flag.' },
+          required: { type: 'boolean', description: '是否必须作答；false 表示非阻塞的说明项，仅用于承载“已按默认处理、允许用户补充调整”的内容。蓝图阶段不得用非阻塞项收集生成前必须确定的决策；生成后可直接修改的配置项不通过确认题收集。' },
           allowFreeText: { type: 'boolean', description: 'Optional free-text flag.' },
           confirmed: {
             type: 'boolean',
@@ -71,7 +84,7 @@ const nocodeEditorConfirmationSchema = {
           },
           options: {
             type: 'array',
-            description: 'Optional structured options.',
+            description: 'Structured answer space. Required for binary (exactly the yes/no pair) and single_select (at least two options); the runtime never fills default options, and a choice question without options is only answerable by supplemental text.',
             items: {
               type: 'object',
               properties: {
@@ -82,6 +95,20 @@ const nocodeEditorConfirmationSchema = {
                   type: 'boolean',
                   description: 'Optional option-level selected flag for completed questions.',
                 },
+                personnelCandidate: {
+                  type: 'object',
+                  description: '人员候选的结构化证据状态。仅 flow-scheme 确认题使用；existing 必须能在当前 flow summary 找到真实对象；supported 可表示动态来源，或 source 槽尚未绑定具体对象的来源类型（固定人员/固定角色、表单内成员字段、表单内部门字段；不能携带 refId/refName，具体对象后续确认或生成后手动配置）；planned 表示有名称的待补配置。',
+                  properties: {
+                    sourceType: {
+                      type: 'string',
+                      enum: ['submitter', 'submitter_manager', 'fixed_users', 'fixed_roles', 'department_manager', 'form_member', 'form_department'],
+                    },
+                    status: { type: 'string', enum: ['existing', 'supported', 'planned'] },
+                    refId: { type: 'string' },
+                    refName: { type: 'string' },
+                  },
+                  required: ['sourceType', 'status'],
+                },
               },
               required: ['value', 'label'],
             },
@@ -90,6 +117,44 @@ const nocodeEditorConfirmationSchema = {
             type: 'array',
             description: 'Optional dependency question ids.',
             items: { type: 'string' },
+          },
+          prerequisites: {
+            type: 'array',
+            description: '前置决策的选项条件。引用稳定 decisionKey 和选项 value；条件之间为 AND。',
+            items: {
+              type: 'object',
+              properties: {
+                decisionKey: { type: 'string' },
+                operator: { type: 'string', enum: ['equals', 'in'] },
+                values: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['decisionKey', 'operator', 'values'],
+            },
+          },
+          uncertainty: {
+            type: 'object',
+            description: '不确定项分类。safe_default 表示已采用默认/假设且不阻塞继续，deferred_optional 表示可选补充；business_decision、deferred_required 表示需要用户决策；hard_blocker 会阻止生成。流程节点场景下 safe_default 必须引用真实节点默认设置。',
+            properties: {
+              category: { type: 'string', enum: ['business_decision', 'safe_default', 'deferred_required', 'deferred_optional', 'hard_blocker'] },
+              reasonCode: { type: 'string' },
+              nodeType: { type: 'string' },
+              settingPath: { type: 'string' },
+              evidenceSource: { type: 'string' },
+            },
+            required: ['category', 'reasonCode'],
+          },
+          personnelDecision: {
+            type: 'object',
+            description: '人员确认题必填。标记该题对应的流程步骤和唯一决策槽；stepKey 必须是本次方案 mainPath/branches 中真实存在的步骤 key。缺少本字段的人员题会被运行时判定为契约错误。',
+            properties: {
+              stepKey: { type: 'string', description: '本次方案中真实存在的人员步骤 key。' },
+              slot: {
+                type: 'string',
+                enum: ['source', 'binding', 'approval_level', 'multi_person', 'empty_handler', 'same_as_submitter'],
+                description: '一个问题只表达一个槽位；同一 stepKey + slot 只能对应一个决策。',
+              },
+            },
+            required: ['stepKey', 'slot'],
           },
         },
         required: ['title'],
@@ -152,8 +217,24 @@ const nocodeEditorPlanningConfirmationSchema = {
 
 const nocodeEditorFlowSchemeConfirmationSchema = {
   ...nocodeEditorConfirmationSchema,
+  required: [...(nocodeEditorConfirmationSchema.required || []), 'decisionContractVersion', 'factSnapshot'],
   properties: {
     ...nocodeEditorConfirmationSchema.properties,
+    decisionContractVersion: { type: 'number', const: 2, description: '流程决策契约版本。新方案必须填写 2。' },
+    factSnapshot: {
+      type: 'object',
+      description: '只回传运行时上一版提供的可信事实快照；首次规划传空对象。不要自行写入用户事实或模型假设，已明确的当前事实直接写进方案或已回答决策。',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          value: { type: 'string' },
+          source: { type: 'string', enum: ['user', 'history', 'runtime'] },
+          producerDecisionKey: { type: 'string' },
+          version: { type: 'string' },
+        },
+        required: ['value', 'source'],
+      },
+    },
     questions: {
       ...nocodeEditorConfirmationSchema.properties.questions,
       items: {
@@ -163,10 +244,32 @@ const nocodeEditorFlowSchemeConfirmationSchema = {
           ...nocodeEditorConfirmationSchema.properties.questions.items.properties,
           decisionKey: {
             type: 'string',
-            description: '跨流程版本稳定的业务决策键。同一决策即使标题改写也必须保持不变；不同缺参必须使用不同键。',
+            description: '必填的稳定业务决策键。同一决策即使标题改写也保持原键；展示 id 不能代替 decisionKey。',
+          },
+          dependsOn: {
+            type: 'array',
+            description: '依赖声明。独立问题必须显式传空数组；依赖其他问题时传前置 decisionKey。选项条件依赖另外使用 prerequisites。',
+            items: { type: 'string' },
+          },
+          decisionScope: {
+            type: 'object',
+            description: '问题的稳定业务范围。step 和 branch 的 id 必须引用本次方案中的真实 key；未知后续结构先不展开问题。',
+            properties: {
+              kind: { type: 'string', enum: ['flow', 'path', 'branch', 'step', 'object'] },
+              id: { type: 'string', minLength: 1 },
+              structureVersion: { type: 'string' },
+            },
+            required: ['kind', 'id'],
+          },
+          requiresFacts: { type: 'array', items: { type: 'string' }, description: '回答此题所需事实键；若事实由另一待决问题产生，运行时补足依赖边。' },
+          producesFacts: { type: 'array', items: { type: 'string' }, description: '此题回答后确定的事实键。' },
+          changes: { type: 'array', items: { type: 'string', enum: ['topology', 'scope', 'cardinality', 'options', 'applicability', 'meaning', 'strategy', 'binding'] }, description: '不同答案可能改变的方面；用于识别后续问题范围与含义。' },
+          userQuote: {
+            type: 'string',
+            description: '仅当用户本轮原话已逐字给出该题答案时填写：从用户消息里原样复制的片段，不要改写、不要摘自家建议或假设。宿主会逐字核对；核对不过该题照常提问。',
           },
         },
-        required: ['id', 'decisionKey', 'title', 'questionKind'],
+        required: ['id', 'decisionKey', 'title', 'questionKind', 'dependsOn', 'decisionScope', 'requiresFacts', 'producesFacts', 'changes'],
       },
     },
   },
@@ -419,33 +522,16 @@ const flowPersonnelSourceTypes = [
   'unresolved',
 ]
 
+// anyOf 的每个分支都会在工具调用链路里完整序列化一次，两份 properties 只是重复占字节。
+// 只要 id/name 至少给一个即可，运行时 normalizeRef 也会丢弃空引用。
 const flowPersonnelRefSchema: Record<string, any> = {
   type: 'object',
   additionalProperties: false,
+  description: '人员或角色引用，id 与 name 至少提供一个；未匹配到真实对象时保留 name，不要伪造 ID。',
   properties: {
     id: { type: 'string', minLength: 1, description: '人员或角色 ID，可选。' },
     name: { type: 'string', minLength: 1, description: '人员或角色名称，可选。' },
   },
-  anyOf: [
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        id: { type: 'string', minLength: 1, description: '人员或角色 ID，可选。' },
-        name: { type: 'string', minLength: 1, description: '人员或角色名称，可选。' },
-      },
-      required: ['id'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        id: { type: 'string', minLength: 1, description: '人员或角色 ID，可选。' },
-        name: { type: 'string', minLength: 1, description: '人员或角色名称，可选。' },
-      },
-      required: ['name'],
-    },
-  ],
 }
 
 const flowPersonnelUserRefsSchema: Record<string, any> = {
@@ -460,40 +546,29 @@ const flowPersonnelRoleRefsSchema: Record<string, any> = {
   items: flowPersonnelRefSchema,
 }
 
-const createFlowPersonnelFieldRefSchema = (
-  expectedType?: 'memberSelect' | 'departmentSelect',
-): Record<string, any> => ({
+const flowPersonnelFieldRefSchema: Record<string, any> = {
   type: 'object',
   additionalProperties: false,
   properties: {
     fieldId: { type: 'string', description: '表单字段 ID，可选。' },
     fieldName: { type: 'string', description: '表单字段名称，可选。' },
-    expectedType: expectedType
-      ? {
-        type: 'string',
-        const: expectedType,
-        description: `该来源必须使用 ${expectedType} 字段。`,
-      }
-      : {
-        type: 'string',
-        enum: ['memberSelect', 'departmentSelect'],
-        description: 'form_member 必须使用 memberSelect，form_department 必须使用 departmentSelect。',
-      },
+    expectedType: {
+      type: 'string',
+      enum: ['memberSelect', 'departmentSelect'],
+      description: 'form_member 必须使用 memberSelect，form_department 必须使用 departmentSelect；与 sourceType 不一致会被运行时归一化为 unresolved。',
+    },
   },
-})
-
-const flowPersonnelFieldRefSchema = createFlowPersonnelFieldRefSchema()
-const flowPersonnelMemberFieldRefSchema = createFlowPersonnelFieldRefSchema('memberSelect')
-const flowPersonnelDepartmentFieldRefSchema = createFlowPersonnelFieldRefSchema('departmentSelect')
+}
 
 const flowPersonnelDepartmentManagerSchema: Record<string, any> = {
   type: 'object',
   additionalProperties: false,
+  description: '部门主管配置必须嵌套在本对象内。禁止在 personnelRequirement 顶层写 mode/level，否则运行时按结构错误拒绝方案。',
   properties: {
     mode: {
       type: 'string',
       enum: ['up', 'down'],
-      description: '部门主管查找方向。',
+      description: '部门主管查找方向：up 向上、down 向下。',
     },
     level: {
       type: 'number',
@@ -516,7 +591,7 @@ const flowPersonnelEmptyHandlerSchema: Record<string, any> = {
     },
     userRefs: {
       type: 'array',
-      description: 'mode 为 fixed_users 时使用的兜底人员引用。',
+      description: 'mode 为 fixed_users 时使用的兜底人员引用；可在补充说明提供，未提供允许省略并在生成后提醒手动配置，不为此追问。',
       items: flowPersonnelRefSchema,
     },
   },
@@ -526,12 +601,12 @@ const flowPersonnelEmptyHandlerSchema: Record<string, any> = {
 const flowPersonnelRequirementSchema: Record<string, any> = {
   type: 'object',
   additionalProperties: false,
-  description: '可选的结构化人员来源。来源未定时必须使用 unresolved 并向用户提问；固定角色或固定人员当前不存在时，仍在对应 refs 中保留名称，供生成后补齐。',
+  description: '可选的结构化人员来源。sourceType 决定配哪个字段：submitter/submitter_manager/unresolved 不需要附加字段；fixed_users 配 userRefs；fixed_roles 配 roleRefs；department_manager 配 departmentManager，方向和层级只能写在其内部；form_member/form_department 配 fieldRef。与 sourceType 不匹配的字段会被运行时丢弃。来源未定时使用 unresolved 并确认来源；用户已选择固定人员或固定角色时必须保留相应 sourceType，具体对象可在补充说明提供，也可省略 refs 并生成后手动补齐，不新增绑定追问。已提供但未匹配的对象在 refs 保留名称，不伪造 ID。',
   properties: {
     sourceType: {
       type: 'string',
       enum: flowPersonnelSourceTypes,
-      description: '人员来源判别字段。不要根据 actorHint 猜测来源。',
+      description: '人员来源判别字段。用户指令或业务线索点名的来源必须落位到这里；不要根据 actorHint 猜测来源。',
     },
     userRefs: flowPersonnelUserRefsSchema,
     roleRefs: flowPersonnelRoleRefsSchema,
@@ -540,90 +615,12 @@ const flowPersonnelRequirementSchema: Record<string, any> = {
     emptyHandler: flowPersonnelEmptyHandlerSchema,
   },
   required: ['sourceType'],
-  oneOf: [
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'submitter' },
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'submitter_manager' },
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'fixed_users' },
-        userRefs: flowPersonnelUserRefsSchema,
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'fixed_roles' },
-        roleRefs: flowPersonnelRoleRefsSchema,
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'department_manager' },
-        departmentManager: flowPersonnelDepartmentManagerSchema,
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'form_member' },
-        fieldRef: flowPersonnelMemberFieldRefSchema,
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'form_department' },
-        fieldRef: flowPersonnelDepartmentFieldRefSchema,
-        emptyHandler: flowPersonnelEmptyHandlerSchema,
-      },
-      required: ['sourceType'],
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        sourceType: { type: 'string', const: 'unresolved' },
-      },
-      required: ['sourceType'],
-    },
-  ],
 }
 
 const flowSchemeStepSchema: Record<string, any> = {
   type: 'object',
   properties: {
-    key: { type: 'string', minLength: 1, description: '步骤稳定标识。' },
+    key: { type: 'string', minLength: 1, description: '步骤稳定标识。必须在 mainPath 和所有 branches.steps 中全局唯一；不同业务步骤不能复用同一个 key。' },
     kind: {
       type: 'string',
       description: '步骤类型，只能是 approval / notify / transact / report-data / add-data / edit-data / delete-data / condition-branch。',
@@ -688,7 +685,7 @@ const flowSchemeSchema: Record<string, any> = {
     },
     branches: {
       type: 'array',
-      description: '分支语义步骤，可以为空数组。若表达“其他情况/否则”的兜底分支语义，应在同一层级最多只保留 1 个兜底分支，不要并列生成多个语义重复的兜底分支。',
+      description: '分支语义步骤，可以为空数组。条件分支需分别表达每条路径；每个含审批步骤的分支都要明确该分支的审批人或把缺失决策写入 openQuestions。若表达“其他情况/否则”的兜底分支语义，应在同一层级最多只保留 1 个兜底分支，不要并列生成多个语义重复的兜底分支。',
       items: flowSchemeBranchSchema,
     },
     confirmedFacts: {
@@ -698,11 +695,25 @@ const flowSchemeSchema: Record<string, any> = {
     },
     assumptions: {
       type: 'array',
-      description: '当前仍然采用的假设。',
-      items: { type: 'string' },
+      description: '当前仍未被用户确认的假设。每条必须声明 impact：会改变分支是否存在、分流依据、触发方式、节点数量、审批层级、回写或跨表动作的标 structure，并给出 decisionKey 指向本轮结构确认题；只影响参数取值的标 parameter；只影响文案/通知等细节的标 detail。impact=structure 时必须同时给出 decisionKey 与 dependentDecisionKeys，相关下游题必须在 prerequisites 中引用该结构题，否则方案会被拒绝。已由用户明确确认的内容放 confirmedFacts。',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', minLength: 1, description: '假设内容，用业务语言描述。' },
+          impact: { type: 'string', enum: ['structure', 'parameter', 'detail'] },
+          decisionKey: { type: 'string', description: 'impact=structure 时必填：本轮结构确认题的 decisionKey。' },
+          dependentDecisionKeys: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '只有该结构确认后才适用的下游题 decisionKey；本轮 confirmation.questions 中必须真实存在。',
+          },
+        },
+        required: ['text', 'impact'],
+      },
     },
     openQuestions: {
       type: 'array',
+      maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
       description: '仍需用户确认的问题。一个问题只表达一个缺失决策槽；只要这里非空，confirmation.questions 就必须完整覆盖这些当前待确认问题。',
       items: flowSchemeQuestionSchema,
     },
@@ -713,6 +724,10 @@ const flowSchemeSchema: Record<string, any> = {
         type: 'object',
         properties: {
           id: { type: 'string' },
+          decisionKey: {
+            type: 'string',
+            description: '可选的稳定业务决策键。依赖与待确认问题表达同一决策时应使用相同 decisionKey；字段绑定等后续决策应使用独立键。',
+          },
           kind: {
             type: 'string',
             enum: ['field_missing', 'field_policy_mismatch', 'source_table_missing', 'org_anchor_missing', 'mapping_conflict', 'capability_gap'],
@@ -770,13 +785,14 @@ const flowSchemeSchema: Record<string, any> = {
     },
     deferredConfigItems: {
       type: 'array',
-      description: '可选。生成后配置项列表；运行时可以回填。',
+      description: '可选。生成后配置项列表；运行时可以回填。已选择选项但缺少可在草稿中手动补齐的配置细节时，写入此处并在生成后提醒，不转成 openQuestions/confirmation 追问；required 项不表示已配置完成。',
       items: {
         type: 'object',
         properties: {
           id: { type: 'string' },
           nodeKey: { type: 'string' },
           nodeTitle: { type: 'string' },
+          settingPath: { type: 'string', description: '节点契约中的精确设置路径；运行时据此验证延期能力。' },
           category: {
             type: 'string',
             enum: ['owner_binding', 'fallback_handler', 'data_target', 'field_mapping', 'condition_detail', 'schedule_detail', 'notification_detail', 'reminder_detail', 'advanced_option', 'copywriting', 'display'],
@@ -787,7 +803,7 @@ const flowSchemeSchema: Record<string, any> = {
           fillTiming: { type: 'string', enum: ['after_generation'] },
           severity: { type: 'string', enum: ['low', 'medium', 'high'] },
         },
-        required: ['id', 'category', 'requirementLevel', 'supportStatus', 'summary', 'fillTiming', 'severity'],
+        required: ['id', 'nodeKey', 'settingPath', 'category', 'requirementLevel', 'supportStatus', 'summary', 'fillTiming', 'severity'],
       },
     },
     convergence: {
@@ -816,6 +832,7 @@ const flowSchemeSchema: Record<string, any> = {
     'confirmedFacts',
     'assumptions',
     'openQuestions',
+    'confirmation',
   ],
 }
 
@@ -872,7 +889,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
   {
     name: 'editor_stage_app_plan',
     kind: AiActionKind.FUNCTION,
-    description: '暂存一份应用级整体规划，并产出可供查看的“应用结构预览”，用于在当前应用内从零搭建完整应用结构、重构整体结构、新增会影响多表关系的业务模块或重新梳理核心对象关系。它只进入应用规划阶段，不代表表单、字段、流程或看板已经创建完成；如果目标只是新增单张完整表单，必须优先使用 editor_stage_single_form_plan。如果提供 outline，outline.forms 必须列出真实表单节点，每项至少包含 tableName；如果 outline.forms 只有部分有效项，仍应补齐缺失表单，不要只给 title、summary、modules 而遗漏 forms。',
+    description: '暂存一份应用级整体规划，并产出可供查看的“应用结构预览”，用于在当前应用内从零搭建完整应用结构、重构整体结构、新增会影响多表关系的业务模块或重新梳理核心对象关系。它只进入应用规划阶段，不代表表单、字段、流程或看板已经创建完成；如果目标只是新增单张完整表单，必须优先使用 editor_stage_single_form_plan。如果当前是单表单任务，只是确认答复中新增了一张需要建立关联的独立表，仍保持单表单范围，直接在蓝图阶段把主表和关联表一起写入 blueprint.forms，不要使用本工具。如果提供 outline，outline.forms 必须列出真实表单节点，每项至少包含 tableName；如果 outline.forms 只有部分有效项，仍应补齐缺失表单，不要只给 title、summary、modules 而遗漏 forms。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -903,6 +920,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
             },
             openQuestions: {
               type: 'array',
+              maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
               items: { type: 'string' },
               description: '仍需用户确认的问题。',
             },
@@ -949,7 +967,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
   {
     name: 'editor_stage_single_form_plan',
     kind: AiActionKind.FUNCTION,
-    description: '暂存一份单表单规划，并在存在关联结构时补充“应用结构预览”，用于“空应用直接创建一张完整表单”或“已有应用里新增单张完整表单”的高频场景。这是单表单规划工具，只描述这一张真实表单的目标、关键字段范围和待确认项；forms 默认只保留 1 条真实表单，不能把同一张表里的内容分组扩成多表。modules / flows 在单表场景通常留空或省略，不要因为申请信息、明细、附件等内容分组就扩成多模块或多表单。groupName 仅在用户明确指定分组时填写；如果 openQuestions 为空，说明单表单规划已可继续，应在同一用户回合继续调用 editor_stage_app_blueprint 生成详细蓝图；如果 openQuestions 不为空，才停在规划确认阶段等待用户补充。',
+    description: '暂存一份单表单规划，并在存在关联结构时补充“应用结构预览”，用于“空应用直接创建一张完整表单”或“已有应用里新增单张完整表单”的高频场景。这是单表单规划工具，只描述这一张真实表单的目标、关键字段范围和待确认项；forms 默认只保留 1 条真实表单，不能把同一张表里的内容分组扩成多表。如果确认答复里还出现了与本表单有真实关联的独立表，规划仍只保留当前主表；该关联表在蓝图阶段通过主表字段的 source 指向后加入 blueprint.forms，不要写进本工具的 forms。modules / flows 在单表场景通常留空或省略，不要因为申请信息、明细、附件等内容分组就扩成多模块或多表单。groupName 仅在用户明确指定分组时填写；如果 openQuestions 为空，说明单表单规划已可继续，应在同一用户回合继续调用 editor_stage_app_blueprint 生成详细蓝图；如果 openQuestions 不为空，才停在规划确认阶段等待用户补充。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -966,6 +984,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
             },
             openQuestions: {
               type: 'array',
+              maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
               items: { type: 'string' },
               description: '仍需用户确认的问题。',
             },
@@ -1070,6 +1089,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
             },
             openQuestions: {
               type: 'array',
+              maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
               items: { type: 'string' },
               description: '仍需用户确认的问题。',
             },
@@ -1120,7 +1140,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                       type: 'object',
                       properties: {
                         formulaPath: { type: 'string', enum: ['default-formula', 'compute-formula'] },
-                        formula: { type: 'string', description: '公式表达式中的字段引用必须使用 [[field:fieldKey,字段标题]]，fieldKey 来自 editor_get_form_summary。' },
+                        formula: { type: 'string', description: '公式表达式中的字段引用必须使用 [[field:fieldKey,字段标题]]，fieldKey 来自 editor_get_form_summary；子表字段使用父子 fieldKey 组成的叶子路径，例如 [[field:items.amount,金额]]，不要拆成容器引用和子字段引用。' },
                         explanation: { type: 'string' },
                       },
                       required: ['formulaPath', 'formula'],
@@ -1132,6 +1152,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
             },
             openQuestions: {
               type: 'array',
+              maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
               items: { type: 'string' },
               description: '仍需用户确认的问题。',
             },
@@ -1226,14 +1247,12 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
     name: 'editor_plan_flow_scheme',
     kind: AiActionKind.FUNCTION,
     description: '暂存一份当前表单的流程方案快照，用于需求澄清、方案规划和确认问题收敛。它只负责表达“当前打算怎么设计流程、还缺哪些关键信息”，不直接输出最终流程蓝图节点图。普通聊天阶段必须用它与用户沟通流程方案；如果还有待确认问题，不要直接进入蓝图输出。调用本工具时，顶层输入必须且只能是 { scheme: FlowScheme }。',
+    // 决策键、依赖、题型、人员来源、分支建模等规则已在 system prompt 中常驻，这里只保留
+    // 与工具入参形状强绑定的三条，避免每轮请求重复下发约 5KB。
     notes: [
       '严格格式要求：工具 input 顶层只能有 scheme 这一个字段。不要把 title、summary、trigger、mainPath、branches、confirmedFacts、assumptions、openQuestions、confirmation、target、id 直接平铺在 input 顶层，也不要同时传顶层字段和 scheme 内字段的重复版本。',
-      '如果 scheme.openQuestions 非空，scheme.confirmation.questions 必须完整包含这些当前待确认问题。可以额外保留历史已确认题，但不能漏掉任何一个当前 openQuestions。',
-      '如果某个问题仍然保留在 scheme.openQuestions 里，对应的 scheme.confirmation.questions 项必须保持未回答壳子状态，必须保留 id/decisionKey/title/questionKind 等提问身份字段；options/description/required 等展示字段仅在适用时保留。仅不得填写回答态字段：不要填写 selectedOptionValue、answerSummary、answerDetail，不要把 options[].selected 设为 true，也不要把 confirmed 设为 true。',
-      '系统可能会回填 scheme.dependencies、scheme.deferredConfigItems 与 scheme.convergence。修订已有方案时要尽量保留这些字段，不要把它们抹掉；如果本轮无法判断，可省略并由运行时重新回填。',
-      '如果用户已确认“后续新增字段/表/组织锚点后再使用”，对应 dependency 必须写成 resolved + create_later + planned；不要继续留在 scheme.openQuestions，也不要伪装成 existing。',
-      '如果上下文中的结构化确认结论已表明审批人来自表单成员字段，来源类型已经确认：不要再次询问表单字段、固定人员、角色、部门负责人或提交人上级。每个审批步骤仅可写三类结果之一：业务合适的当前表单成员字段（resolved + use_existing + existing，fieldRef 同时含真实 fieldId/fieldName）、计划新增成员字段（resolved + create_later + planned，fieldRef 同时含 fieldName/expectedType=memberSelect）、或“使用哪个成员字段作为审批人”的窄化问题（选项只能是当前表单 ownerPolicy=member 的字段）。',
-      '“报销人、申请人、提交人”等申请角色不能自动复用为审批人；同名“审批人”字段当前能力不兼容时，规划“流程审批人”成员字段。目标表单或 planning context 改变后先重新读取 flow summary，不能复用旧 fieldId。',
+      'scheme.openQuestions[].key 必须与唯一一条 confirmation.questions[].decisionKey 一致；仍留在 openQuestions 的题在 confirmation.questions 中必须保持未回答壳子，不要预填 selectedOptionValue、answerSummary、answerDetail，不要把 options[].selected 或 confirmed 设为 true。',
+      '流程 confirmation.questions 的每一题都必须显式声明依赖：没有前置关系时填写 dependsOn: []，依赖前置决策时填写 dependsOn 或 prerequisites；人员决策题一题只表达一个决策槽位。',
       '正确示例：{ "scheme": { "title": "...", "summary": "...", "trigger": { "type": "submit", "description": "..." }, "mainPath": [], "branches": [], "confirmedFacts": [], "assumptions": [], "openQuestions": [], "confirmation": { "questions": [] } } }',
     ],
     inputSchema: {
@@ -1250,7 +1269,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
     name: 'editor_stage_flow_blueprint',
     kind: AiActionKind.FUNCTION,
     description: [
-      '暂存一份由 LLM 基于当前流程方案生成的流程蓝图。它接收最终蓝图节点图，并对照当前已暂存的 FlowScheme 做一致性校验后再保存。该工具本身不再提问、不再做方案规划；只有当方案已经完成澄清并通过内部复核后才允许调用。',
+      '暂存一份由 LLM 基于当前流程方案生成的流程蓝图。它接收最终蓝图节点图，并对照当前已暂存的 FlowScheme 做一致性校验后再保存。sourceSchemeRevision 或目标表单不匹配时会在写入前拒绝，必须基于当前方案重新生成；不要把 mismatch 当作可接受状态。该工具本身不再提问、不再做方案规划；只有当方案已经完成澄清并通过内部复核后才允许调用。',
       '从已确认流程方案生成蓝图时，同一业务步骤必须复用流程方案中的步骤 key 作为蓝图 nodeKey；只有确实新增了方案中不存在的业务节点时，才生成新的 nodeKey。',
       '如果审批人来自固定人员、角色、部门负责人或提交人上级，不要把它伪装成表单字段引用；只有成员字段真实存在且 ownerPolicy=member 时，才使用表单字段作为审批人。',
       '如果需要审批结果分流，必须引用 flow summary 中 conditionPolicy=usable 的真实字段；如果不存在，先在流程方案中提出确认问题，不要输出 approvalResult 这类未落地字段名。',
@@ -1306,31 +1325,31 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
   {
     name: 'editor_stage_app_blueprint',
     kind: AiActionKind.FUNCTION,
-    description: '暂存一个蓝图草案，供用户确认后再统一生成表单与字段。它承接已经收敛完成的方案/单表单规划结果，而不是在“从零创建完整新表单”场景里默认一上来就成为第一步；如果当前规划里仍有待确认项，应先等待用户确认，不要绕过规划阶段直接落到蓝图。如果本轮刚输出规划卡片且不是自动搭建 kickoff，不要在同一轮立即调用本工具；等待用户确认规划后再继续。这里的“完整新表单”以用户意图为主，即使当前停留在 form-design / page-design / app-setting，也不能因为不是 idle 就跳过这一阶段。调用时必须显式指定 updateMode：patch 表示更新当前蓝图，未出现的表单、字段和子字段保留，删除必须通过 deletedFormKeys / deletedFields 明确表达；replace 表示用完整快照覆盖当前蓝图，未出现的内容会被移除。若当前已经有待确认蓝图，再次调用本工具默认是 patch，应复用当前 blueprint.id 以及已知的 formKey / fieldKey；只有用户本轮明确要求重做、整体替换或缩减范围时才能使用 replace，不能仅根据旧规划或旧确认结论选择 replace。输入必须使用 blueprint.forms；不能把 forms 放在顶层。若历史调用同时出现两处 forms，必须保留内容一致的 blueprint.forms，冲突时重新生成。blueprint.forms 枚举的是最终要创建或修改的真实表单/页面，不是字段分组，不是内容分组，也不是内容板块；同一张表内部的字段分组、模块或内容板块，应落在该 form 的 fields 与 description 中表达，不能为了这些分组再新增一个并列 form。如果用户明确要求某个明细对象作为独立表单、独立的真实表单或独立 form，必须在 forms[] 中保留并列 form，而不是降级为主表内的子表单。若上一阶段是单表单规划，则这里的 forms 通常也只能有这一张真实表单。蓝图创建成功后，应先明确说明“当前只是蓝图已创建、尚未生成到编辑器，表单和字段还没有真正创建”；若这次暂存被标记为“需要显式确认”，只有用户在最近一次暂存之后明确确认继续，或明确要求直接落地时，才再调用按蓝图生成。',
+    description: '暂存一个蓝图草案，供用户确认后再统一生成表单与字段。它承接已经收敛完成的方案/单表单规划结果，而不是在“从零创建完整新表单”场景里默认一上来就成为第一步；如果当前规划里仍有待确认项，应先等待用户确认，不要绕过规划阶段直接落到蓝图。如果本轮刚输出规划卡片：规划里还有待确认问题时，先停在规划阶段、等待用户确认，不要同一轮立即调用本工具；规划里没有待确认问题时，可以继续暂存蓝图草案（自动搭建 kickoff 不受此限制）。这里的“完整新表单”以用户意图为主，即使当前停留在 form-design / page-design / app-setting，也不能因为不是 idle 就跳过这一阶段。调用时必须显式指定 updateMode：当前没有暂存蓝图时必须使用 replace，不能用 patch；已有暂存蓝图时，patch 表示更新当前蓝图，未出现的表单、字段和子字段保留，删除必须通过 deletedFormKeys / deletedFields 明确表达；replace 表示用完整快照覆盖当前蓝图，未出现的内容会被移除。若当前已经有待确认蓝图，再次调用本工具默认是 patch，应复用当前 blueprint.id 以及已知的 formKey / fieldKey；只有用户本轮明确要求重做、整体替换或缩减范围时才能使用 replace，不能仅根据旧规划或旧确认结论选择 replace；如果本轮目标是另一张与暂存蓝图不共享任何表单（tableName 与 formKey 均不同）的新表单，这属于新蓝图范围，应使用 replace 提交新表单的完整快照。输入使用 blueprint.forms；不能把 forms 放在顶层。patch 模式仅删除表单或字段时可省略 blueprint.forms，只传 deletedFormKeys / deletedFields。若历史调用同时出现两处 forms，必须保留内容一致的 blueprint.forms，冲突时重新生成。blueprint.forms 枚举的是最终要创建或修改的真实表单/页面，不是字段分组，不是内容分组，也不是内容板块；同一张表内部的字段分组、模块或内容板块，应落在该 form 的 fields 与 description 中表达，不能为了这些分组再新增一个并列 form。如果用户明确要求某个明细对象作为独立表单、独立的真实表单或独立 form，必须在 forms[] 中保留并列 form，而不是降级为主表内的子表单。若上一阶段是单表单规划，蓝图默认以该表单为主表；如果确认答复中还需要一张与主表有真实关联的独立表，必须保留主表并把该关联表加入 forms[]，同时补齐被 source 引用的显示字段，主表字段用 source（formKey/formName + fieldKey/fieldName）实际指向它；只写 source 而缺少目标表会被宿主拒绝，该额外表单也不允许进入蓝图。用户或已完成的规划/确认已经指定关联表时，不得再把“表是否存在/是否先创建”留成 openQuestions 或待确认项。这种情况仍属于当前 form 任务，不要重新开启规划或升级为应用级规划。蓝图创建成功后，应先明确说明“当前只是蓝图已创建、尚未生成到编辑器，表单和字段还没有真正创建”；若这次暂存被标记为“需要显式确认”，只有用户在最近一次暂存之后明确确认继续，或明确要求直接落地时，才再调用按蓝图生成。',
     inputSchema: {
       type: 'object',
       properties: {
         updateMode: {
           type: 'string',
           enum: ['patch', 'replace'],
-          description: '必填。patch 表示按 formKey / fieldKey 增量更新当前蓝图，未出现的表单、字段和子字段全部保留；replace 表示 blueprint 是完整最终快照，未出现的内容会被移除。已有蓝图上回答待确认问题、修改部分表单或字段时使用 patch；只有用户本轮明确要求重做、整体替换或缩减范围时使用 replace。',
+          description: '必填。patch 表示按 formKey / fieldKey 增量更新当前蓝图，未出现的表单、字段和子字段全部保留；replace 表示 blueprint 是完整最终快照，未出现的内容会被移除。当前没有暂存蓝图时（hasStagedBlueprint=false）必须使用 replace，不能使用 patch；已有暂存蓝图时，回答待确认问题、修改部分表单或字段使用 patch，只有用户本轮明确要求重做、整体替换或缩减范围时才使用 replace；如果本轮目标是另一张与暂存蓝图不共享任何表单的新表单，也使用 replace 提交新表单的完整快照。',
         },
         deletedFormKeys: {
           type: 'array',
           items: { type: 'string' },
-          description: 'patch 模式下明确删除的表单 formKey 列表。未出现在 blueprint.forms 中不代表删除。',
+          description: 'patch 模式下明确删除的表单列表。优先使用当前暂存蓝图结构中的稳定 formKey；表单没有 formKey 时可使用结构中的 formIdentity / tableName，但必须能唯一匹配。未出现在 blueprint.forms 中不代表删除。',
         },
         deletedFields: {
           type: 'array',
-          description: 'patch 模式下明确删除的字段列表。fieldKeys 可以指向普通字段或子表字段；未出现在 blueprint.forms[].fields 中不代表删除。',
+          description: 'patch 模式下明确删除的字段列表。优先使用当前暂存蓝图结构中的稳定 fieldKey（可先调用 editor_get_staged_app_blueprint 读取）；字段名与「父字段.子字段」路径仅在唯一匹配时作为兜底。formKey 优先使用稳定 formKey，没有 formKey 时可用结构中的 formIdentity / tableName。未出现在 blueprint.forms[].fields 中不代表删除。仅执行删除时无需回传 blueprint.forms。',
           items: {
             type: 'object',
             properties: {
-              formKey: { type: 'string', description: '所属表单的稳定 formKey。' },
+              formKey: { type: 'string', description: '所属表单的 formIdentity：优先使用稳定 formKey；表单没有 formKey 时使用结构中的 formIdentity / tableName，必须能唯一匹配。' },
               fieldKeys: {
                 type: 'array',
                 items: { type: 'string' },
-                description: '要删除的稳定 fieldKey 列表。',
+                description: '要删除的字段标识列表。优先使用稳定 fieldKey；字段名和「父字段.子字段」路径仅在唯一匹配时作为兜底。',
               },
             },
             required: ['formKey', 'fieldKeys'],
@@ -1349,13 +1368,14 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
             },
             openQuestions: {
               type: 'array',
+              maxItems: NOCODE_EDITOR_CONFIRMATION_DECISION_LIMIT,
               items: { type: 'string' },
-              description: '仍需用户确认的表单、字段、关系或字段能力问题。不得放入审批触发、流程节点、审批人来源、驳回处理等流程设计问题；这些问题必须在表单生成后的 flow-scheme 阶段确认。',
+              description: '仍需用户确认的硬阻塞问题，只放会改变表单边界、表内结构、关系来源或字段存储类型的决策，例如是否新建独立表单、子表单还是平铺字段、人员/附件/时间等字段类型分叉。关系来源只有在关联表名或显示字段尚未确定时才放入；用户或已完成的规划/确认已经指定关联表时，必须直接把该表写入 blueprint.forms 并用 source 指向它，不得再问“表是否存在/是否先创建”；确实需要提问时，必须给出完整可选项：新建该表并关联（默认）、改用已有表单、先手填文本。枚举选项、默认值、必填、说明、占位提示、排序、分组、表单名称与描述等生成后可直接修改的配置不要放入，直接写入对应字段配置或 description。不得放入审批触发、流程节点、审批人来源等流程设计问题；这些问题必须在表单生成后的 flow-scheme 阶段确认。',
             },
             confirmation: nocodeEditorConfirmationSchema,
             forms: {
               type: 'array',
-              description: '建议创建或修改的真实表单/页面列表。patch 模式只需列出新增或修改的表单，未列出的表单保留；replace 模式必须列出完整最终表单集合。forms[] 表示真实表单/页面，不是字段分组，不是内容分组，也不是内容板块；这里按真实表单粒度枚举，同一张表内部的内容分组应写在对应 form 的 fields 与 description 中，不能为了分组再新增并列 form。用户明确要求独立表单、独立的真实表单或独立 form 时，该对象必须作为 forms[] 中的并列 form 保留。',
+              description: '建议创建或修改的真实表单/页面列表。patch 模式只需列出新增或修改的表单，未列出的表单保留；patch 模式仅执行删除时可省略；replace 模式必须列出完整最终表单集合。forms[] 表示真实表单/页面，不是字段分组，不是内容分组，也不是内容板块；这里按真实表单粒度枚举，同一张表内部的内容分组应写在对应 form 的 fields 与 description 中，不能为了分组再新增并列 form。用户明确要求独立表单、独立的真实表单或独立 form 时，该对象必须作为 forms[] 中的并列 form 保留。',
               items: {
                 type: 'object',
                 properties: {
@@ -1365,11 +1385,14 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                   description: { type: 'string', description: '表单说明。' },
                   fields: {
                     type: 'array',
-                    description: '表单字段列表。patch 模式只需列出新增或修改的字段，未列出的字段和子字段保留；replace 模式必须列出该表单的完整最终字段集合。',
+                    description: '表单字段列表。patch 模式只需列出新增或修改的字段，未列出的字段和子字段保留；更新已有字段时 fieldKey 仅用于定位，不会改写既有 fieldKey。修改字段必须在 fields 中携带目标字段及要变更的属性；只提交表单身份、没有 fields 的 patch 不会产生任何配置变更。多个子表存在相同子字段 key 时，必须使用「父字段.子字段」路径；给已有子表单新增子字段时，必须提交该子表单字段并把子字段放进它的 children（或用「父字段.子字段」路径），不能平铺在本数组顶层；replace 模式必须列出该表单的完整最终字段集合。',
                     items: {
                       type: 'object',
                       properties: {
-                        fieldKey: { type: 'string', description: '字段稳定标识，可选。' },
+                        fieldKey: {
+                          type: 'string',
+                          description: '字段稳定标识，必须唯一。公式目标和公式引用必须使用该标识；新蓝图必须提供。patch 更新既有字段时仅用于定位，不会改写既有 fieldKey；同一 key 出现在多个子表时必须用「父字段.子字段」路径。',
+                        },
                         name: { type: 'string', description: '字段名称。' },
                         widgetType: { type: 'string', description: '字段组件类型或常见别名。' },
                         description: { type: 'string', description: '字段说明。' },
@@ -1378,7 +1401,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                         validationFormat: { type: 'string', description: '限定格式，例如 email、ID-number。' },
                         enumOptions: {
                           type: 'array',
-                          description: '自定义枚举选项，可传字符串数组或 {label,value} 数组。',
+                          description: '自定义枚举选项，可传字符串数组或 {label,value} 数组；单选/多选/下拉字段必须提供。行业通用枚举按业务常识给常用值，确实无法确定时留空并在 description 标注“生成后补充选项”。value 必须是与 label 一致的中文业务文案，不要使用英文键。',
                           items: {
                             oneOf: [
                               { type: 'string' },
@@ -1395,7 +1418,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                         defaultValue: nocodeEditorBlueprintDefaultValueSchema,
                         formulaSettings: {
                           type: 'array',
-                          description: '字段动态公式配置。固定文本、数字、布尔值或固定枚举默认项必须写入 defaultValue，不得包装成公式。蓝图字段引用使用 [[field:fieldKey,字段标题]]。compute-formula 只允许用于 widgetType=widget.form.autoCompute；default-formula 只用于组件支持的动态默认公式。不要为同一字段同时输出两种 formulaPath。',
+                          description: '字段动态公式配置。固定文本、数字、布尔值或固定枚举默认项必须写入 defaultValue，不得包装成公式。蓝图字段引用使用 [[field:fieldKey,字段标题]]；子表字段使用父子 fieldKey 组成的叶子路径，例如 [[field:items.amount,金额]]，不要拆成容器引用和子字段引用。compute-formula 只允许用于 widgetType=widget.form.autoCompute；default-formula 只用于组件支持的动态默认公式。不要为同一字段同时输出两种 formulaPath。字段声明为 widgetType=widget.form.autoCompute 时必须提供 formulaPath=compute-formula 的公式。',
                           items: {
                             type: 'object',
                             properties: {
@@ -1423,11 +1446,14 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                         },
                         children: {
                           type: 'array',
-                          description: '当字段是子表单时，这里填写子字段列表；不要只创建一个空子表单。',
+                          description: '当字段是子表单时，这里填写子字段列表；不要只创建一个空子表单。patch 给已有子表单追加子字段时，提交父字段的 fieldKey + children 即可，未列出的既有子字段会保留。',
                           items: {
                             type: 'object',
                             properties: {
-                              fieldKey: { type: 'string', description: '子字段稳定标识，可选。' },
+                              fieldKey: {
+                                type: 'string',
+                                description: '子字段稳定标识，必须唯一。公式引用必须使用父字段路径加该标识；新蓝图必须提供。同一 key 在多个子表重复时，patch 更新必须使用「父字段.子字段」路径。',
+                              },
                               name: { type: 'string', description: '子字段名称。' },
                               widgetType: { type: 'string', description: '子字段组件类型或常见别名。' },
                               description: { type: 'string', description: '子字段说明。' },
@@ -1453,7 +1479,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                               defaultValue: nocodeEditorBlueprintDefaultValueSchema,
                               formulaSettings: {
                                 type: 'array',
-                                description: '字段动态公式配置。固定文本、数字、布尔值或固定枚举默认项必须写入 defaultValue，不得包装成公式。蓝图字段引用使用 [[field:fieldKey,字段标题]]。compute-formula 只允许用于 widgetType=widget.form.autoCompute；default-formula 只用于组件支持的动态默认公式。不要为同一字段同时输出两种 formulaPath。',
+                                description: '字段动态公式配置。固定文本、数字、布尔值或固定枚举默认项必须写入 defaultValue，不得包装成公式。蓝图字段引用使用 [[field:fieldKey,字段标题]]；子表字段使用父子 fieldKey 组成的叶子路径，例如 [[field:items.amount,金额]]，不要拆成容器引用和子字段引用。compute-formula 只允许用于 widgetType=widget.form.autoCompute；default-formula 只用于组件支持的动态默认公式。不要为同一字段同时输出两种 formulaPath。字段声明为 widgetType=widget.form.autoCompute 时必须提供 formulaPath=compute-formula 的公式。',
                                 items: {
                                   type: 'object',
                                   properties: {
@@ -1480,11 +1506,11 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
                                 description: '子字段备注。',
                               },
                             },
-                            required: ['name'],
+                            required: ['name', 'fieldKey'],
                           },
                         },
                       },
-                      required: ['name'],
+                      required: ['name', 'fieldKey'],
                     },
                   },
                 },
@@ -1492,10 +1518,9 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
               },
             },
           },
-          required: ['forms'],
         },
       },
-      required: ['updateMode', 'blueprint'],
+      required: ['updateMode'],
     },
   },
   {
@@ -1516,7 +1541,7 @@ export const nocodeEditorToolDefinitions: AiActionDefinition[] = [
   {
     name: 'editor_apply_staged_app_blueprint',
     kind: AiActionKind.FUNCTION,
-    description: '把当前暂存的蓝图确定性生成到编辑器草稿中：创建/复用表单、补齐字段、写入常见字段设置。若最近一次蓝图暂存被标记为“需要显式确认”，只有用户在那次暂存之后明确确认继续，才能调用本工具；若用户明确要求“直接落地/不用确认”，则可直接进入这一阶段。手工点击“按蓝图生成”沿用现有前端直达链路；一旦蓝图已经成功生成，这次 gate 就视为已消费，不应继续约束后续针对已有表单/字段的增量修改。调用成功后，才能声称表单和字段已真正创建到编辑器。',
+    description: '把当前暂存的蓝图确定性生成到编辑器草稿中：创建/复用表单、补齐字段、写入常见字段设置。回答蓝图问题只表示补充配置，不等于生成授权；无论回答后蓝图是否产生新版本，若最近一次蓝图暂存被标记为“需要显式确认”，只有用户在那次暂存之后明确确认继续，才能调用本工具。若用户明确要求“直接落地/不用确认”，则可直接进入这一阶段。手工点击“按蓝图生成”沿用现有前端直达链路；一旦蓝图已经成功生成，这次 gate 就视为已消费，不应继续约束后续针对已有表单/字段的增量修改。调用成功后，才能声称表单和字段已真正创建到编辑器。',
     inputSchema: {
       type: 'object',
       properties: {},

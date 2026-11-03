@@ -114,7 +114,7 @@ const isFivePerRowRadioGroup = computed(() => {
 
 const findChoiceByValue = (choices: SelectChoice[], value: string | number): SelectChoice | null => {
   for (const node of choices) {
-    if (node.value === value || node.legacyValue === value) {
+    if (node.value === value || (value !== undefined && node.legacyValue === value)) {
       return node;
     }
     if (node.children?.length) {

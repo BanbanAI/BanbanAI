@@ -5,11 +5,17 @@ import type {
   NocodeEditorAiStagedFormulaPlan,
 } from './types'
 import {
+  isFlowSchemePrerequisiteMissingBlock,
+  resolveAiArtifactConfirmation,
+  resolveAiArtifactConfirmationQuestionCount,
   resolveAiArtifactConfirmationStatus,
   shouldRenderAiArtifactInlineConfirmation,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
 import { doesAppPlanArtifactMatchStagedState } from './appPlanArtifactState'
-import { shouldAutoContinueFlowBlueprintFromScheme } from './flowSchemeAutoContinue'
+import {
+  shouldAutoContinueFlowBlueprintFromScheme,
+  shouldHideNonUserActionableFlowSchemeSystemError,
+} from './flowSchemeAutoContinue'
 import { resolveNocodeEditorFormulaPlanDisplayMode } from '@common/utils/nocodeEditorFormulaDomain'
 
 type ResolvePlanningArtifactDisplayStateInput = {
@@ -18,17 +24,65 @@ type ResolvePlanningArtifactDisplayStateInput = {
   stagedFormPlan?: NocodeEditorAiStagedFormPlan | null
   stagedFormulaPlan?: NocodeEditorAiStagedFormulaPlan | null
   allowHistoricalCompletedFlowSchemeCard?: boolean
+  flowSchemeCardExpired?: boolean
 }
 
 export type PlanningArtifactDisplayState = {
   renderAsConfirmation: boolean
   renderAsGenericArtifact: boolean
   readonly: boolean
+  hiddenAutoContinuedPlanningCard?: boolean
 }
 
 const normalizePositiveNumber = (value: unknown) => {
   const normalized = Number(value)
   return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
+}
+
+const resolveConfirmationKeyRevision = (value?: string | null) => {
+  const match = String(value || '').trim().match(/:(\d+):(\d+)$/)
+  if (!match) {
+    return null
+  }
+  return {
+    revision: Number(match[1]),
+    stagedAt: Number(match[2]),
+  }
+}
+
+// 零题规划卡的显式 completed 会被状态解析视为空状态（避免空卡冒充完成），
+// 但自动续跑判断仍需要认出它是一张已确认完成的卡。
+const isCompletedPlanningConfirmation = (block: NocodeEditorAiArtifactBlock) => (
+  resolveAiArtifactConfirmationStatus(block) === 'completed'
+  || (
+    resolveAiArtifactConfirmationQuestionCount(block) <= 0
+    && String(resolveAiArtifactConfirmation(block)?.status || '').trim().toLowerCase() === 'completed'
+  )
+)
+
+// 用户答完问题后自动续跑会再暂存一版规划，这版沿用上一轮的确认结果（completed），
+// planningContextKey 仍指向被确认的旧版本。它不是新的待确认卡片，不应插入时间线。
+const isAutoContinuedPlanningCard = (block: NocodeEditorAiArtifactBlock) => {
+  if (block.kind !== 'app-plan' && block.kind !== 'form-plan') {
+    return false
+  }
+  if (block.status !== 'ready' || !isCompletedPlanningConfirmation(block)) {
+    return false
+  }
+
+  const confirmationKeyRevision = resolveConfirmationKeyRevision(
+    resolveAiArtifactConfirmation(block)?.planningContextKey,
+  )
+  const blockRevision = normalizePositiveNumber(block.revision)
+  const blockStagedAt = normalizePositiveNumber(block.stagedAt)
+  if (!confirmationKeyRevision || !blockRevision || !blockStagedAt) {
+    return false
+  }
+
+  return (
+    confirmationKeyRevision.revision !== blockRevision
+    || confirmationKeyRevision.stagedAt !== blockStagedAt
+  )
 }
 
 const isSameFormulaSourceContext = (
@@ -62,6 +116,7 @@ export const resolvePlanningArtifactDisplayState = (
     stagedFormPlan,
     stagedFormulaPlan,
     allowHistoricalCompletedFlowSchemeCard = false,
+    flowSchemeCardExpired = false,
   } = input
 
   if (block.kind === 'formula-plan') {
@@ -121,6 +176,15 @@ export const resolvePlanningArtifactDisplayState = (
     }
   }
 
+  if (isAutoContinuedPlanningCard(block)) {
+    return {
+      renderAsConfirmation: false,
+      renderAsGenericArtifact: false,
+      readonly: false,
+      hiddenAutoContinuedPlanningCard: true,
+    }
+  }
+
   if (block.kind === 'app-plan') {
     const isCurrent = doesAppPlanArtifactMatchStagedState(block, stagedAppPlan)
     const isReady = block.status === 'ready'
@@ -154,6 +218,39 @@ export const resolvePlanningArtifactDisplayState = (
     }
   }
 
+  // 历史会话里由“前置缺失”伪造的 flow-scheme 块既不是方案也不是问题，直接隐藏。
+  if (block.kind === 'flow-scheme' && isFlowSchemePrerequisiteMissingBlock(block)) {
+    return {
+      renderAsConfirmation: false,
+      renderAsGenericArtifact: false,
+      readonly: false,
+    }
+  }
+
+  // 内部自纠类 system_error 一律不作为用户可见卡片，优先于「historical completed」放行。
+  if (block.kind === 'flow-scheme' && shouldHideNonUserActionableFlowSchemeSystemError(block)) {
+    return {
+      renderAsConfirmation: false,
+      renderAsGenericArtifact: false,
+      readonly: false,
+    }
+  }
+
+  // 被同上下文更新版本取代的待确认卡：保留在时间线上，只读并标记已过期。
+  // 整卡隐藏会让「已暂存成功」文案失去对应卡片，用户也无法回看旧一版问了什么。
+  if (
+    flowSchemeCardExpired
+    && block.kind === 'flow-scheme'
+    && block.status === 'ready'
+    && resolveAiArtifactConfirmationStatus(block) !== 'completed'
+  ) {
+    return {
+      renderAsConfirmation: true,
+      renderAsGenericArtifact: false,
+      readonly: true,
+    }
+  }
+
   if (
     block.kind === 'flow-scheme'
     && allowHistoricalCompletedFlowSchemeCard
@@ -162,15 +259,18 @@ export const resolvePlanningArtifactDisplayState = (
     return {
       renderAsConfirmation: true,
       renderAsGenericArtifact: false,
-      readonly: false,
+      readonly: true,
     }
   }
 
+  // 自动续跑蓝图时保留已确认方案的只读完成卡：卡片自带本轮已答题，可正常呈现确认结果；
+  // 无题可渲染时退回通用记录卡，避免方案确认完成后直接从时间线消失。
   if (block.kind === 'flow-scheme' && shouldAutoContinueFlowBlueprintFromScheme(block)) {
+    const canRenderCompletedCard = resolveAiArtifactConfirmationStatus(block) === 'completed'
     return {
-      renderAsConfirmation: false,
-      renderAsGenericArtifact: false,
-      readonly: false,
+      renderAsConfirmation: canRenderCompletedCard,
+      renderAsGenericArtifact: !canRenderCompletedCard,
+      readonly: true,
     }
   }
 

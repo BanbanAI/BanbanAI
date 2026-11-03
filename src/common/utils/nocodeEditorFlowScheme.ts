@@ -9,13 +9,33 @@ import {
   reconcileNocodeEditorConfirmationDecisions,
 } from './nocodeEditorConfirmationDecisionReconciliation'
 import {
+  applyNocodeEditorFlowConfirmationTrust,
+  type NocodeEditorFlowConfirmationTrustedDecision,
+} from './nocodeEditorFlowConfirmationTrust'
+import {
   filterPendingNocodeEditorFlowConfirmationQuestions,
   filterPendingNocodeEditorFlowQuestionRecords,
+  pruneDanglingFlowDecisionReferences,
 } from './nocodeEditorFlowQuestionPolicy'
 import {
   type NocodeEditorFlowPersonnelRequirement,
   normalizeNocodeEditorFlowPersonnelRequirement,
 } from './nocodeEditorFlowPersonnel'
+import {
+  createFlowDecisionScopeLookup,
+  projectFlowDecisionContract,
+  projectFlowDecisionQuestions,
+  resolveFlowQuestionDecisionScope,
+  validateFlowDecisionGraph,
+  type FlowDecisionDiagnostic,
+} from './nocodeEditorFlowDecisionGraph'
+import {
+  readFlowPersonnelDependencyDecision,
+  type FlowPersonnelDecision,
+} from './nocodeEditorFlowDecisionIdentity'
+import {
+  ensurePendingFlowQuestionsAnswerable,
+} from './nocodeEditorFlowQuestionAnswerSpace'
 
 export type NocodeEditorFlowSchemeStepKind =
   | 'approval'
@@ -60,6 +80,9 @@ export type NocodeEditorFlowSchemeBranch = {
 
 export type NocodeEditorFlowSchemeDependency = {
   id: string
+  decisionKey?: string
+  personnelDecision?: FlowPersonnelDecision
+  lifecycleStatus?: 'pending' | 'planned' | 'materialized' | 'resolved' | 'completed'
   kind:
     | 'field_missing'
     | 'field_policy_mismatch'
@@ -77,6 +100,8 @@ export type NocodeEditorFlowSchemeDependency = {
     | 'owner_binding'
   scopeKind: 'global' | 'step' | 'branch'
   scopeKey?: string
+  // 条件/来源类依赖的业务分支身份；合成题的决策键以 branchKey 为作用域。
+  branchKey?: string
   scopeTitle?: string
   targetFormId?: string
   targetFormName?: string
@@ -94,13 +119,16 @@ export type NocodeEditorFlowSchemeDependency = {
     | 'remove_design'
     | 'specify_org_anchor'
   materializationStatus: 'existing' | 'planned' | 'not_available'
+  unverifiedReason?: 'form_evidence_unavailable'
   summary: string
 }
 
 export type NocodeEditorFlowSchemeDeferredConfigItem = {
   id: string
+  lifecycleStatus?: 'pending' | 'planned' | 'materialized' | 'resolved' | 'completed'
   nodeKey?: string
   nodeTitle?: string
+  settingPath?: string
   category:
     | 'owner_binding'
     | 'fallback_handler'
@@ -119,7 +147,37 @@ export type NocodeEditorFlowSchemeDeferredConfigItem = {
   fillTiming: 'after_generation'
   severity: 'low' | 'medium' | 'high'
   recommendedDefault?: string
+  canEnable?: boolean
+  editLocation?: string
+  impact?: string
   relatedIssueCodes?: string[]
+}
+
+export type NocodeEditorFlowAppliedSetting = {
+  nodeKey: string
+  nodeTitle: string
+  nodeType: string
+  settingPath: string
+  actualValue: boolean | string | number
+  displayLabel?: string
+  displayValue?: string
+  ruleSource: string
+  impact: string
+  editLocation: string
+  auditVersion: number
+}
+
+export type NocodeEditorFlowRiskAlert = {
+  riskKey: string
+  severity: 'medium' | 'high'
+  title: string
+  impact: string
+  editLocation: string
+  nodes: Array<{
+    nodeKey: string
+    nodeTitle: string
+    source: 'system_default' | 'user_requested' | 'system_fallback'
+  }>
 }
 
 export type NocodeEditorFlowSchemeConvergence = {
@@ -134,6 +192,17 @@ export type NocodeEditorFlowSchemeConvergence = {
   deferredConfigItemCount: number
 }
 
+export type NocodeEditorFlowSchemeAssumptionImpact = 'structure' | 'parameter' | 'detail'
+
+export type NocodeEditorFlowSchemeAssumption = {
+  text: string
+  impact: NocodeEditorFlowSchemeAssumptionImpact
+  // impact=structure 时必填：指向本轮一道结构确认题
+  decisionKey?: string
+  // 只有该结构确认后才适用的下游题；本轮 confirmation.questions 中必须真实存在
+  dependentDecisionKeys?: string[]
+}
+
 export type NocodeEditorFlowScheme = {
   id?: string
   title: string
@@ -146,11 +215,19 @@ export type NocodeEditorFlowScheme = {
   mainPath: NocodeEditorFlowSchemeStep[]
   branches: NocodeEditorFlowSchemeBranch[]
   confirmedFacts: string[]
-  assumptions: string[]
+  assumptions: NocodeEditorFlowSchemeAssumption[]
   openQuestions: NocodeEditorFlowSchemeQuestion[]
   dependencies?: NocodeEditorFlowSchemeDependency[]
   deferredConfigItems?: NocodeEditorFlowSchemeDeferredConfigItem[]
   convergence?: NocodeEditorFlowSchemeConvergence | null
+  decisionContractVersion?: 2
+  factSnapshot?: Record<string, {
+    value: string
+    source: 'user' | 'history' | 'runtime'
+    producerDecisionKey?: string
+    version?: string
+  }>
+  decisionDiagnostics?: FlowDecisionDiagnostic[]
   confirmation?: NocodeEditorAiConfirmPayload | null
 }
 
@@ -202,6 +279,38 @@ const isRecord = (value: unknown): value is UnknownRecord => (
 const normalizeStringList = (value: unknown) => (
   Array.isArray(value)
     ? value.map(item => normalizeText(item)).filter(Boolean)
+    : []
+)
+
+const FLOW_ASSUMPTION_IMPACTS: NocodeEditorFlowSchemeAssumptionImpact[] = [
+  'structure',
+  'parameter',
+  'detail',
+]
+
+// 旧暂存方案与历史消息里 assumptions 是纯字符串：只做兼容读取，
+// 新提交的 impact 由暂存门禁强制声明。
+const normalizeFlowSchemeAssumptions = (value: unknown): NocodeEditorFlowSchemeAssumption[] => (
+  Array.isArray(value)
+    ? value.flatMap((item): NocodeEditorFlowSchemeAssumption[] => {
+      if (typeof item === 'string') {
+        const text = normalizeText(item)
+        return text ? [{ text, impact: 'detail' }] : []
+      }
+      if (!isRecord(item)) return []
+      const text = normalizeText(item.text)
+      if (!text) return []
+      const impact = normalizeText(item.impact)
+      const dependentDecisionKeys = normalizeStringList(item.dependentDecisionKeys)
+      return [{
+        text,
+        impact: FLOW_ASSUMPTION_IMPACTS.includes(impact as NocodeEditorFlowSchemeAssumptionImpact)
+          ? impact as NocodeEditorFlowSchemeAssumptionImpact
+          : 'detail',
+        decisionKey: normalizeText(item.decisionKey) || undefined,
+        ...(dependentDecisionKeys.length ? { dependentDecisionKeys } : {}),
+      }]
+    })
     : []
 )
 
@@ -282,6 +391,7 @@ const normalizeFlowSchemeDependency = (
   const materializationStatus = normalizeText(value.materializationStatus)
   const summary = normalizeText(value.summary)
   const resolutionMode = normalizeText(value.resolutionMode)
+  const personnelDecision = readFlowPersonnelDependencyDecision(value.personnelDecision)
   const fieldRefValue = isRecord(value.fieldRef) ? value.fieldRef : null
   const fieldRef = fieldRefValue
     ? {
@@ -327,10 +437,20 @@ const normalizeFlowSchemeDependency = (
 
   return {
     id,
+    ...(normalizeText(value.decisionKey)
+      ? { decisionKey: normalizeText(value.decisionKey) }
+      : {}),
+    ...(personnelDecision ? { personnelDecision } : {}),
+    lifecycleStatus: ['pending', 'planned', 'materialized', 'resolved', 'completed'].includes(normalizeText(value.lifecycleStatus))
+      ? normalizeText(value.lifecycleStatus) as NocodeEditorFlowSchemeDependency['lifecycleStatus']
+      : resolutionStatus === 'unresolved'
+        ? 'pending'
+        : materializationStatus === 'planned' ? 'planned' : 'resolved',
     kind: kind as NocodeEditorFlowSchemeDependency['kind'],
     requiredFor: requiredFor as NocodeEditorFlowSchemeDependency['requiredFor'],
     scopeKind: scopeKind as NocodeEditorFlowSchemeDependency['scopeKind'],
     scopeKey: normalizeText(value.scopeKey) || undefined,
+    branchKey: normalizeText(value.branchKey) || undefined,
     scopeTitle: normalizeText(value.scopeTitle) || undefined,
     targetFormId: normalizeText(value.targetFormId) || undefined,
     targetFormName: normalizeText(value.targetFormName) || undefined,
@@ -343,6 +463,9 @@ const normalizeFlowSchemeDependency = (
       ? resolutionMode as NocodeEditorFlowSchemeDependency['resolutionMode']
       : undefined,
     materializationStatus: materializationStatus as NocodeEditorFlowSchemeDependency['materializationStatus'],
+    unverifiedReason: normalizeText(value.unverifiedReason) === 'form_evidence_unavailable'
+      ? 'form_evidence_unavailable'
+      : undefined,
     summary,
   }
 }
@@ -382,8 +505,12 @@ const normalizeFlowSchemeDeferredConfigItem = (
 
   return {
     id,
+    lifecycleStatus: ['pending', 'planned', 'materialized', 'resolved', 'completed'].includes(normalizeText(value.lifecycleStatus))
+      ? normalizeText(value.lifecycleStatus) as NocodeEditorFlowSchemeDeferredConfigItem['lifecycleStatus']
+      : 'pending',
     nodeKey: normalizeText(value.nodeKey) || undefined,
     nodeTitle: normalizeText(value.nodeTitle) || undefined,
+    settingPath: normalizeText(value.settingPath) || undefined,
     category: category as NocodeEditorFlowSchemeDeferredConfigItem['category'],
     requirementLevel: requirementLevel as NocodeEditorFlowSchemeDeferredConfigItem['requirementLevel'],
     supportStatus: supportStatus as NocodeEditorFlowSchemeDeferredConfigItem['supportStatus'],
@@ -391,6 +518,9 @@ const normalizeFlowSchemeDeferredConfigItem = (
     fillTiming: 'after_generation',
     severity: severity as NocodeEditorFlowSchemeDeferredConfigItem['severity'],
     recommendedDefault: normalizeText(value.recommendedDefault) || undefined,
+    canEnable: typeof value.canEnable === 'boolean' ? value.canEnable : undefined,
+    editLocation: normalizeText(value.editLocation) || undefined,
+    impact: normalizeText(value.impact) || undefined,
     relatedIssueCodes: normalizeStringList(value.relatedIssueCodes),
   }
 }
@@ -743,6 +873,14 @@ export const normalizeNocodeEditorFlowScheme = (
   value: unknown,
   options: {
     preserveTrustedDecisionKeySource?: boolean
+    // 传入后，模型自答在决策图投影前被剥离、可信答案再回填，
+    // 保证 openQuestions/status 与最终答案集来自同一次计算。
+    trustedAnswers?: {
+      planningContextKey?: unknown
+      decisions?: NocodeEditorFlowConfirmationTrustedDecision[]
+      userTexts?: string[]
+      diagnostics?: Array<Record<string, unknown>>
+    }
   } = {},
 ): NocodeEditorFlowScheme | null => {
   if (!isRecord(value)) {
@@ -782,6 +920,20 @@ export const normalizeNocodeEditorFlowScheme = (
   const convergence = value.convergence === undefined
     ? undefined
     : normalizeFlowSchemeConvergence(value.convergence)
+  const rawContractConfirmation = isRecord(value.confirmation) ? value.confirmation : null
+  const decisionContractVersion = Number(rawContractConfirmation?.decisionContractVersion ?? value.decisionContractVersion) === 2 ? 2 as const : undefined
+  const rawFactSnapshot = rawContractConfirmation?.factSnapshot ?? value.factSnapshot
+  const factSnapshot = isRecord(rawFactSnapshot)
+    ? Object.fromEntries(Object.entries(rawFactSnapshot).flatMap(([key, item]) => {
+      if (!isRecord(item) || typeof item.value !== 'string' || !['user', 'history', 'runtime'].includes(String(item.source))) return []
+      return [[key, {
+        value: item.value,
+        source: item.source as 'user' | 'history' | 'runtime',
+        producerDecisionKey: normalizeText(item.producerDecisionKey) || undefined,
+        version: normalizeText(item.version) || undefined,
+      }]]
+    }))
+    : undefined
   const openQuestions = Array.isArray(value.openQuestions)
     ? value.openQuestions.flatMap((item, index): NocodeEditorFlowSchemeQuestion[] => {
       const normalized = normalizeFlowSchemeQuestion(item, index)
@@ -791,19 +943,25 @@ export const normalizeNocodeEditorFlowScheme = (
   const filteredOpenQuestions = dedupeFlowSchemeQuestions(
     filterPendingNocodeEditorFlowQuestionRecords(openQuestions),
   )
-  const synthesizedConfirmation = filteredOpenQuestions.length > 0 && !isRecord(value.confirmation)
+  const rawConfirmation = isRecord(value.confirmation) ? value.confirmation : null
+  const confirmationQuestions = Array.isArray(rawConfirmation?.questions)
+    ? rawConfirmation.questions
+    : []
+  const synthesizedConfirmation = filteredOpenQuestions.length > 0 && confirmationQuestions.length === 0
     ? {
+      ...(rawConfirmation || {}),
       stage: 'flow-scheme' as const,
       status: 'pending' as const,
       questions: filteredOpenQuestions.map(question => ({
         id: question.key,
+        decisionKey: question.key,
         title: question.title,
         description: question.reason,
         required: true,
         allowFreeText: true,
       })),
     }
-    : value.confirmation
+    : rawConfirmation || undefined
   const baseConfirmation = normalizeNocodeEditorConfirmationPayload({
     stage: 'flow-scheme',
     confirmation: synthesizedConfirmation,
@@ -811,13 +969,36 @@ export const normalizeNocodeEditorFlowScheme = (
     summary,
     preserveTrustedDecisionKeySource: options.preserveTrustedDecisionKeySource,
   })
+  const retainedConfirmationQuestions = dedupeFlowSchemeConfirmationQuestions(
+    filterPendingNocodeEditorFlowConfirmationQuestions(baseConfirmation?.questions || []),
+  )
+  // 校验和归一化要用同一份归属：模型只写 scopeKind 时在这里落成 decisionScope，
+  // 否则下游按 scope 取 stepKey 的地方会和校验通过的结论对不上。
+  const scopeLookup = createFlowDecisionScopeLookup(value)
+  const scopedConfirmationQuestions = retainedConfirmationQuestions.map(question => (
+    question.decisionScope
+      ? question
+      : {
+        ...question,
+        decisionScope: resolveFlowQuestionDecisionScope(question, filteredOpenQuestions, scopeLookup),
+      }
+  ))
+  const baseConfirmationKeys = new Set((baseConfirmation?.questions || [])
+    .map(question => normalizeText(question.decisionKey || question.id))
+    .filter(Boolean))
+  const retainedConfirmationKeys = new Set(retainedConfirmationQuestions
+    .map(question => normalizeText(question.decisionKey || question.id))
+    .filter(Boolean))
+  const droppedConfirmationKeys = new Set([...baseConfirmationKeys]
+    .filter(key => !retainedConfirmationKeys.has(key)))
   const preReconciliationConfirmation = baseConfirmation
     ? normalizeNocodeEditorConfirmationPayload({
       stage: 'flow-scheme',
       confirmation: {
         ...baseConfirmation,
-        questions: dedupeFlowSchemeConfirmationQuestions(
-          filterPendingNocodeEditorFlowConfirmationQuestions(baseConfirmation.questions || []),
+        questions: pruneDanglingFlowDecisionReferences(
+          scopedConfirmationQuestions,
+          droppedConfirmationKeys,
         ),
       },
       openQuestions: [],
@@ -825,20 +1006,119 @@ export const normalizeNocodeEditorFlowScheme = (
       preserveTrustedDecisionKeySource: options.preserveTrustedDecisionKeySource,
     })
     : null
+  const trustedConfirmation = (() => {
+    if (!options.trustedAnswers) return preReconciliationConfirmation
+    const trustResult = applyNocodeEditorFlowConfirmationTrust({
+      confirmation: preReconciliationConfirmation,
+      planningContextKey: options.trustedAnswers.planningContextKey,
+      decisions: options.trustedAnswers.decisions,
+      userTexts: options.trustedAnswers.userTexts,
+    })
+    // normalize 只返回 scheme，信任层诊断必须经 sink 交给宿主；
+    // 否则宿主拿不到这两个 key 列表（它们产生在 common 层的函数作用域里）。
+    options.trustedAnswers.diagnostics?.push(
+      ...(trustResult.settledByUserQuoteKeys.length
+        ? [{
+          code: 'flow_user_quote_settled',
+          message: '这些题已按用户当前轮原话直接记为已确认，未再向用户提问。',
+          decisionKeys: trustResult.settledByUserQuoteKeys,
+        }]
+        : []),
+      ...(trustResult.unverifiedUserQuoteKeys.length
+        ? [{
+          code: 'flow_user_quote_unverified',
+          message: '这些题声明的用户原话片段未在当前轮用户消息中找到，已按原逻辑正常提问。请勿改写或拼接引文。',
+          decisionKeys: trustResult.unverifiedUserQuoteKeys,
+        }]
+        : []),
+    )
+    return trustResult.confirmation
+  })()
   const confirmationReconciliation = reconcileNocodeEditorConfirmationDecisions({
-    confirmation: preReconciliationConfirmation,
+    confirmation: trustedConfirmation,
     previousDecisions: [],
     preserveTrustedDecisionKeySource: options.preserveTrustedDecisionKeySource,
   })
   const reconciledOpenQuestions = reconcileFlowSchemeOpenQuestions({
     openQuestions: filteredOpenQuestions,
-    preReconciliationQuestions: preReconciliationConfirmation?.questions || [],
+    preReconciliationQuestions: trustedConfirmation?.questions || [],
     resolvedDecisionKeys: confirmationReconciliation.resolvedDecisionKeys,
   })
-  const reconciledConfirmation = confirmationReconciliation.confirmation
-  const confirmation = reconciledConfirmation && reconciledOpenQuestions.length > 0
-    ? { ...reconciledConfirmation, status: 'pending' as const }
-    : reconciledConfirmation
+  const reconciledConfirmation = ensurePendingFlowQuestionsAnswerable(
+    confirmationReconciliation.confirmation,
+  )
+  const factProjection = decisionContractVersion === 2
+    ? projectFlowDecisionContract(reconciledConfirmation?.questions || [], factSnapshot)
+    : null
+  const decisionQuestions = factProjection?.questions || reconciledConfirmation?.questions || []
+  const decisionDiagnostics = factProjection
+    ? factProjection.diagnostics
+    : validateFlowDecisionGraph(decisionQuestions)
+  // 契约状态包含层级排序；诊断存在时也不再整份放弃投影，坏边由下面的 invalidDecisionKeys 隔离。
+  const decisionStates = factProjection
+    ? factProjection.states
+    : (decisionDiagnostics.length ? null : projectFlowDecisionQuestions(decisionQuestions).states)
+  const invalidDecisionKeys = new Set(
+    decisionDiagnostics
+      .map(item => normalizeText(item.decisionKey))
+      .filter(Boolean),
+  )
+  const modelOpenQuestions = reconciledOpenQuestions.filter(question => (
+    decisionStates?.get(question.key) !== 'inapplicable'
+    && !droppedConfirmationKeys.has(normalizeText(question.key))
+  ))
+  // openQuestions 要等于本轮可答集合：模型漏写的 ready 题会让 readiness 一直 pending
+  // 却没有任何卡片可答，这里按决策图补齐；被前置挡住的题保留原条目，等前置答完再露出。
+  const modelOpenQuestionKeys = new Set(
+    modelOpenQuestions.map(question => normalizeText(question.key)).filter(Boolean),
+  )
+  const synthesizedOpenQuestions = decisionStates
+    ? decisionQuestions.flatMap((question): NocodeEditorFlowSchemeQuestion[] => {
+      const key = normalizeText(question.decisionKey) || normalizeText(question.id)
+      if (
+        !key
+        || question.required === false
+        || decisionStates.get(key) !== 'ready'
+        || invalidDecisionKeys.has(key)
+        || modelOpenQuestionKeys.has(key)
+      ) {
+        return []
+      }
+      const decisionScope = question.decisionScope
+      const fallbackStepKey = normalizeText(question.personnelDecision?.stepKey)
+      const scopeKey = normalizeText(decisionScope?.id) || fallbackStepKey
+      const scopeKind: NocodeEditorFlowSchemeQuestion['scopeKind'] = (
+        decisionScope?.kind === 'step' || (!decisionScope && fallbackStepKey)
+      )
+        ? 'step'
+        : decisionScope?.kind === 'branch' || decisionScope?.kind === 'path' ? 'branch' : 'global'
+      return [{
+        key,
+        title: normalizeText(question.title) || key,
+        reason: normalizeText(question.description) || normalizeText(question.title) || key,
+        scopeKind,
+        ...(scopeKind !== 'global' && scopeKey ? { scopeKey } : {}),
+      }]
+    })
+    : []
+  const applicableOpenQuestions = [...modelOpenQuestions, ...synthesizedOpenQuestions]
+  const applicableOpenQuestionKeys = new Set(
+    applicableOpenQuestions.map(question => normalizeText(question.key)).filter(Boolean),
+  )
+  const blockingDecisionQuestions = decisionQuestions.map(question => (
+    applicableOpenQuestionKeys.has(normalizeText(question.decisionKey || question.id))
+      ? { ...question, required: true }
+      : question
+  ))
+  const confirmation = reconciledConfirmation
+    ? {
+      ...reconciledConfirmation,
+      questions: blockingDecisionQuestions,
+      ...(decisionContractVersion ? { decisionContractVersion } : {}),
+      ...(factSnapshot ? { factSnapshot } : {}),
+      ...(applicableOpenQuestions.length > 0 ? { status: 'pending' as const } : {}),
+    }
+    : null
   const stepKeyAllocationState = createFlowSchemeStepKeyAllocationState(value)
 
   return {
@@ -864,11 +1144,14 @@ export const normalizeNocodeEditorFlowScheme = (
       })
       : [],
     confirmedFacts: normalizeStringList(value.confirmedFacts),
-    assumptions: normalizeStringList(value.assumptions),
-    openQuestions: reconciledOpenQuestions,
+    assumptions: normalizeFlowSchemeAssumptions(value.assumptions),
+    openQuestions: applicableOpenQuestions,
     dependencies,
     deferredConfigItems,
     convergence,
+    decisionContractVersion,
+    factSnapshot,
+    decisionDiagnostics: decisionDiagnostics.length ? decisionDiagnostics : undefined,
     confirmation,
   }
 }
@@ -912,4 +1195,54 @@ export const normalizeNocodeEditorFlowSchemeReviewResult = (
     summary,
     questions,
   }
+}
+
+// 模型可能把复核结构包在 markdown 代码块里，也可能夹带解释文字，这里统一按 JSON 片段解析。
+export const parseNocodeEditorFlowSchemeReviewResultText = (
+  value: unknown,
+): NocodeEditorFlowSchemeReviewResult | null => {
+  const rawText = normalizeText(value)
+  if (!rawText) {
+    return null
+  }
+
+  const candidates = [
+    rawText,
+    rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim(),
+  ]
+  const firstBraceIndex = rawText.indexOf('{')
+  const lastBraceIndex = rawText.lastIndexOf('}')
+  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
+    candidates.push(rawText.slice(firstBraceIndex, lastBraceIndex + 1).trim())
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue
+    }
+    try {
+      const normalized = normalizeNocodeEditorFlowSchemeReviewResult(JSON.parse(candidate))
+      if (normalized) {
+        return normalized
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+// 复核结果是内部协议，只用于驱动下一轮规划，任何情况下都不能当作给用户看的正文。
+export const isNocodeEditorFlowSchemeReviewResultText = (value: unknown) => (
+  Boolean(parseNocodeEditorFlowSchemeReviewResultText(value))
+)
+
+// 整条消息就是协议体时才可判定为泄漏；正文里引用一段 JSON 的叙述不算。
+export const isPureNocodeEditorFlowSchemeReviewResultText = (value: unknown) => {
+  const rawText = normalizeText(value)
+  if (!rawText || !/^(?:```json\s*|\{)/i.test(rawText)) {
+    return false
+  }
+  return isNocodeEditorFlowSchemeReviewResultText(rawText)
 }

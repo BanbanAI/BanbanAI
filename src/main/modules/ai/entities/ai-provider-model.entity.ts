@@ -7,6 +7,7 @@ import { AiProviderEntity } from './ai-provider.entity'
 export type AiModelLimits = {
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   contextWindow?: number | null
   supportsStreaming?: boolean
 }

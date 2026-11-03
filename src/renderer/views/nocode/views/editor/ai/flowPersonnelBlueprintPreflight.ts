@@ -1,6 +1,7 @@
 import type {
   NocodeEditorFlowPlan,
   NocodeEditorFlowPlanNode,
+  NocodeEditorFlowPlanTriggerBranch,
 } from '@common/utils/nocodeEditorFlowPlan'
 import type {
   NocodeEditorFlowScheme,
@@ -9,9 +10,24 @@ import type {
 } from '@common/utils/nocodeEditorFlowScheme'
 import type { NocodeEditorFlowPersonnelSourceType } from '@common/utils/nocodeEditorFlowPersonnel'
 import {
+  isSameFlowPersonnelSourceType,
+} from '@common/utils/nocodeEditorFlowPersonnel'
+import {
+  hasBlockingFlowBlueprintApprovalOwnerDiagnostic,
   validateFlowBlueprintApprovalOwnerDependencies,
   type FlowBlueprintApprovalOwnerPreflightDiagnostic,
 } from './flowBlueprintApprovalOwnerPreflight'
+import {
+  hasFlowApprovalOwnerTargetContextMismatch,
+  hasFlowApprovalOwnerUnverifiedFieldConflict,
+  isFlowApprovalOwnerRecord,
+  isSameFlowApprovalOwnerToken,
+  isSameFlowFormIdentity,
+  normalizeFlowApprovalOwnerText,
+  normalizeFlowApprovalOwnerToken,
+  resolveFlowSchemeDependencyState,
+  resolveFlowSchemeSingleDependency,
+} from '@common/utils/nocodeEditorFlowApprovalOwnerRules'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -74,7 +90,10 @@ export type FlowPersonnelBlueprintDiagnostic = {
     | 'flow_personnel_source_mismatch'
     | 'flow_personnel_field_invalid'
     | 'flow_personnel_target_context_mismatch'
+    | 'flow_personnel_evidence_unverified'
   message: string
+  severity?: 'blocking' | 'config_gap'
+  routeToScheme?: boolean
   nodeKey?: string
   nodeName?: string
   expectedSourceType?: NocodeEditorFlowPersonnelSourceType
@@ -83,6 +102,9 @@ export type FlowPersonnelBlueprintDiagnostic = {
   expectedFieldName?: string
   actualFieldId?: string
   actualFieldName?: string
+  compatibleFields?: Array<{ fieldId: string; fieldName: string }>
+  expectedStepKeys?: string[]
+  actualNodeKeys?: string[]
 }
 
 export type FlowPersonnelBlueprintPreflightResult = {
@@ -94,23 +116,10 @@ export type FlowPersonnelBlueprintPreflightResult = {
   requiresUserConfirmation: false
 }
 
-const normalizeText = (value: unknown) => String(value ?? '').trim()
-
-const normalizeToken = (value: unknown) => normalizeText(value)
-  .toLocaleLowerCase()
-  .replace(/[\s\-_/\\]+/g, '')
-
-const isRecord = (value: unknown): value is UnknownRecord => (
-  Boolean(value)
-  && typeof value === 'object'
-  && !Array.isArray(value)
-)
-
-const isSameToken = (left: unknown, right: unknown) => {
-  const normalizedLeft = normalizeToken(left)
-  const normalizedRight = normalizeToken(right)
-  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
-}
+const normalizeText = normalizeFlowApprovalOwnerText
+const normalizeToken = normalizeFlowApprovalOwnerToken
+const isRecord = isFlowApprovalOwnerRecord
+const isSameToken = isSameFlowApprovalOwnerToken
 
 const hasOwn = (value: UnknownRecord, key: string) => (
   Object.prototype.hasOwnProperty.call(value, key)
@@ -185,56 +194,60 @@ const resolveSummaryForms = (flowSummary: unknown) => {
   }
 }
 
-const isSameFormIdentity = (input: {
-  leftId?: unknown
-  leftName?: unknown
-  rightId?: unknown
-  rightName?: unknown
-}) => {
-  const leftId = normalizeText(input.leftId)
-  const rightId = normalizeText(input.rightId)
-  if (leftId && rightId) {
-    return leftId === rightId
-  }
-  const leftName = normalizeText(input.leftName)
-  const rightName = normalizeText(input.rightName)
-  return !leftName || !rightName || isSameToken(leftName, rightName)
-}
-
-const hasTargetContextMismatch = (input: {
-  plan: NocodeEditorFlowPlan
-  scheme: NocodeEditorFlowScheme
-  currentForm: SummaryForm | null
-}) => {
-  if (!isSameFormIdentity({
-    leftId: input.plan.target?.formId,
-    leftName: input.plan.target?.formName,
-    rightId: input.scheme.target?.formId,
-    rightName: input.scheme.target?.formName,
-  })) {
-    return true
-  }
-  if (!input.currentForm) {
-    return false
-  }
-  return !isSameFormIdentity({
-    leftId: input.scheme.target?.formId,
-    leftName: input.scheme.target?.formName,
-    rightId: input.currentForm.tableId,
-    rightName: input.currentForm.tableName,
-  })
-}
-
 const isPersonnelNodeType = (value: NocodeEditorFlowPlanNode['type']): value is PersonnelNodeType => (
   Object.prototype.hasOwnProperty.call(PERSONNEL_NODE_METADATA, value)
 )
 
-const collectPersonnelNodes = (nodes: NocodeEditorFlowPlanNode[]): NocodeEditorFlowPlanNode[] => (
-  nodes.flatMap(node => [
-    ...(isPersonnelNodeType(node.type) ? [node] : []),
-    ...(node.branches || []).flatMap(branch => collectPersonnelNodes(branch.nodes || [])),
-  ])
+const isFormFieldBoundOwner = (owner: BlueprintPersonnelOwner) => (
+  owner.genericFormField
+  || owner.sources.includes('form_member')
+  || owner.sources.includes('form_department')
 )
+
+// 方案没有声明通知步骤时，蓝图里的普通通知节点不参与人员来源契约，
+// 否则「方案不写通知 → 蓝图必然被拒」会形成无解循环。
+const isUndeclaredOptionalNotifyNode = (input: {
+  node: NocodeEditorFlowPlanNode
+  owner: BlueprintPersonnelOwner
+  declaredStepNodeTypes: Set<PersonnelNodeType>
+}) => (
+  input.node.type === 'notify'
+  && !input.declaredStepNodeTypes.has('notify')
+  && !isFormFieldBoundOwner(input.owner)
+)
+
+type LocatedPersonnelNode = {
+  node: NocodeEditorFlowPlanNode
+  branchKey: string
+}
+
+// 蓝图常把同一条方案步骤按条件拆到多条分支上，所以人员节点必须带上所属分支：
+// 同一方案步骤可以被不同分支的同类型节点复用，同一分支内仍要求一一对应。
+const collectLocatedPersonnelNodes = (input: {
+  branches: NocodeEditorFlowPlanTriggerBranch[]
+}): LocatedPersonnelNode[] => {
+  const located: LocatedPersonnelNode[] = []
+  const visitNodes = (nodes: NocodeEditorFlowPlanNode[], branchKey: string) => {
+    nodes.forEach((node) => {
+      if (isPersonnelNodeType(node.type)) {
+        located.push({ node, branchKey })
+      }
+      (node.branches || []).forEach((branch, branchIndex) => {
+        visitNodes(
+          branch.nodes || [],
+          `${branchKey}/${normalizeText(branch.branchKey) || `branch-${branchIndex}`}`,
+        )
+      })
+    })
+  }
+  input.branches.forEach((branch, branchIndex) => {
+    visitNodes(
+      branch.nodes || [],
+      normalizeText(branch.branchKey) || `trigger-branch-${branchIndex}`,
+    )
+  })
+  return located
+}
 
 const getSchemeSteps = (scheme: NocodeEditorFlowScheme) => [
   ...(scheme.mainPath || []),
@@ -252,7 +265,7 @@ const resolvePersonnelStepNodeType = (
 
 const matchPersonnelNodesToSchemeSteps = (input: {
   scheme: NocodeEditorFlowScheme
-  nodes: NocodeEditorFlowPlanNode[]
+  branches: NocodeEditorFlowPlanTriggerBranch[]
 }) => {
   const schemeSteps = getSchemeSteps(input.scheme)
   const steps = schemeSteps.filter(step => (
@@ -266,15 +279,25 @@ const matchPersonnelNodesToSchemeSteps = (input: {
       .map(step => normalizeText(step.key))
       .filter(Boolean),
   )
-  const nodes = collectPersonnelNodes(input.nodes).filter(node => (
-    node.type !== 'approval'
-    || (
-      !legacyApprovalStepKeys.has(normalizeText(node.nodeKey))
-      && hasApprovalPersonnelContract
-    )
-  ))
+  const locatedNodes = collectLocatedPersonnelNodes({ branches: input.branches })
+  const nodes: NocodeEditorFlowPlanNode[] = []
+  const nodeBranchKeys: string[] = []
+  locatedNodes.forEach(({ node, branchKey }) => {
+    if (
+      node.type === 'approval'
+      && (
+        legacyApprovalStepKeys.has(normalizeText(node.nodeKey))
+        || !hasApprovalPersonnelContract
+      )
+    ) {
+      return
+    }
+    nodes.push(node)
+    nodeBranchKeys.push(branchKey)
+  })
   const matchedNodeIndexes = new Set<number>()
   const matchedStepIndexes = new Set<number>()
+  const firstMatchedBranchByStepIndex = new Map<number, string>()
   const matches: Array<{
     nodeIndex: number
     node: NocodeEditorFlowPlanNode
@@ -284,6 +307,9 @@ const matchPersonnelNodesToSchemeSteps = (input: {
   const addMatch = (nodeIndex: number, stepIndex: number) => {
     matchedNodeIndexes.add(nodeIndex)
     matchedStepIndexes.add(stepIndex)
+    if (!firstMatchedBranchByStepIndex.has(stepIndex)) {
+      firstMatchedBranchByStepIndex.set(stepIndex, nodeBranchKeys[nodeIndex])
+    }
     matches.push({ nodeIndex, node: nodes[nodeIndex], step: steps[stepIndex] })
   }
 
@@ -313,6 +339,69 @@ const matchPersonnelNodesToSchemeSteps = (input: {
     if (compatibleStepIndexes.length === 1) {
       addMatch(nodeIndex, compatibleStepIndexes[0])
     }
+  })
+
+  // 标题兜底：模型常给节点换个 nodeKey 却保留步骤标题，标题一致即视为同一步骤，
+  // 避免"重命名 nodeKey"被误判成"没有唯一对应的方案步骤"。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const nodeName = normalizeText(node.name)
+    if (!nodeName) {
+      return
+    }
+    const titleStepIndexes = steps.flatMap((step, stepIndex) => (
+      !matchedStepIndexes.has(stepIndex)
+      && resolvePersonnelStepNodeType(step) === node.type
+      && normalizeText(step.title) === nodeName
+        ? [stepIndex]
+        : []
+    ))
+    if (titleStepIndexes.length === 1) {
+      addMatch(nodeIndex, titleStepIndexes[0])
+    }
+  })
+
+  // 有序兜底：两侧同类型剩余项按出现顺序逐一绑定（典型场景：两条分支各一个部门审批，
+  // key 与标题都相同，只能靠顺序区分）；真正的来源不一致仍会在后续来源校验里被拦截。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const orderedStepIndex = steps.findIndex((step, stepIndex) => (
+      !matchedStepIndexes.has(stepIndex)
+      && resolvePersonnelStepNodeType(step) === node.type
+    ))
+    if (orderedStepIndex >= 0) {
+      addMatch(nodeIndex, orderedStepIndex)
+    }
+  })
+
+  // 跨分支复用：方案把条件审批写成一步，蓝图按条件拆成多条分支各放一个同类型节点时，
+  // 不同分支的节点可以共用同一方案步骤；同一分支内仍保持一一对应，避免把重复节点算成合法。
+  nodes.forEach((node, nodeIndex) => {
+    if (matchedNodeIndexes.has(nodeIndex)) {
+      return
+    }
+    const branchKey = nodeBranchKeys[nodeIndex]
+    const reusableStepIndexes = steps.flatMap((step, stepIndex) => {
+      const firstBranchKey = firstMatchedBranchByStepIndex.get(stepIndex)
+      return firstBranchKey
+        && firstBranchKey !== branchKey
+        && resolvePersonnelStepNodeType(step) === node.type
+          ? [stepIndex]
+          : []
+    })
+    if (reusableStepIndexes.length !== 1) {
+      return
+    }
+    matchedNodeIndexes.add(nodeIndex)
+    matches.push({
+      nodeIndex,
+      node,
+      step: steps[reusableStepIndexes[0]],
+    })
   })
 
   return {
@@ -437,21 +526,11 @@ const resolvePersonnelDependency = (input: {
   if (!isPersonnelNodeType(input.node.type)) {
     return null
   }
-  const requiredFor = PERSONNEL_NODE_METADATA[input.node.type].requiredFor
-  const dependencies = (input.scheme.dependencies || []).filter(dependency => (
-    dependency.requiredFor === requiredFor
-  ))
-  const stepDependencies = dependencies.filter(dependency => (
-    dependency.scopeKind === 'step'
-    && normalizeText(dependency.scopeKey) === normalizeText(input.scopeKey || input.node.nodeKey)
-  ))
-  if (stepDependencies.length === 1) {
-    return stepDependencies[0]
-  }
-  const globalDependencies = dependencies.filter(dependency => dependency.scopeKind === 'global')
-  return stepDependencies.length === 0 && globalDependencies.length === 1
-    ? globalDependencies[0]
-    : null
+  return resolveFlowSchemeSingleDependency({
+    dependencies: input.scheme.dependencies,
+    requiredFor: PERSONNEL_NODE_METADATA[input.node.type].requiredFor,
+    scopeKey: input.scopeKey || input.node.nodeKey,
+  })
 }
 
 const resolveTargetForm = (
@@ -482,7 +561,7 @@ const isDependencyTargetMismatch = (input: {
   if (!targetId && !targetName) {
     return false
   }
-  if (!isSameFormIdentity({
+  if (!isSameFlowFormIdentity({
     leftId: targetId,
     leftName: targetName,
     rightId: input.scheme.target?.formId,
@@ -490,13 +569,22 @@ const isDependencyTargetMismatch = (input: {
   })) {
     return true
   }
-  return Boolean(input.targetForm && !isSameFormIdentity({
+  return Boolean(input.targetForm && !isSameFlowFormIdentity({
     leftId: targetId,
     leftName: targetName,
     rightId: input.targetForm.tableId,
     rightName: input.targetForm.tableName,
   }))
 }
+
+const hasUnverifiedPersonnelReferenceConflict = (input: {
+  dependency: NocodeEditorFlowSchemeDependency
+  owner: BlueprintPersonnelOwner
+}) => hasFlowApprovalOwnerUnverifiedFieldConflict({
+  dependency: input.dependency,
+  actualFieldId: input.owner.fieldIds[0],
+  actualFieldName: input.owner.fieldName,
+})
 
 const validatePersonnelField = (input: {
   node: NocodeEditorFlowPlanNode
@@ -537,6 +625,7 @@ const validatePersonnelField = (input: {
     return {
       ...baseDiagnostic,
       code: 'flow_personnel_target_context_mismatch',
+      routeToScheme: true,
       message: '人员字段依赖不属于当前流程目标表单。',
     }
   }
@@ -548,16 +637,7 @@ const validatePersonnelField = (input: {
     && (!expectedFieldId || expectedFieldId === dependencyFieldId)
     && (!expectedFieldName || isSameToken(expectedFieldName, dependencyFieldName))
   )
-  const isExisting = (
-    dependency.resolutionStatus === 'resolved'
-    && dependency.resolutionMode === 'use_existing'
-    && dependency.materializationStatus === 'existing'
-  )
-  const isPlanned = (
-    dependency.resolutionStatus === 'resolved'
-    && dependency.resolutionMode === 'create_later'
-    && dependency.materializationStatus === 'planned'
-  )
+  const { isExisting, isPlanned } = resolveFlowSchemeDependencyState(dependency)
   if (!requirementMatchesDependency || (!isExisting && !isPlanned)) {
     return {
       ...baseDiagnostic,
@@ -581,7 +661,23 @@ const validatePersonnelField = (input: {
     return null
   }
 
+  const isUnverified = dependency.unverifiedReason === 'form_evidence_unavailable'
+  if (isUnverified && hasUnverifiedPersonnelReferenceConflict({ dependency, owner: input.owner })) {
+    return {
+      ...baseDiagnostic,
+      code: 'flow_personnel_field_invalid',
+      message: '蓝图引用的人员字段与已收敛人员字段依赖不一致。',
+    }
+  }
   if (input.owner.fieldIds.length > 1 || !input.targetForm) {
+    if (isUnverified) {
+      return {
+        ...baseDiagnostic,
+        code: 'flow_personnel_evidence_unverified',
+        severity: 'config_gap',
+        message: '该人员字段依赖尚未与当前表单证据核对，将在流程生成后补齐配置。',
+      }
+    }
     return {
       ...baseDiagnostic,
       code: 'flow_personnel_field_invalid',
@@ -601,6 +697,14 @@ const validatePersonnelField = (input: {
     && (!dependencyFieldName || isSameToken(field.fieldName, dependencyFieldName))
   )
   if (!matchesDependency) {
+    if (isUnverified) {
+      return {
+        ...baseDiagnostic,
+        code: 'flow_personnel_field_invalid',
+        routeToScheme: true,
+        message: '已确认复用的人员字段与当前表单证据不一致，需要重新确认人员字段绑定。',
+      }
+    }
     return {
       ...baseDiagnostic,
       code: 'flow_personnel_field_invalid',
@@ -620,14 +724,15 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
   const validatedPlannedDepartmentApprovalNodeKeys = new Set<string>()
   const validatedRenamedApprovalOwnerNodeKeys = new Set<string>()
   const summaryForms = resolveSummaryForms(input.flowSummary)
-  if (hasTargetContextMismatch({
+  if (hasFlowApprovalOwnerTargetContextMismatch({
     plan: input.plan,
     scheme: input.scheme,
-    currentForm: summaryForms.currentForm,
+    target: summaryForms.currentForm,
   })) {
     diagnostics.push(...approvalPreflight.diagnostics)
     diagnostics.push({
       code: 'flow_personnel_target_context_mismatch',
+      routeToScheme: true,
       message: '流程蓝图、流程方案与当前目标表单上下文不一致。',
     })
     return {
@@ -640,8 +745,13 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
   const targetForm = resolveTargetForm(input.scheme, summaryForms.forms)
   const personnelMatches = matchPersonnelNodesToSchemeSteps({
     scheme: input.scheme,
-    nodes: input.plan.triggerBranches.flatMap(branch => branch.nodes || []),
+    branches: input.plan.triggerBranches,
   })
+  const declaredStepNodeTypes = new Set(
+    getSchemeSteps(input.scheme)
+      .map(resolvePersonnelStepNodeType)
+      .filter((type): type is PersonnelNodeType => Boolean(type)),
+  )
   personnelMatches.matches.forEach(({ node, step }) => {
     const expectedSourceType = step.personnelRequirement!.sourceType
     const metadata = PERSONNEL_NODE_METADATA[node.type as PersonnelNodeType]
@@ -653,7 +763,10 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
       )
         ? [expectedSourceType]
         : []
-    if (actualSources.length !== 1 || actualSources[0] !== expectedSourceType) {
+    if (
+      actualSources.length !== 1
+      || !isSameFlowPersonnelSourceType(expectedSourceType, actualSources[0])
+    ) {
       diagnostics.push({
         code: 'flow_personnel_source_mismatch',
         message: '流程蓝图中的人员来源与已收敛流程方案不一致。',
@@ -687,11 +800,7 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
             node,
             scopeKey: step.key,
           })
-          if (
-            dependency?.resolutionStatus === 'resolved'
-            && dependency.resolutionMode === 'create_later'
-            && dependency.materializationStatus === 'planned'
-          ) {
+          if (dependency && resolveFlowSchemeDependencyState(dependency).isPlanned) {
             validatedPlannedDepartmentApprovalNodeKeys.add(normalizeText(node.nodeKey))
           }
         }
@@ -702,16 +811,30 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
   personnelMatches.unmatchedNodes.forEach((node) => {
     const metadata = PERSONNEL_NODE_METADATA[node.type as PersonnelNodeType]
     const owner = resolveBlueprintPersonnelOwner(node.options?.[metadata.optionKey], targetForm)
+    if (isUndeclaredOptionalNotifyNode({ node, owner, declaredStepNodeTypes })) {
+      return
+    }
+    const expectedStepKeys = personnelMatches.unmatchedSteps
+      .filter(step => resolvePersonnelStepNodeType(step) === node.type)
+      .map(step => normalizeText(step.key))
+      .filter(Boolean)
+      .slice(0, 3)
     diagnostics.push({
       code: 'flow_personnel_source_mismatch',
       message: '流程蓝图中的人员节点没有唯一对应的已收敛方案步骤。',
       nodeKey: normalizeText(node.nodeKey) || undefined,
       nodeName: normalizeText(node.name) || undefined,
       actualSourceType: owner.sources.length === 1 ? owner.sources[0] : 'unresolved',
+      ...(expectedStepKeys.length ? { expectedStepKeys } : {}),
     })
   })
 
   personnelMatches.unmatchedSteps.forEach((step) => {
+    const actualNodeKeys = personnelMatches.unmatchedNodes
+      .filter(node => node.type === resolvePersonnelStepNodeType(step))
+      .map(node => normalizeText(node.nodeKey))
+      .filter(Boolean)
+      .slice(0, 3)
     diagnostics.push({
       code: 'flow_personnel_source_mismatch',
       message: '已收敛流程方案中的人员步骤在流程蓝图中缺失。',
@@ -719,6 +842,7 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
       nodeName: normalizeText(step.title) || undefined,
       expectedSourceType: step.personnelRequirement!.sourceType,
       actualSourceType: 'unresolved',
+      ...(actualNodeKeys.length ? { actualNodeKeys } : {}),
     })
   })
 
@@ -735,7 +859,7 @@ export const validateFlowBlueprintPersonnelRequirements = (input: {
 
   return {
     diagnostics,
-    requiresBlueprintRegeneration: diagnostics.length > 0,
+    requiresBlueprintRegeneration: hasBlockingFlowBlueprintApprovalOwnerDiagnostic(diagnostics),
     requiresUserConfirmation: false,
   }
 }

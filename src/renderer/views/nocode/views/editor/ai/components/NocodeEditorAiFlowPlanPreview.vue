@@ -147,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, ref, resolveDynamicComponent, watch, type PropType } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, resolveDynamicComponent, watch, type PropType } from 'vue'
 import i18next from 'i18next'
 import type { AiAssistantArtifactBlock, AiAssistantFlowPlanArtifactBlock } from '@common/types/ai'
 import {
@@ -175,6 +175,7 @@ import {
   type NocodeEditorFlowPlanNode,
   type NocodeEditorFlowPlanTriggerBranch,
 } from '@common/utils/nocodeEditorFlowPlan'
+import { useOrganizeCacheStore } from '@renderer/stores/organizeCache'
 
 type FlowPreviewMode = 'artifact' | 'embedded'
 type FlowPreviewTone = 'trigger' | 'human' | 'cross-table' | 'branch'
@@ -367,6 +368,56 @@ const toLocalizedCountText = (count: number, unit: 'person' | 'role') => (
   count > 0 ? i18next.t('nocodeEditorAiFlowPlanPreview.countWithUnit', { count, unit: resolveCountUnit(unit) }) : ''
 )
 
+const organizeCache = useOrganizeCacheStore()
+
+const roleNameById = computed(() => (
+  new Map(asArray<{ id?: string, name?: string }>(organizeCache.roles).map(role => [
+    normalizeText(role.id),
+    normalizeText(role.name),
+  ]))
+))
+
+const userNameById = computed(() => (
+  new Map(asArray<{ id?: string, realname?: string, user?: string }>(organizeCache.users).map(user => [
+    normalizeText(user.id),
+    normalizeText(user.realname) || normalizeText(user.user),
+  ]))
+))
+
+onMounted(() => {
+  void organizeCache.load()
+})
+
+const resolveAssigneeNamesLabel = (
+  ids: string[],
+  nameById: Map<string, string>,
+  moreLabelKey: string,
+  unit: 'person' | 'role',
+) => {
+  const names = ids.map(id => nameById.get(id) || '')
+  if (ids.length && names.every(Boolean)) {
+    const preview = names.slice(0, 2).join(i18next.t('nocodeEditorAiFlowPlanPreview.listSeparator'))
+    return ids.length > 2
+      ? i18next.t(moreLabelKey, { preview, count: ids.length })
+      : preview
+  }
+  return toLocalizedCountText(ids.length, unit)
+}
+
+const resolveAssigneeUsersLabel = (userIds: string[]) => resolveAssigneeNamesLabel(
+  userIds,
+  userNameById.value,
+  'nocodeEditorAiFlowPlanPreview.membersAndMore',
+  'person',
+)
+
+const resolveAssigneeRolesLabel = (roleIds: string[]) => resolveAssigneeNamesLabel(
+  roleIds,
+  roleNameById.value,
+  'nocodeEditorAiFlowPlanPreview.rolesAndMore',
+  'role',
+)
+
 const resolveOptionLabel = (
   value: unknown,
   labelMap: Record<string, string>,
@@ -446,6 +497,24 @@ const resolveSourceTablesSummary = (value: unknown) => {
     : preview
 }
 
+// 计划新增人员字段（create_later + planned）的契约形状：{"type":"formMember"|"formDepartment","fieldName":"计划字段名"}，不在键式 ProcessNodeOwner 之内
+const resolvePlannedFormFieldOwnerLabel = (owner: Record<string, any>) => {
+  const directType = normalizeText(owner.type || owner.ownerType).toLowerCase().replace(/[\s_-]+/g, '')
+  if (directType !== 'formmember' && directType !== 'formdepartment') {
+    return ''
+  }
+
+  const fieldName = normalizeText(owner.fieldName || owner.name || owner.alias || owner.label)
+  if (directType === 'formmember') {
+    return fieldName
+      ? i18next.t('nocodeEditorAiFlowPlanPreview.formMemberFieldNamed', { name: fieldName })
+      : i18next.t('nocodeEditorAiFlowPlanPreview.formMemberFields', { count: 1 })
+  }
+  return fieldName
+    ? i18next.t('nocodeEditorAiFlowPlanPreview.formDepartmentFieldNamed', { name: fieldName })
+    : i18next.t('nocodeEditorAiFlowPlanPreview.formDepartmentField')
+}
+
 const resolveOwnerSummary = (value: unknown) => {
   const owner = asRecord(value)
   const labels: string[] = []
@@ -455,13 +524,13 @@ const resolveOwnerSummary = (value: unknown) => {
   }
 
   const assignee = asRecord(owner[ProcessNodeOwnerType.ASSIGNEE])
-  const assigneeUsers = asArray<string>(assignee.users).filter(Boolean).length
-  const assigneeRoles = asArray<string>(assignee.roles).filter(Boolean).length
-  if (assigneeUsers || assigneeRoles) {
+  const assigneeUserIds = asArray<string>(assignee.users).filter(Boolean)
+  const assigneeRoleIds = asArray<string>(assignee.roles).filter(Boolean)
+  if (assigneeUserIds.length || assigneeRoleIds.length) {
     labels.push(i18next.t('nocodeEditorAiFlowPlanPreview.assignedMembersOrRoles', {
       details: [
-        toLocalizedCountText(assigneeUsers, 'person'),
-        toLocalizedCountText(assigneeRoles, 'role'),
+        resolveAssigneeUsersLabel(assigneeUserIds),
+        resolveAssigneeRolesLabel(assigneeRoleIds),
       ].filter(Boolean).join(i18next.t('nocodeEditorAiFlowPlanPreview.listSeparator')),
     }))
   }
@@ -490,6 +559,13 @@ const resolveOwnerSummary = (value: unknown) => {
       direction: multiLevelManager.mode === 'down' ? i18next.t('nocodeEditorAiFlowPlanPreview.downward') : i18next.t('nocodeEditorAiFlowPlanPreview.upward'),
       count: multiLevelManager.value,
     }))
+  }
+
+  if (!labels.length) {
+    const plannedFieldLabel = resolvePlannedFormFieldOwnerLabel(owner)
+    if (plannedFieldLabel) {
+      labels.push(plannedFieldLabel)
+    }
   }
 
   return labels.join(i18next.t('nocodeEditorAiFlowPlanPreview.listSeparator'))

@@ -11,9 +11,23 @@ import {
 
 const normalizeText = (value: unknown) => String(value ?? '').trim()
 
-const isStructuredConfirmationReplyMessage = (content: string) => (
-  normalizeText(content).startsWith('我补充确认这几项')
-)
+const STRUCTURED_CONFIRMATION_REPLY_PREFIXES = [
+  '当前卡片的问题，我已逐项确认如下：',
+  '目前卡片中的問題，我已逐項確認如下：',
+  "I have confirmed the current card's questions as follows:",
+  '我补充确认这几项',
+  '我補充確認這幾項',
+  'I am confirming these items:',
+]
+
+export const isNocodeEditorStructuredConfirmationReplyMessage = (value: unknown) => {
+  const content = normalizeText(value)
+  return Boolean(content) && STRUCTURED_CONFIRMATION_REPLY_PREFIXES.some(prefix => (
+    content.startsWith(prefix)
+  ))
+}
+
+const isStructuredConfirmationReplyMessage = isNocodeEditorStructuredConfirmationReplyMessage
 
 const isDefaultConfirmationContinueReplyMessage = (content: string) => {
   if (isDefaultContinueReplyMessage(content, null)) {

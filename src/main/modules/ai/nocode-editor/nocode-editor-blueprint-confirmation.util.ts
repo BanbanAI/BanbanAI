@@ -1,6 +1,5 @@
 import { AiMessageRole, type AiActionResult, type AiEditorMode, type AiProviderMessage } from '../ai.types'
 import { isBlueprintAppliedPhase } from '@common/utils/nocodeEditorBlueprintLifecycle'
-import { resolveNocodeEditorCompleteNewFormIntentFromMessages } from '@common/utils/nocodeEditorSingleFormPlan'
 
 export type NocodeEditorBlueprintApplyGate = {
   mode: 'require_explicit_confirmation' | 'allow_immediate_apply'
@@ -29,42 +28,6 @@ const EMPTY_SHELL_KEYWORDS = [
   '先开一个表单',
 ]
 
-const NEW_FORM_ACTION_KEYWORDS = [
-  '创建',
-  '新建',
-  '搭建',
-  '做一个',
-  '做个',
-  '生成一个',
-]
-
-const NEW_FORM_OBJECT_KEYWORDS = [
-  '问卷',
-  '登记表',
-  '申请单',
-  '台账',
-  '表单',
-]
-
-const INCREMENTAL_EDIT_HINTS = [
-  '当前表单',
-  '这个表单',
-  '当前字段',
-  '这个字段',
-  '新增字段',
-  '加字段',
-  '补一个字段',
-  '删字段',
-  '调整字段',
-  '改成',
-  '改为',
-  '继续补',
-]
-
-void NEW_FORM_ACTION_KEYWORDS
-void NEW_FORM_OBJECT_KEYWORDS
-void INCREMENTAL_EDIT_HINTS
-
 const EXPLICIT_CONFIRM_TEXTS = new Set([
   '可以',
   '可以生成',
@@ -77,6 +40,9 @@ const EXPLICIT_CONFIRM_TEXTS = new Set([
   '确认生成',
   '直接生成',
   '按蓝图生成',
+  '按蓝图生成表单',
+  '生成表单',
+  '确认生成表单',
 ])
 
 type BlueprintGateTimelineItem =
@@ -206,7 +172,7 @@ const matchesGateVersion = (
 }
 
 const hasAppliedBlueprintArtifact = (
-  metadata: Record<string, any> | null | undefined,
+  metadata: Record<string, unknown> | null | undefined,
   gate: NocodeEditorBlueprintApplyGate | null | undefined,
 ) => {
   const blocks = Array.isArray(metadata?.blocks) ? metadata.blocks : []
@@ -260,19 +226,6 @@ const findLatestPendingGate = (options: {
   return latestPending
 }
 
-const looksLikeCompleteNewFormIntent = (options: {
-  text: string
-  recentUserMessages?: unknown[]
-  editorMode?: AiEditorMode | string
-  activeFormId?: string
-}) => resolveNocodeEditorCompleteNewFormIntentFromMessages({
-  userMessages: Array.isArray(options.recentUserMessages) && options.recentUserMessages.length
-    ? options.recentUserMessages
-    : [options.text],
-  editorMode: options.editorMode,
-  activeFormId: options.activeFormId,
-})
-
 export const isExplicitBlueprintApplyConfirmation = (value: unknown) => {
   const text = normalizeConfirmationText(value)
   if (!text) {
@@ -316,16 +269,9 @@ export const resolveBlueprintApplyGateForStage = (options: {
     return buildPendingGate(options.previousGate.mode, options.previousGate.reason, base)
   }
 
-  if (looksLikeCompleteNewFormIntent({
-    text,
-    recentUserMessages: options.recentUserMessages,
-    editorMode: options.editorMode,
-    activeFormId: options.activeFormId,
-  })) {
-    return buildPendingGate('require_explicit_confirmation', 'complete_new_form_default', base)
-  }
-
-  return null
+  // Every staged blueprint requires an explicit apply decision. This keeps the
+  // form blueprint lifecycle aligned with the flow blueprint lifecycle.
+  return buildPendingGate('require_explicit_confirmation', 'complete_new_form_default', base)
 }
 
 export const getLatestPendingBlueprintApplyGate = (options: {

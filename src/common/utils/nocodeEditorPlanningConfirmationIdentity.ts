@@ -45,7 +45,7 @@ export const buildLogicalPlanningConfirmationContextKey = (input: {
   ].join(':')
 }
 
-const parsePlanningConfirmationContextKey = (value?: string | null) => {
+export const parsePlanningConfirmationContextKey = (value?: string | null) => {
   const parts = String(value || '').trim().split(':')
   if (parts[0] === 'logical') {
     return {

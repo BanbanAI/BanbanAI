@@ -308,6 +308,7 @@ export const buildNocodeEditorToolResultStreamMetadata = (options: {
     flowSchemePlanningStatus: result.metadata?.flowSchemePlanningStatus === 'needs_confirmation'
       ? 'needs_confirmation'
       : undefined,
+    flowSchemeReviewPending: result.metadata?.flowSchemeReviewPending === true || undefined,
     toolResultSummary: Boolean(summary?.metadata?.toolResultSummary),
     summaryStage,
     hiddenFromTimeline: Boolean(summary?.metadata?.hiddenFromTimeline),
@@ -320,6 +321,9 @@ export const buildNocodeEditorToolResultStreamMetadata = (options: {
     blockedByPlanningConfirmation: Boolean(result.metadata?.blockedByPlanningConfirmation) || undefined,
     blockedPlanningKind: result.metadata?.blockedPlanningKind,
     blockedCompletedPlanning: Boolean(result.metadata?.blockedCompletedPlanning) || undefined,
+    blockedByPlanningScope: Boolean(result.metadata?.blockedByPlanningScope) || undefined,
+    blockedByCompletedPlanningContinuation: Boolean(result.metadata?.blockedByCompletedPlanningContinuation) || undefined,
+    blockedByBlueprintScopeRecovery: Boolean(result.metadata?.blockedByBlueprintScopeRecovery) || undefined,
     planningConvergenceLateQuestions: Array.isArray(result.metadata?.planningConvergenceLateQuestions)
       ? result.metadata.planningConvergenceLateQuestions
       : Array.isArray(summary?.metadata?.planningConvergenceLateQuestions)

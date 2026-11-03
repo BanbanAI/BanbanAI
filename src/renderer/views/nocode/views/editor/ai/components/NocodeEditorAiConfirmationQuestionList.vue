@@ -1,7 +1,7 @@
 <template>
   <div
     class="ai-confirmation-question-list"
-    :class="{ 'is-compact': compact, 'is-readonly': readonly }"
+    :class="{ 'is-compact': compact, 'is-readonly': readonly, 'is-muted': muted }"
   >
     <article
       v-for="(question, index) in questions"
@@ -70,6 +70,7 @@
 import type { NocodeEditorAiConfirmQuestionOption } from '@common/types/nocodeEditorConfirmation'
 import {
   resolveAiArtifactQuestionAnswerDetail,
+  resolveAiArtifactQuestionAnswerSummary,
   resolveAiArtifactQuestionSelectedOption,
   type AiArtifactConfirmationQuestion,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
@@ -112,6 +113,8 @@ const props = withDefaults(defineProps<{
   maxVisibleActions?: number
   responseDrafts?: NocodeEditorAiConfirmationResponseDraftMap
   showSupplementAction?: boolean
+  supplementActionLabel?: string
+  muted?: boolean
   activeInputQuestionIds?: string[]
   inlineNoteQuestionIds?: string[]
   showInlineNoteInput?: boolean
@@ -122,6 +125,8 @@ const props = withDefaults(defineProps<{
   maxVisibleActions: 0,
   responseDrafts: () => ({}),
   showSupplementAction: false,
+  supplementActionLabel: '',
+  muted: false,
   activeInputQuestionIds: () => [],
   inlineNoteQuestionIds: () => [],
   showInlineNoteInput: false,
@@ -143,7 +148,9 @@ const emit = defineEmits<{
   }): void
 }>()
 
-const fallbackInputLabel = computed(() => i18next.t('nocodeEditorAiConfirmationQuestionList.additionalNotes'))
+const fallbackInputLabel = computed(() => (
+  props.supplementActionLabel || i18next.t('nocodeEditorAiConfirmationQuestionList.additionalNotes')
+))
 const normalizeQuestionId = (value: unknown) => String(value ?? '').trim()
 const readonlyQuestionIdSet = computed(() => new Set(
   props.readonlyQuestionIds
@@ -231,6 +238,10 @@ const getQuestionDescription = (question: AiArtifactConfirmationQuestion) => (
   normalizeNocodeEditorConfirmationVisibleDescription(question.description)
 )
 
+const resolveQuestionNoteText = (value: unknown) => normalizeQuestionNoteText(
+  normalizeNocodeEditorConfirmationVisibleDescription(value),
+)
+
 const getQuestionNote = (question: AiArtifactConfirmationQuestion) => {
   const draftNote = normalizeQuestionNoteText(props.responseDrafts?.[question.id]?.note)
   if (draftNote) {
@@ -238,12 +249,19 @@ const getQuestionNote = (question: AiArtifactConfirmationQuestion) => {
   }
 
   const descriptionText = normalizeQuestionNoteText(getQuestionDescription(question))
-  const detailText = normalizeQuestionNoteText(
-    normalizeNocodeEditorConfirmationVisibleDescription(
-      resolveAiArtifactQuestionAnswerDetail(question),
-    ),
-  )
-  return detailText && detailText !== descriptionText ? detailText : ''
+  const detailText = resolveQuestionNoteText(resolveAiArtifactQuestionAnswerDetail(question))
+  if (detailText && detailText !== descriptionText) {
+    return detailText
+  }
+
+  // 纯文本问题（没有可选项）的确认结论只落在 answerSummary，需回退才能看到；
+  // 有选中项时结论已由选项行呈现，避免重复。
+  if (resolveAiArtifactQuestionSelectedOption(question)) {
+    return ''
+  }
+
+  const summaryText = resolveQuestionNoteText(resolveAiArtifactQuestionAnswerSummary(question))
+  return summaryText && summaryText !== descriptionText ? summaryText : ''
 }
 
 const isInlineNoteOpen = (questionId: string) => (
@@ -322,6 +340,20 @@ const handleInlineNoteInput = (
   border-radius: 8px;
 }
 
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__item {
+  background: #f7f8fa;
+  border-color: #eef0f3;
+}
+
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__index {
+  color: #86909c;
+}
+
+.ai-confirmation-question-list.is-muted .ai-confirmation-question-list__option.is-focus {
+  border-color: #d9dde3;
+  color: #4e5969;
+}
+
 .ai-confirmation-question-list__head {
   display: flex;
   align-items: flex-start;
@@ -367,14 +399,15 @@ const handleInlineNoteInput = (
 
 .ai-confirmation-question-list__options {
   margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .ai-confirmation-question-list__option {
   min-height: 32px;
-  width: 100%;
+  flex: 0 1 auto;
+  width: auto;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;

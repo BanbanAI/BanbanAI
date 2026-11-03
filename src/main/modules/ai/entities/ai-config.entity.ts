@@ -16,6 +16,12 @@ export class AiConfigEntity {
   @Property({ type: 'boolean' })
   allowModelSelection: boolean = true
 
+  @Property({ nullable: true, type: 'number' })
+  workbenchDefaultOutputTokens: number | null = null
+
+  @Property({ nullable: true, type: 'number' })
+  editorDefaultOutputTokens: number | null = null
+
   @Property({ nullable: true, type: 'json' })
   defaultSelections: AiDefaultModelSelections = { fast: null, balanced: null, deep: null }
 

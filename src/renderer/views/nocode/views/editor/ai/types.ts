@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import type { NocodeEditorAiConfirmPayload } from '@common/types/nocodeEditorConfirmation'
+import type { NocodeProcessAiDeferredConfigItem } from '@common/types/project'
 import type { AiAssistantConfirmationCardPresentation } from '@common/types/ai'
 import type { NocodeEditorIndustrySkeletonCarryover } from '@common/utils/nocodeEditorIndustrySkeleton'
 import type { FlowIssueRoutingResult } from '@common/utils/nocodeEditorFlowIssueRouter'
@@ -137,6 +138,7 @@ export enum NocodeEditorAiStreamEventType {
   TOOL_RESULT = 'tool-result',
   DONE = 'done',
   ERROR = 'error',
+  STATUS = 'status',
 }
 
 export type NocodeEditorAiMode =
@@ -266,6 +268,8 @@ export type NocodeEditorAiChatRequest = {
     stagedPlanningSummary?: string
     stagedFlowSummary?: string
     stagedBlueprintSummary?: string
+    hasStagedBlueprint?: boolean
+    hasStagedFlowScheme?: boolean
     pendingBlueprintRepeatIntent?: boolean
     pendingBlueprintClarificationSummary?: string
     pendingBlueprintClarificationKind?: 'planning-question' | 'explicit-confirmation'
@@ -298,6 +302,7 @@ export type NocodeEditorAiChatStreamPayload = {
 
 export type NocodeEditorAiStreamErrorKind =
   | 'payload_too_large'
+  | 'context_window_exceeded'
   | 'provider_timeout'
   | 'provider_output_overflow'
   | 'stream_error'
@@ -307,9 +312,12 @@ export type NocodeEditorAiStreamErrorMetadata = {
   errorKind?: NocodeEditorAiStreamErrorKind
   retryable?: boolean
   userMessagePersisted?: boolean
-  recoveryAction?: 'continue_generation'
+  recoveryAction?: 'continue_generation' | 'compact_context'
   timeoutPhase?: 'first_event' | 'idle' | 'total'
   timeoutMs?: number
+  contextRecoveryAttempt?: number
+  contextBudgetExceededReason?: 'token' | 'body'
+  sourceTraceId?: string
 }
 
 export type NocodeEditorAiThreadMessage = {
@@ -481,6 +489,12 @@ export type NocodeEditorAiAppBlueprint = {
   confirmation?: NocodeEditorAiConfirmPayload | null
 }
 
+export type BlueprintPersistedFieldEntry = {
+  // 父字段名链；空数组表示主表字段
+  parentFieldNames: string[]
+  fieldName: string
+}
+
 export type NocodeEditorAiBlueprintApplyFormResult = {
   applyTargetKey: string
   formKey: string
@@ -492,6 +506,7 @@ export type NocodeEditorAiBlueprintApplyFormResult = {
   fieldsCreated: string[]
   fieldsReused: string[]
   fieldsUpdated: string[]
+  persistedFieldEntries?: BlueprintPersistedFieldEntry[]
   fieldWarnings: string[]
   fieldBindings?: NocodeEditorAiBlueprintFieldBinding[]
   formulaApply?: NocodeEditorFormulaApplyResult
@@ -500,9 +515,13 @@ export type NocodeEditorAiBlueprintApplyFormResult = {
 export type NocodeEditorAiBlueprintFieldBinding = {
   tableId?: string
   fieldKey: string
+  fieldPath?: string
   fieldName: string
   widgetId: string
   widgetType?: string
+  valueType?: string
+  sourceScope?: 'blueprint' | 'current-form' | 'linked-table' | 'other-table'
+  sourceFormKey?: string
   parentFieldKey?: string
   parentWidgetId?: string
   token?: string
@@ -532,6 +551,10 @@ export type NocodeEditorAiBlueprintApplyResult = {
   planningScope: NocodeEditorPlanningScope
   ok: boolean
   persistenceMode?: 'saved' | 'draft_only'
+  // 只有回读请求成功执行过才为 true；false 表示已保存但没能校验，不能当成已验证
+  persistenceVerified?: boolean
+  // 父字段存在但无法从应用数据定位子表的字段数量；>0 表示有字段跳过了持久化校验
+  persistedUnverifiedFieldCount?: number
   draftPersistenceState?: NocodeEditorAiDraftPersistenceState | null
   blueprintId: string
   startedAt: number
@@ -663,6 +686,9 @@ export type NocodeEditorAiFlowIssueLocateResult = {
 export type NocodeEditorAiDraftSaveOptions = {
   persistToApp?: boolean
   skipProcessValidation?: boolean
+  aiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[]
+  /** 强制保存当前设计态：跳过「无本地改动」早退，用于蓝图应用收尾落盘 */
+  force?: boolean
 }
 
 export type NocodeEditorAiDraftSaveResult = {
@@ -756,11 +782,17 @@ export type NocodeEditorAiAppliedBlueprintRecord = {
   blueprint: NocodeEditorAiAppBlueprint
 }
 
+export type NocodeEditorAiBlueprintFormScopeRef = {
+  formKey?: string
+  tableName?: string
+}
+
 export type NocodeEditorAiAiBlueprintDisplayItem = {
   itemKind: 'ai_blueprint'
   id: string
   identityKey: string
   contentSignatureKey?: string
+  blueprintFormScope?: NocodeEditorAiBlueprintFormScopeRef[]
   planningScope: NocodeEditorPlanningScope
   phase: NocodeEditorAiBlueprintPhase
   status: NocodeEditorAiBlueprintPhase
@@ -970,6 +1002,9 @@ export type NocodeEditorAiFlowApplyResult = {
     branchCount: number
   }
   warnings: string[]
+  appliedSettings?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowAppliedSetting[]
+  riskAlerts?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowRiskAlert[]
+  deferredConfigItems?: import('@common/utils/nocodeEditorFlowScheme').NocodeEditorFlowSchemeDeferredConfigItem[]
   flowIssueState?: NocodeEditorAiFlowIssueState | null
   flowUnifiedIssues?: UnifiedFlowIssue[] | null
   flowIssueRouting?: FlowIssueRoutingResult | null
@@ -991,6 +1026,7 @@ export type NocodeEditorAiStagedFlowScheme = {
   reviewResult?: NocodeEditorFlowSchemeReviewResult | null
   flowUnifiedIssues?: UnifiedFlowIssue[] | null
   flowIssueRouting?: FlowIssueRoutingResult | null
+  planningContextKey?: string
 }
 
 export type NocodeEditorAiStagedFlowBlueprint = {
@@ -1103,6 +1139,11 @@ export type NocodeEditorAiRuntime = {
   locateDraftIssue: (issue: NocodeEditorAiDraftActionIssue) => Promise<NocodeEditorAiDraftIssueLocateResult>
   locateFlowIssue: (issue: NocodeEditorAiFlowActionIssue) => Promise<NocodeEditorAiFlowIssueLocateResult>
   executeTool: (toolName: string, input?: Record<string, unknown>) => Promise<unknown>
+  getFlowBlueprintStageFailureState?: () => {
+    planningContextKey: string
+    code: string
+    count: number
+  } | null
 }
 
 export type NocodeEditorAiActiveFormulaTaskContext = {

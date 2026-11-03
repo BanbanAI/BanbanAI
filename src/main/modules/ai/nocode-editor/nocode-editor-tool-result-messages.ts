@@ -2,6 +2,10 @@ import type {
   AiActionResult,
 } from '../ai.types'
 import type {
+  NocodeEditorAiConfirmPayload,
+  NocodeEditorAiConfirmQuestion,
+} from '@common/types/nocodeEditorConfirmation'
+import type {
   AiAssistantAppPlanArtifactBlock,
   AiAssistantArtifactBlock,
   AiAssistantConfirmationCardPresentation,
@@ -34,6 +38,11 @@ import {
   normalizeNocodeEditorContentPlan,
 } from '@common/utils/nocodeEditorContentPlan'
 import {
+  NOCODE_EDITOR_BLUEPRINT_REPLACE_NOT_AUTHORIZED,
+  NOCODE_EDITOR_BLUEPRINT_SCOPE_EXTRA_FORMS,
+  NOCODE_EDITOR_BLUEPRINT_SCOPE_INCOMPLETE,
+} from '@common/utils/nocodeEditorBlueprintInput'
+import {
   buildSharedAppPlanConfirmationCardPresentation,
   buildSharedApplicationStructurePreview,
   buildSharedFormPlanConfirmationCardPresentation,
@@ -65,6 +74,7 @@ import {
   type NocodeEditorFlowSchemeGroundingDiagnostic,
 } from '@common/utils/nocodeEditorFlowSchemeGrounding'
 import {
+  buildFlowGroundingOpenQuestionKey,
   containsTechnicalFlowText,
   normalizeText,
   normalizeVisibleFlowGroundingQuestions,
@@ -97,6 +107,9 @@ import {
   buildNocodeEditorConfirmationPayload,
 } from './nocode-editor-confirmation.util'
 import {
+  readNocodeEditorBlueprintDesignGaps,
+} from './nocode-editor-stage-output-contract'
+import {
   projectBlueprintConfirmation,
 } from '@common/utils/nocodeEditorBlueprintConfirmationProjection'
 import {
@@ -126,6 +139,10 @@ import {
 import {
   normalizeNocodeEditorPostFormFlowRelease,
 } from '@common/utils/nocodeEditorPostFormFlowRelease'
+import {
+  isNocodeEditorPostFormFlowEnabledForScope,
+  normalizeNocodeEditorPlanningScopeValue,
+} from '@common/utils/nocodeEditorPostFormFlowScope'
 import { normalizeFormulaText } from '@common/utils/formula'
 import {
   normalizeNocodeEditorFormulaPlan,
@@ -226,6 +243,14 @@ const toUnknownArray = (value: unknown): unknown[] => (
   Array.isArray(value) ? value : []
 )
 
+const resolveBlueprintScopeFormLabels = (value: unknown) => (
+  toUnknownArray(value)
+    .filter(isRecord)
+    .map(form => String(form.tableName || form.name || form.formKey || '').trim())
+    .filter(Boolean)
+    .join('、')
+)
+
 const normalizeQuestionList = (value: unknown) => (
   toUnknownArray(value)
     .map(item => normalizeText(item))
@@ -239,10 +264,39 @@ const normalizeFlowGroundingUserMessage = (value: unknown) => {
     : message
 }
 
+const normalizePlanningConvergenceLateQuestionItems = (
+  value: unknown,
+): NocodeEditorAiConfirmQuestion[] => (
+  Array.isArray(value)
+    ? value.flatMap((item, index) => {
+      if (typeof item === 'string') {
+        const title = item.trim()
+        return title
+          ? [{ id: `blueprint-late-question-${index + 1}`, title }]
+          : []
+      }
+      if (!isRecord(item)) {
+        return []
+      }
+      const title = String(item.title || '').trim()
+      if (!title) {
+        return []
+      }
+      return [{
+        ...item,
+        id: String(item.id || '').trim() || `blueprint-late-question-${index + 1}`,
+        title,
+      } as NocodeEditorAiConfirmQuestion]
+    })
+    : []
+)
+
 const resolvePlanningConvergenceLateQuestions = (result: AiActionResult) => {
-  const explicitQuestions = normalizeVisibleFlowGroundingQuestions({
-    questions: result?.metadata?.planningConvergenceLateQuestions,
-  }).map(question => question.title)
+  // 蓝图迟到问题需要保留 decisionTarget/decisionKey，投影阶段才能把问题
+  // 归回表单页签，并与已完成的决策去重。
+  const explicitQuestions = normalizePlanningConvergenceLateQuestionItems(
+    result?.metadata?.planningConvergenceLateQuestions,
+  )
   if (explicitQuestions.length) {
     return explicitQuestions
   }
@@ -252,7 +306,7 @@ const resolvePlanningConvergenceLateQuestions = (result: AiActionResult) => {
   return normalizeVisibleFlowGroundingQuestions({
     questions: flowGroundingQuestions,
     diagnostics: normalizeFlowGroundingDiagnostics(result?.metadata?.flowGroundingDiagnostics),
-  }).map(question => question.title)
+  })
 }
 
 const resolveBlueprintClarificationKind = (result: AiActionResult) => (
@@ -972,6 +1026,15 @@ const normalizeFlowGroundingDiagnostics = (value: unknown): NocodeEditorFlowSche
         nodeName: String(diagnostic.nodeName || '').trim() || undefined,
         branchKey: String(diagnostic.branchKey || '').trim() || undefined,
         branchLabel: String(diagnostic.branchLabel || '').trim() || undefined,
+        targetFormId: String(diagnostic.targetFormId || '').trim() || undefined,
+        targetFormName: String(diagnostic.targetFormName || '').trim() || undefined,
+        fieldRef: isRecord(diagnostic.fieldRef)
+          ? {
+            fieldId: String(diagnostic.fieldRef.fieldId || '').trim() || undefined,
+            fieldName: String(diagnostic.fieldRef.fieldName || '').trim() || undefined,
+            expectedType: String(diagnostic.fieldRef.expectedType || '').trim() || undefined,
+          }
+          : undefined,
         ownerUsage: isNocodeEditorFlowGroundingOwnerUsage(diagnostic.ownerUsage)
           ? diagnostic.ownerUsage
           : undefined,
@@ -1001,6 +1064,7 @@ const normalizeFlowGroundingDiagnostics = (value: unknown): NocodeEditorFlowSche
 type FlowGroundingDependencyQuestionInput = {
   title?: unknown
   scopeKind?: unknown
+  branchKey?: unknown
 }
 
 const buildFlowGroundingDependencies = (
@@ -1029,7 +1093,7 @@ const buildFlowGroundingDependencies = (
       kind: 'field_missing' as const,
       requiredFor,
       scopeKind: question.scopeKind === 'trigger-branch' ? 'branch' as const : 'global' as const,
-      scopeKey: undefined,
+      scopeKey: normalizeText(question.branchKey) || undefined,
       scopeTitle: undefined,
       riskLevel: 'high' as const,
       resolutionStatus: 'unresolved' as const,
@@ -1112,8 +1176,20 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
 ): AiAssistantFlowSchemeArtifactBlock | null => {
   const metadata = toRecord(result?.metadata)
   const output = toRecord(result?.output)
+  // 恢复卡必须绑定被拒时的当前 revision，用户作答才能通过版本信任校验（否则永远 revision_stale 再路由）。
+  const recoverySchemeRevision = toPositiveNumber(
+    metadata.flowSchemeRecoveryRevision || output.flowSchemeRecoveryRevision,
+  )
+  const recoverySchemeStagedAt = toPositiveNumber(
+    metadata.flowSchemeRecoveryStagedAt || output.flowSchemeRecoveryStagedAt,
+  )
   const flowIssueProjection = resolveFlowIssueProjectionForResult(result)
   if (flowIssueProjection) {
+    // 前置缺失不是流程方案：绝不能合成 kind=flow-scheme 的块，否则它会被当作暂存方案恢复，
+    // 并进入“当前暂存流程摘要”形成自指循环。
+    if (flowIssueProjection.projection.flowPrerequisiteMissing) {
+      return null
+    }
     if (
       flowIssueProjection.flowIssueRouting.outcome !== 'return_to_flow_scheme'
       || (
@@ -1142,6 +1218,8 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
       type: 'artifact',
       kind: 'flow-scheme',
       status: 'ready',
+      ...(recoverySchemeRevision ? { revision: recoverySchemeRevision } : {}),
+      ...(recoverySchemeStagedAt ? { stagedAt: recoverySchemeStagedAt } : {}),
       title: flowSchemeTitle,
       summary: message,
       message,
@@ -1206,10 +1284,11 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
     ...metadata,
   }) || global.i18next.t('nocodeEditorToolResultMessages.flowScheme')
   const openQuestions = questions.map((question, index) => ({
-    key: question.id || `flow-grounding-confirmation-${index + 1}`,
+    key: buildFlowGroundingOpenQuestionKey(question, index),
     title: question.title,
     reason: question.description || question.title,
     scopeKind: question.scopeKind === 'trigger-branch' ? 'branch' as const : 'global' as const,
+    scopeKey: normalizeText(question.branchKey) || undefined,
   }))
   const dependencies = buildFlowGroundingDependencies(diagnostics, questions)
   const resultSummary = buildSharedFlowGroundingConvergenceResultSummary({
@@ -1220,6 +1299,8 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
     type: 'artifact',
     kind: 'flow-scheme',
     status: 'ready',
+    ...(recoverySchemeRevision ? { revision: recoverySchemeRevision } : {}),
+    ...(recoverySchemeStagedAt ? { stagedAt: recoverySchemeStagedAt } : {}),
     title: flowSchemeTitle,
     summary: message,
     message,
@@ -1262,6 +1343,31 @@ const buildFlowGroundingFlowSchemeArtifactBlockForResult = (
   }
 }
 
+// issue 投影只覆盖当前待答/被拒问题；宿主返回的 scheme.confirmation 已是“历史题 + 投影题”的
+// 完整收敛结果。整体替换会丢掉已答父题与 decisionSnapshot，待答题的 dependsOn/requiresFacts
+// 就指向题集外，渲染侧决策契约校验失败，卡片会退化成不可作答的死卡。
+const mergeFlowIssueConfirmationProjection = (
+  schemeConfirmation: NocodeEditorAiConfirmPayload | null | undefined,
+  projectedConfirmation: NocodeEditorAiConfirmPayload | null | undefined,
+): NocodeEditorAiConfirmPayload | null | undefined => {
+  const schemeQuestions = Array.isArray(schemeConfirmation?.questions)
+    ? schemeConfirmation.questions
+    : []
+  if (!projectedConfirmation || !schemeQuestions.length) {
+    return projectedConfirmation
+  }
+  const existingKeys = new Set(schemeQuestions
+    .map(question => String(question.decisionKey || question.id || '').trim())
+    .filter(Boolean))
+  const extraQuestions = (projectedConfirmation.questions || []).filter((question) => {
+    const key = String(question.decisionKey || question.id || '').trim()
+    return !key || !existingKeys.has(key)
+  })
+  return extraQuestions.length
+    ? { ...schemeConfirmation, questions: [...schemeQuestions, ...extraQuestions] }
+    : schemeConfirmation
+}
+
 const buildFlowSchemeArtifactBlockForResult = (result: AiActionResult): AiAssistantFlowSchemeArtifactBlock | null => {
   if (String(result?.name || '').trim() !== 'editor_plan_flow_scheme') {
     return null
@@ -1280,7 +1386,7 @@ const buildFlowSchemeArtifactBlockForResult = (result: AiActionResult): AiAssist
     ? {
         ...scheme,
         openQuestions: flowIssueProjection.projection.openQuestions,
-        confirmation: flowIssueProjection.projection.confirmation,
+        confirmation: mergeFlowIssueConfirmationProjection(scheme.confirmation, flowIssueProjection.projection.confirmation),
       }
     : scheme
   const planningStatus = String(
@@ -1568,6 +1674,7 @@ export const buildNocodeEditorToolResultAssistantMessage = (
     'suppressStreamBlocks',
     'suppressedIntermediateSummary',
     'summarySuppressionReason',
+    'deferredFailedStageSummary',
   ]) {
     if (result?.metadata?.[key] !== undefined) {
       metadata[key] = result.metadata[key]
@@ -1662,10 +1769,17 @@ export const buildNocodeEditorToolResultAssistantMessage = (
       metadata.postFormFlowRelease = postFormFlowRelease
     }
   }
+  // 渲染端表单后流程卡片与自动续接的闸门要求消息级 planningScope=form，仅对该作用域投影（与渲染端自建消息对齐）
+  const planningScope = normalizeNocodeEditorPlanningScopeValue(
+    result?.metadata?.planningScope || result?.output?.planningScope,
+  )
+  if (isNocodeEditorPostFormFlowEnabledForScope(planningScope)) {
+    metadata.planningScope = planningScope
+  }
   if (blocks.length) {
     metadata.blocks = blocks
   }
-  const formulaPlanBlock = blocks.find(block => block.type === 'artifact' && block.kind === 'formula-plan')
+  const formulaPlanBlock = blocks.find(block => block.type === 'artifact' && block.kind === 'formula-plan') as AiAssistantFormulaPlanArtifactBlock | undefined
   if (formulaPlanBlock?.formulaPresentation) {
     metadata.formulaPlanPresentation = formulaPlanBlock.formulaPresentation
   }
@@ -1772,7 +1886,6 @@ const buildFailureMessage = (toolName: string, error: string, result?: AiActionR
     || flowGroundingQuestions.length > 0
     || result?.metadata?.flowGroundingReturnToStage === 'flow-scheme'
     || result?.metadata?.requiredNextAction === 'editor_plan_flow_scheme'
-    || result?.metadata?.blockedNextAction === 'editor_stage_flow_blueprint'
   )
   const hasRawFlowGroundingDiagnosticError = (
     normalizedError.includes('可回写字段')
@@ -1813,7 +1926,7 @@ const buildFailureMessage = (toolName: string, error: string, result?: AiActionR
     if (blueprintClarificationKind === 'planning-question' && planningConvergenceLateQuestions.length > 0) {
       return [
         global.i18next.t('nocodeEditorToolResultMessages.blueprintQuestionsPending'),
-        ...planningConvergenceLateQuestions.map((question, index) => `${index + 1}. ${question}`),
+        ...planningConvergenceLateQuestions.map((question, index) => `${index + 1}. ${question.title}`),
       ].join('\n')
     }
     if (blueprintClarificationKind === 'explicit-confirmation') {
@@ -1827,6 +1940,24 @@ const buildFailureMessage = (toolName: string, error: string, result?: AiActionR
     && gateMode === 'require_explicit_confirmation'
   ) {
     return global.i18next.t('nocodeEditorToolResultMessages.blueprintApplyConfirmationRequired')
+  }
+  // 范围校验的原始报错是给模型看的纠偏指令（含 updateMode 等协议词），
+  // 用户侧只呈现业务结论，模型仍从工具结果 JSON 拿到完整原因。
+  if (toolName === 'editor_stage_app_blueprint') {
+    const scopeErrorCode = String(result?.metadata?.blueprintScopeErrorCode || '').trim()
+    if (scopeErrorCode === NOCODE_EDITOR_BLUEPRINT_REPLACE_NOT_AUTHORIZED) {
+      return global.i18next.t('nocodeEditorToolResultMessages.blueprintScopeReplaceNotAuthorized')
+    }
+    if (scopeErrorCode === NOCODE_EDITOR_BLUEPRINT_SCOPE_EXTRA_FORMS) {
+      return global.i18next.t('nocodeEditorToolResultMessages.blueprintScopeExtraForms', {
+        forms: resolveBlueprintScopeFormLabels(result?.metadata?.blueprintScopeUnexpectedForms),
+      })
+    }
+    if (scopeErrorCode === NOCODE_EDITOR_BLUEPRINT_SCOPE_INCOMPLETE) {
+      return global.i18next.t('nocodeEditorToolResultMessages.blueprintScopeIncomplete', {
+        forms: resolveBlueprintScopeFormLabels(result?.metadata?.blueprintScopeMissingForms),
+      })
+    }
   }
   if (
     toolName === 'editor_get_flow_summary'
@@ -1861,10 +1992,23 @@ const buildFailureMessage = (toolName: string, error: string, result?: AiActionR
         global.i18next.t('nocodeEditorToolResultMessages.flowPlanQuestionsReturnedForConfirmation', {
           count: planningConvergenceLateQuestions.length,
         }),
-        ...planningConvergenceLateQuestions.map((question, index) => `${index + 1}. ${question}`),
+        ...planningConvergenceLateQuestions.map((question, index) => `${index + 1}. ${question.title}`),
       ].join('\n')
     }
     return businessMessage
+  }
+  // 只有失败归类（没有待确认题、也没有字段类报错）时，用户可见文案取统一问题的业务结论：
+  // blockedNextAction 只表示“下一步去哪”，不能当作已向用户解释过失败原因。
+  if (isFlowGroundingTool) {
+    const flowIssue = normalizeUnifiedFlowIssues(result?.metadata?.flowUnifiedIssues)[0]
+    const routingMessage = normalizeText(
+      (result?.metadata?.flowIssueRouting as Record<string, unknown> | undefined)?.userMessage,
+    )
+    const businessMessage = [normalizeText(flowIssue?.userMessage), routingMessage]
+      .find(message => Boolean(message) && !containsTechnicalFlowText(message))
+    if (businessMessage) {
+      return businessMessage
+    }
   }
 
   const prefixMap: Record<string, string> = {
@@ -2304,6 +2448,7 @@ const buildSuccessMessage = (result: AiActionResult) => {
       fallback: global.i18next.t('nocodeEditorToolResultMessages.blueprint'),
     })
     const gateMode = String(result?.metadata?.blueprintApplyGate?.mode || '').trim()
+    const versionChanged = result?.output?.versionChanged !== false
     const planningConvergenceLateQuestions = resolvePlanningConvergenceLateQuestions(result)
     const scope = [
       formCount > 0
@@ -2313,9 +2458,40 @@ const buildSuccessMessage = (result: AiActionResult) => {
         ? global.i18next.t('nocodeEditorToolResultMessages.fieldCount', { count: fieldCount })
         : '',
     ].filter(Boolean).join(global.i18next.t('nocodeEditorToolResultMessages.listSeparator'))
+    const formNames = Array.isArray(blueprint?.forms)
+      ? blueprint.forms
+        .map(form => String(isRecord(form) ? form.tableName : '').trim())
+        .filter(Boolean)
+        .slice(0, 8)
+      : []
+    const involvedFormsLine = formCount > 1 && formNames.length
+      ? global.i18next.t('nocodeEditorToolResultMessages.involvedForms', {
+        forms: formNames.join(global.i18next.t('nocodeEditorToolResultMessages.listSeparator')),
+      })
+      : ''
     const openQuestionCount = Array.isArray(blueprint?.openQuestions)
       ? blueprint.openQuestions.filter((item: unknown) => String(item || '').trim()).length
       : 0
+    const designGaps = readNocodeEditorBlueprintDesignGaps(result?.output)
+    const designGapLine = designGaps.length
+      ? global.i18next.t('nocodeEditorToolResultMessages.blueprintDesignGapsRemain', {
+        gaps: designGaps.map(gap => (
+          gap.reason === 'related-form-needs-design'
+            ? global.i18next.t('nocodeEditorToolResultMessages.blueprintDesignGapRelatedForm', {
+              tableName: gap.tableName || '',
+            })
+            : gap.reason === 'auto-compute-formula-missing'
+              ? global.i18next.t('nocodeEditorToolResultMessages.blueprintDesignGapAutoComputeMissing', {
+                formName: gap.tableName || '',
+                fieldName: gap.fieldName || '',
+              })
+              : global.i18next.t('nocodeEditorToolResultMessages.blueprintDesignGapEnumMissing', {
+                formName: gap.tableName || '',
+                fieldName: gap.fieldName || '',
+              })
+        )).join(global.i18next.t('nocodeEditorToolResultMessages.listSeparator')),
+      })
+      : ''
     if (planningConvergenceLateQuestions.length > 0) {
       return [
         global.i18next.t('nocodeEditorToolResultMessages.artifactStaged', {
@@ -2334,12 +2510,13 @@ const buildSuccessMessage = (result: AiActionResult) => {
             ? global.i18next.t('nocodeEditorToolResultMessages.scopeSuffix', { scope })
             : '',
         }),
+        involvedFormsLine,
         global.i18next.t('nocodeEditorToolResultMessages.planConclusionPreserved'),
         global.i18next.t('nocodeEditorToolResultMessages.lateBlueprintQuestionsFound', {
           count: planningConvergenceLateQuestions.length,
         }),
         global.i18next.t('nocodeEditorToolResultMessages.waitForBlueprintConfirmation'),
-      ].join('\n')
+      ].filter(Boolean).join('\n')
     }
     const nextStepLine = openQuestionCount > 0
       ? (
@@ -2355,25 +2532,35 @@ const buildSuccessMessage = (result: AiActionResult) => {
         ? global.i18next.t('nocodeEditorToolResultMessages.blueprintStagedWithApplyGate')
         : global.i18next.t('nocodeEditorToolResultMessages.reviewBlueprintBeforeApply')
     return [
-      global.i18next.t('nocodeEditorToolResultMessages.artifactStaged', {
-        title: title
-          ? global.i18next.t('nocodeEditorToolResultMessages.namedBlueprint', { title })
-          : global.i18next.t('nocodeEditorToolResultMessages.blueprint'),
-        version: revision > 0
-          ? global.i18next.t('nocodeEditorToolResultMessages.currentVersionSuffix', {
-            version: formatBusinessVersionLabel(
-              revision,
-              global.i18next.t('nocodeEditorToolResultMessages.currentVersion'),
-            ),
-          })
-          : '',
-        scope: scope
-          ? global.i18next.t('nocodeEditorToolResultMessages.scopeSuffix', { scope })
-          : '',
-      }),
+      global.i18next.t(
+        versionChanged
+          ? 'nocodeEditorToolResultMessages.artifactStaged'
+          : 'nocodeEditorToolResultMessages.artifactStagedWithoutVersionChange',
+        {
+          title: title
+            ? global.i18next.t('nocodeEditorToolResultMessages.namedBlueprint', { title })
+            : global.i18next.t('nocodeEditorToolResultMessages.blueprint'),
+          version: revision > 0
+            ? global.i18next.t('nocodeEditorToolResultMessages.currentVersionSuffix', {
+              version: formatBusinessVersionLabel(
+                revision,
+                global.i18next.t('nocodeEditorToolResultMessages.currentVersion'),
+              ),
+            })
+            : '',
+          scope: scope
+            ? global.i18next.t('nocodeEditorToolResultMessages.scopeSuffix', { scope })
+            : '',
+        },
+      ),
+      involvedFormsLine,
       global.i18next.t('nocodeEditorToolResultMessages.blueprintNotAppliedNotice'),
+      !versionChanged
+        ? global.i18next.t('nocodeEditorToolResultMessages.blueprintConfigurationUnchanged')
+        : '',
+      designGapLine,
       nextStepLine,
-    ].join('\n')
+    ].filter(Boolean).join('\n')
   }
 
   if (toolName === 'editor_get_staged_app_blueprint') {

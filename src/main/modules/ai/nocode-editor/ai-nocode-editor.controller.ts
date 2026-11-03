@@ -130,8 +130,27 @@ export class AiNocodeEditorController {
 
     let closed = false
     const abortController = new AbortController()
+    const heartbeatTimer = setInterval(() => {
+      if (closed || res.writableEnded || res.destroyed) {
+        return
+      }
+      try {
+        this.writeSseEvent(res, {
+          event: AiStreamEventType.STATUS,
+          metadata: {
+            scene: 'nocode-editor',
+            phase: 'heartbeat',
+            traceId,
+            at: Date.now(),
+          },
+        })
+      } catch {
+        clearInterval(heartbeatTimer)
+      }
+    }, 15_000)
     const handleDisconnect = (reason: string) => {
       closed = true
+      clearInterval(heartbeatTimer)
       if (!abortController.signal.aborted) {
         abortController.abort(reason)
       }
@@ -168,6 +187,7 @@ export class AiNocodeEditorController {
         })
       }
     } finally {
+      clearInterval(heartbeatTimer)
       if (!closed && !res.writableEnded) {
         res.end()
       }

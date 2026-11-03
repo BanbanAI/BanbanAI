@@ -294,6 +294,86 @@ const movePreTurnLocalMessagesBeforeAuthoritativeTurn = <T extends DoneAssistant
   ]
 }
 
+const preserveLiveFailedStageBlocks = <T extends DoneAssistantHistoryMessage & {
+  id?: unknown
+}>(options: {
+  messages: T[]
+  currentTurnAssistant: T | undefined
+  authoritativeAssistantMessageId: string
+}) => {
+  const sourceBlocks = Array.isArray(options.currentTurnAssistant?.metadata?.blocks)
+    ? options.currentTurnAssistant.metadata.blocks
+    : []
+  const failedStageBlocks = sourceBlocks.filter((block) => {
+    if (!block || typeof block !== 'object' || Array.isArray(block)) {
+      return false
+    }
+    const candidate = block as Record<string, unknown>
+    return candidate.type === 'artifact'
+      && candidate.status === 'error'
+      && [
+        'app-plan',
+        'form-plan',
+        'content-plan',
+        'formula-plan',
+        'blueprint',
+        'flow-scheme',
+        'flow-plan',
+      ].includes(String(candidate.kind || ''))
+  })
+  if (!failedStageBlocks.length) {
+    return options.messages
+  }
+
+  const authoritativeIndex = options.messages.findIndex(message => (
+    isAssistantMessage(message)
+    && normalizeMessageId(message.id) === options.authoritativeAssistantMessageId
+  ))
+  if (authoritativeIndex < 0) {
+    return options.messages
+  }
+
+  const authoritative = options.messages[authoritativeIndex]
+  const authoritativeBlocks = Array.isArray(authoritative.metadata?.blocks)
+    ? authoritative.metadata.blocks
+    : []
+  const readyKinds = new Set(authoritativeBlocks.flatMap((block) => {
+    if (!block || typeof block !== 'object' || Array.isArray(block)) {
+      return []
+    }
+    const candidate = block as Record<string, unknown>
+    return candidate.type === 'artifact' && candidate.status !== 'error'
+      ? [String(candidate.kind || '')]
+      : []
+  }))
+  const existingErrorKinds = new Set(authoritativeBlocks.flatMap((block) => {
+    if (!block || typeof block !== 'object' || Array.isArray(block)) {
+      return []
+    }
+    const candidate = block as Record<string, unknown>
+    return candidate.type === 'artifact' && candidate.status === 'error'
+      ? [String(candidate.kind || '')]
+      : []
+  }))
+  const blocksToPreserve = failedStageBlocks.filter((block) => {
+    const kind = String((block as Record<string, unknown>).kind || '')
+    return !readyKinds.has(kind) && !existingErrorKinds.has(kind)
+  })
+  if (!blocksToPreserve.length) {
+    return options.messages
+  }
+
+  const nextMessages = [...options.messages]
+  nextMessages[authoritativeIndex] = {
+    ...authoritative,
+    metadata: {
+      ...(authoritative.metadata || {}),
+      blocks: [...authoritativeBlocks, ...blocksToPreserve],
+    },
+  }
+  return nextMessages
+}
+
 export const reconcileDoneAssistantAuthoritativeMessages = <
   T extends DoneAssistantHistoryMessage & {
     id?: unknown
@@ -352,9 +432,16 @@ export const reconcileDoneAssistantAuthoritativeMessages = <
     current: filteredCurrent,
     loaded,
   })
+  const mergedWithLiveFailures = preserveLiveFailedStageBlocks({
+    messages: merged,
+    currentTurnAssistant: currentTurnAssistantIndex >= 0
+      ? current[currentTurnAssistantIndex]
+      : undefined,
+    authoritativeAssistantMessageId,
+  })
 
   return movePreTurnLocalMessagesBeforeAuthoritativeTurn({
-    messages: merged,
+    messages: mergedWithLiveFailures,
     current,
     preTurnLocalMessageIds,
     authoritativeAssistantMessageId,

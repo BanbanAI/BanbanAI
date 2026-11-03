@@ -129,6 +129,7 @@
       <nocode-editor-ai-blueprint-preview-workbench
         :block="block"
         :app-name="appName"
+        :historical="historical"
         :workbench-items="blueprintWorkbenchItems"
         :workbench-history-items="blueprintWorkbenchHistoryItems"
         :blueprint-preview-focus-card-key="blueprintPreviewFocusCardKey"
@@ -141,6 +142,7 @@
         :can-apply="canApplyBlueprint"
         :can-continue="canContinueBlueprint"
         :applying="applyingBlueprint"
+        :blueprint-action-locked="blueprintActionLocked"
         :response-drafts="confirmationResponseDrafts"
         :active-input-question-ids="activeConfirmationInputQuestionIds"
         :inline-note-question-ids="inlineConfirmationNoteQuestionIds"
@@ -209,6 +211,8 @@ const props = withDefaults(defineProps<{
   canApplyBlueprint?: boolean
   canContinueBlueprint?: boolean
   applyingBlueprint?: boolean
+  blueprintActionLocked?: boolean
+  historical?: boolean
   confirmationResponseDrafts?: NocodeEditorAiConfirmationResponseDraftMap
   activeConfirmationInputQuestionIds?: string[]
   inlineConfirmationNoteQuestionIds?: string[]
@@ -229,6 +233,8 @@ const props = withDefaults(defineProps<{
   canApplyBlueprint: false,
   canContinueBlueprint: false,
   applyingBlueprint: false,
+  blueprintActionLocked: false,
+  historical: false,
   confirmationResponseDrafts: () => ({}),
   activeConfirmationInputQuestionIds: () => [],
   inlineConfirmationNoteQuestionIds: () => [],

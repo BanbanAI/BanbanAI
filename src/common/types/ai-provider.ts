@@ -74,6 +74,7 @@ export type AiProviderModel = {
   endpointTypes: AiModelEndpointType[]
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   supportsStreaming: boolean
   contextWindow?: number | null
   source: AiModelSource
@@ -163,6 +164,8 @@ export type AiSettings = {
   enabled: boolean
   autoTaskEnabled: boolean
   allowModelSelection: boolean
+  workbenchDefaultOutputTokens?: number | null
+  editorDefaultOutputTokens?: number | null
   defaultSelections?: AiDefaultModelSelections | null
   defaultProviderId?: string | null
   defaultModelId?: string | null
@@ -195,6 +198,7 @@ export type AiModelCatalogItem = {
   endpointTypes: AiModelEndpointType[]
   maxInputTokens?: number | null
   maxOutputTokens?: number | null
+  maxRequestBodyBytes?: number | null
   supportsStreaming: boolean
   /** Legacy compatibility for older renderer consumers. */
   supportsVision?: boolean

@@ -1,5 +1,5 @@
 import { AddTodoOptions, FormConditionValueType, RuleFunc } from "@common/types/nocode";
-import { ConditionBranchConditionGroup, DataChangeType, Field, FormOption, NocodeProcess, ProcessBranch, ProcessFlow, ProcessNodeType, ProcessVersionStatus, Row, SubformConditionMatchMode, TableUID } from "@common/types/project"
+import { ConditionBranchConditionGroup, DataChangeType, Field, FormOption, NocodeProcess, NocodeProcessAiDeferredConfigItem, ProcessBranch, ProcessFlow, ProcessNodeType, ProcessVersionStatus, Row, SubformConditionMatchMode, TableUID } from "@common/types/project"
 import { replaceByFormula, replaceColFieldsByFormula, createFormulaRuntimeByData } from "./formula";
 import { deepClone, isEmpty, equals } from "@common/utils/object";
 import dayjs from "dayjs";
@@ -130,6 +130,88 @@ export const hasProcessBranches = (process?: NocodeProcess | null, version?: num
 
 export const canEnableProcessVersion = (process?: NocodeProcess | null, version?: number | null) => {
   return hasProcessVersion(process, version) && hasProcessBranches(process, version);
+}
+
+export const getProcessAiDeferredConfigItems = (
+  process?: NocodeProcess | null,
+  version?: number | null,
+): NocodeProcessAiDeferredConfigItem[] => {
+  if (!process || !Number.isInteger(version) || (version as number) <= 0) {
+    return [];
+  }
+  return process.aiDeferredConfigByVersion?.[getProcessVersionKey(version as number)] || [];
+}
+
+const getProcessOptionValueByPath = (
+  options: Record<string, unknown>,
+  settingPath: string,
+) => settingPath
+  .split('.')
+  .filter(Boolean)
+  .reduce<unknown>((current, key) => (
+    current && typeof current === 'object' && !Array.isArray(current)
+      ? (current as Record<string, unknown>)[key]
+      : undefined
+  ), options);
+
+// 延期配置项的「仍缺失」判断：空字符串/纯空白、null/undefined、空数组/空对象视为缺失，
+// false 与 0 属合法配置值，不得视为缺失。
+export const isMissingProcessConfigValue = (value: unknown): boolean => {
+  if (typeof value === 'string') {
+    return value.trim() === '';
+  }
+  return isEmpty(value);
+};
+
+// 启用前门禁：AI 记录为「必需但延期配置」的项，若在已保存流程里仍为空，则视为未补齐。
+// 缺少 nodeKey/settingPath 定位信息的项，以及定位到的节点已不存在（如被删除）的项不阻断（避免无解死锁）。
+export const resolveUnsatisfiedProcessAiDeferredConfigItems = (
+  process?: NocodeProcess | null,
+  version?: number | null,
+): NocodeProcessAiDeferredConfigItem[] => {
+  const items = getProcessAiDeferredConfigItems(process, version);
+  if (!items.length) {
+    return [];
+  }
+  const optionByNodeKey = new Map<string, Record<string, unknown>>();
+  const visit = (flows?: ProcessFlow[]) => {
+    (flows || []).forEach((flow) => {
+      const nodeKey = String((flow.meta as Record<string, unknown> | undefined)?.schemeNodeKey || '').trim();
+      if (nodeKey) {
+        optionByNodeKey.set(nodeKey, (flow.options || {}) as Record<string, unknown>);
+      }
+      (flow.branches || []).forEach(branch => visit(branch.flows as ProcessFlow[]));
+    });
+  };
+  visit(getFlows(process as NocodeProcess, version ?? undefined));
+  return items.filter((item) => {
+    const nodeKey = String(item.nodeKey || '').trim();
+    const settingPath = String(item.settingPath || '').trim();
+    const optionKey = settingPath.startsWith('options.') ? settingPath.slice('options.'.length) : '';
+    if (!nodeKey || !optionKey) {
+      return false;
+    }
+    const options = optionByNodeKey.get(nodeKey);
+    if (!options) {
+      return false;
+    }
+    return isMissingProcessConfigValue(getProcessOptionValueByPath(options, optionKey));
+  });
+}
+
+// 版本复制时继承源版本的 AI 延期配置记录：新版本与源版本流程同构，延期项定位身份（nodeKey/settingPath）一致。
+// 门禁按实际值判定，已补齐的继承项不会误拦；定位失效的项由门禁自行跳过。
+export const inheritProcessAiDeferredConfigItems = (
+  process: NocodeProcess,
+  sourceVersion: number,
+  nextVersion: number,
+) => {
+  const sourceItems = getProcessAiDeferredConfigItems(process, sourceVersion);
+  if (!sourceItems.length) {
+    return;
+  }
+  process.aiDeferredConfigByVersion = process.aiDeferredConfigByVersion || {};
+  process.aiDeferredConfigByVersion[getProcessVersionKey(nextVersion)] = deepClone(sourceItems);
 }
 
 export const canDisableProcessVersion = (process?: NocodeProcess | null, version?: number | null) => {

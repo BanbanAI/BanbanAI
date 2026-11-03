@@ -76,6 +76,29 @@
       </div>
     </div>
 
+    <div v-if="isAppliedState && (riskAlerts.length || deferredItems.length)" class="ai-flow-decision-panel__results">
+      <div class="ai-flow-decision-panel__question-head">
+        <h3 class="ai-flow-decision-panel__panel-title">{{ $t('nocodeEditorAiFlowDecisionPanel.generatedConfiguration') }}</h3>
+      </div>
+      <div class="ai-flow-decision-panel__result-list">
+        <div v-if="riskAlerts.length" class="ai-flow-decision-panel__result-item">
+          <span class="ai-flow-decision-panel__result-label">{{ $t('nocodeEditorAiFlowDecisionPanel.riskAlerts', { count: riskAlerts.length }) }}</span>
+          <span class="ai-flow-decision-panel__result-value">{{ $t('nocodeEditorAiFlowDecisionPanel.generationSnapshot') }}</span>
+        </div>
+        <div v-for="item in riskAlerts" :key="item.riskKey" class="ai-flow-decision-panel__result-item">
+          <span class="ai-flow-decision-panel__result-label">{{ item.title }}（{{ item.nodes.length }}）</span>
+          <span class="ai-flow-decision-panel__result-value">{{ item.impact }} 涉及节点：{{ formatRiskNodes(item) }} · {{ item.editLocation }}</span>
+        </div>
+        <div v-if="deferredItems.length" class="ai-flow-decision-panel__result-item">
+          <span class="ai-flow-decision-panel__result-label">{{ $t('nocodeEditorAiFlowDecisionPanel.deferredSettings', { count: deferredItems.length }) }}</span>
+        </div>
+        <div v-for="item in deferredItems" :key="item.id" class="ai-flow-decision-panel__result-item">
+          <span class="ai-flow-decision-panel__result-label">{{ item.nodeTitle || item.nodeKey }}</span>
+          <span class="ai-flow-decision-panel__result-value">{{ item.summary }}</span>
+        </div>
+      </div>
+    </div>
+
     <div v-if="displayQuestions.length || questionEmptyText" class="ai-flow-decision-panel__questions">
       <div class="ai-flow-decision-panel__question-head">
         <h3 class="ai-flow-decision-panel__panel-title">{{ questionSectionTitle }}</h3>
@@ -182,10 +205,12 @@ import {
   resolveAiArtifactCompletionSummary,
   resolveAiArtifactConfirmationStatus,
   resolveAiArtifactQuestions,
+  resolveAiArtifactPendingQuestions,
   resolveAiArtifactResultSummary,
   resolveAiArtifactVersionLabel,
 } from '@renderer/views/nocode/components/ai/artifactBlock'
 import type { NocodeEditorAiArtifactBlock } from '../types'
+import type { NocodeEditorFlowRiskAlert } from '@common/utils/nocodeEditorFlowScheme'
 import {
   countUnansweredConfirmationQuestions,
   type NocodeEditorAiConfirmationResponseDraftMap,
@@ -391,13 +416,16 @@ const scopedQuestions = computed(() => allQuestions.value.filter((question) => {
     && questionBranchKey === activeTriggerScope.value.branchKey
 }))
 
-const pendingQuestions = computed(() => scopedQuestions.value.filter(question => !isQuestionResolved(question)))
+const pendingQuestions = computed(() => {
+  const readyIds = new Set(resolveAiArtifactPendingQuestions(props.block).map(question => question.id))
+  return scopedQuestions.value.filter(question => readyIds.has(question.id))
+})
 const displayQuestions = computed(() => (
   isAppliedState.value || confirmationStatus.value === 'completed'
     ? scopedQuestions.value
     : (
       isOverviewScope.value
-        ? scopedQuestions.value
+        ? scopedQuestions.value.filter(question => isQuestionResolved(question) || pendingQuestions.value.includes(question))
         : pendingQuestions.value
     )
 ))
@@ -516,6 +544,11 @@ const questionBadgeText = computed(() => {
 
 const applyResultSummary = computed(() => props.block?.flowApplyResult?.summary || null)
 const applyWarnings = computed(() => asArray<string>(props.block?.flowApplyResult?.warnings).map(item => normalizeText(item)).filter(Boolean))
+const riskAlerts = computed(() => asArray<NocodeEditorFlowRiskAlert>(props.block?.flowApplyResult?.riskAlerts))
+const formatRiskNodes = (alert: NocodeEditorFlowRiskAlert) => {
+  return Array.from(new Set(alert.nodes.map(node => normalizeText(node.nodeTitle)).filter(Boolean))).join('、')
+}
+const deferredItems = computed(() => asArray(props.block?.flowApplyResult?.deferredConfigItems))
 const completionSummary = computed(() => resolveAiArtifactCompletionSummary(props.block))
 const resultSummaryList = computed(() => resolveAiArtifactResultSummary(props.block))
 const scopeResultSummaryList = computed(() => (

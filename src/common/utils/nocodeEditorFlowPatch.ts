@@ -137,7 +137,7 @@ const cloneJsonValue = (
   ancestors: Set<object>,
 ): CloneJsonValueResult => {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
-    return { ok: true, value };
+    return { ok: true, value: value as JsonValue };
   }
   if (typeof value === 'number') {
     return Number.isFinite(value) ? { ok: true, value } : { ok: false };

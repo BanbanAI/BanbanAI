@@ -24,6 +24,7 @@ type ReduceAssistantContentInput = {
   text?: string
   finalContent?: string
   doneFallbackText?: string
+  replaceWithFinalContent?: boolean
   toolName?: string
 }
 
@@ -153,6 +154,9 @@ export const reduceNocodeEditorAssistantContent = (input: ReduceAssistantContent
       return getNocodeEditorUnsupportedBlueprintProtocolMessage()
     }
     const finalContent = stripNocodeEditorAppBuilderPlanningFence(String(input.finalContent || '').trim())
+    if (input.replaceWithFinalContent) {
+      return finalContent || input.doneFallbackText || input.currentContent
+    }
     if (finalContent) {
       if (hadPendingPlanningStream || isPlanningStreamPlaceholder || !baseContent) {
         return finalContent

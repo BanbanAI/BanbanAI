@@ -40,9 +40,75 @@ export const normalizeNocodeEditorBlueprintIdentityToken = (value: unknown) => S
   .replace(/[\s\-_/\\]/g, '')
   .replace(/[，。、“”"'‘’；：？！【】[\]（）()<>]/g, '')
 
+const BLUEPRINT_FORM_SUFFIX_PATTERN = /(档案|信息|管理|资料|台账|列表|清单|字典|基础数据|基础资料|主数据|记录|表单|表)$/
+
+export const stripNocodeEditorBlueprintFormSuffixes = (value: unknown) => {
+  let current = String(value || '').trim()
+  if (!current) {
+    return ''
+  }
+
+  while (BLUEPRINT_FORM_SUFFIX_PATTERN.test(current)) {
+    current = current.replace(BLUEPRINT_FORM_SUFFIX_PATTERN, '').trim()
+  }
+
+  return current || String(value || '').trim()
+}
+
+// 同一张表可能被写成“学生信息 / 学生信息表”。但“项目管理表”和“项目台账”都剥到
+// 底会得到“项目”，它们是不同的表，不能这样合并。所以只从更长的一侧逐层剥后缀，
+// 剥到与短名完全一致才算同一张。
+export const isSameNocodeEditorBlueprintFormName = (left: unknown, right: unknown) => {
+  const leftToken = normalizeNocodeEditorBlueprintIdentityToken(left)
+  const rightToken = normalizeNocodeEditorBlueprintIdentityToken(right)
+  if (!leftToken || !rightToken) {
+    return false
+  }
+  if (leftToken === rightToken) {
+    return true
+  }
+  let longer = leftToken
+  let shorter = rightToken
+  if (longer.length < shorter.length) {
+    longer = rightToken
+    shorter = leftToken
+  }
+  let current = longer
+  while (BLUEPRINT_FORM_SUFFIX_PATTERN.test(current)) {
+    current = current.replace(BLUEPRINT_FORM_SUFFIX_PATTERN, '').trim()
+    if (current === shorter) {
+      return true
+    }
+  }
+  return false
+}
+
 export const getNocodeEditorBlueprintFormIdentity = (form?: NocodeEditorBlueprintFormLike | null) => (
   trimString(form?.formKey) || normalizeNocodeEditorBlueprintIdentityToken(form?.tableName)
 )
+
+// formKey 相同即可确认同一表单；key 漂移时再以表名兜底，
+// 避免同一张表因模型重新生成了 formKey 而被 patch 成并列副本。
+export const isSameNocodeEditorBlueprintForm = (
+  left?: NocodeEditorBlueprintFormLike | null,
+  right?: NocodeEditorBlueprintFormLike | null,
+) => {
+  const leftFormKey = trimString(left?.formKey)
+  const rightFormKey = trimString(right?.formKey)
+  if (leftFormKey && rightFormKey && leftFormKey === rightFormKey) {
+    return true
+  }
+
+  const leftGroupName = normalizeNocodeEditorBlueprintIdentityToken(left?.groupName)
+  const rightGroupName = normalizeNocodeEditorBlueprintIdentityToken(right?.groupName)
+  if (leftGroupName && rightGroupName && leftGroupName !== rightGroupName) {
+    return false
+  }
+
+  const leftTableName = normalizeNocodeEditorBlueprintIdentityToken(left?.tableName)
+  const rightTableName = normalizeNocodeEditorBlueprintIdentityToken(right?.tableName)
+  return Boolean(leftTableName && rightTableName && leftTableName === rightTableName)
+}
 
 export const getNocodeEditorBlueprintFormApplyTargetIdentity = (form?: NocodeEditorBlueprintFormLike | null) => {
   const formKey = trimString(form?.formKey)
@@ -63,23 +129,31 @@ export const getNocodeEditorBlueprintFieldIdentity = (field?: NocodeEditorBluepr
   trimString(field?.fieldKey) || normalizeNocodeEditorBlueprintIdentityToken(field?.name)
 )
 
+// 两侧都有 fieldKey 时只按 key 判断；缺少任一 key 时才按字段名兜底。
+export const isSameNocodeEditorBlueprintField = (
+  left?: NocodeEditorBlueprintFieldLike | null,
+  right?: NocodeEditorBlueprintFieldLike | null,
+) => {
+  const leftFieldKey = trimString(left?.fieldKey)
+  const rightFieldKey = trimString(right?.fieldKey)
+  if (leftFieldKey && rightFieldKey) {
+    return leftFieldKey === rightFieldKey
+  }
+
+  const leftName = normalizeNocodeEditorBlueprintIdentityToken(left?.name)
+  const rightName = normalizeNocodeEditorBlueprintIdentityToken(right?.name)
+  return Boolean(leftName && rightName && leftName === rightName)
+}
+
 const shouldMergeForms = (
   currentForm: NocodeEditorBlueprintFormLike,
   nextForm: NocodeEditorBlueprintFormLike,
-) => {
-  const currentIdentity = getNocodeEditorBlueprintFormIdentity(currentForm)
-  const nextIdentity = getNocodeEditorBlueprintFormIdentity(nextForm)
-  return Boolean(currentIdentity && nextIdentity && currentIdentity === nextIdentity)
-}
+) => isSameNocodeEditorBlueprintForm(currentForm, nextForm)
 
 const shouldMergeFields = (
   currentField: NocodeEditorBlueprintFieldLike,
   nextField: NocodeEditorBlueprintFieldLike,
-) => {
-  const currentIdentity = getNocodeEditorBlueprintFieldIdentity(currentField)
-  const nextIdentity = getNocodeEditorBlueprintFieldIdentity(nextField)
-  return Boolean(currentIdentity && nextIdentity && currentIdentity === nextIdentity)
-}
+) => isSameNocodeEditorBlueprintField(currentField, nextField)
 
 const normalizeField = <TField extends NocodeEditorBlueprintFieldLike>(field: TField, children: TField[]): TField => ({
   ...field,

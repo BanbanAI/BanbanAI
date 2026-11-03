@@ -1,7 +1,19 @@
+import type { NocodeEditorAiConfirmQuestion } from '@common/types/nocodeEditorConfirmation'
 import type { NocodeEditorAiArtifactBlock } from './types'
 
 const normalizeText = (value: unknown) => (
   value == null ? '' : String(value).trim()
+)
+
+// 已确认或已经带答案的确认项不再要求用户逐项回复。
+const isAnsweredConfirmationQuestion = (
+  question?: NocodeEditorAiConfirmQuestion | null,
+) => Boolean(
+  question?.confirmed
+  || normalizeText(question?.selectedOptionValue)
+  || normalizeText(question?.answerSummary)
+  || normalizeText(question?.answerDetail)
+  || (Array.isArray(question?.options) && question.options.some(option => Boolean(option?.selected))),
 )
 
 const resolveBlueprintConfirmationQuestions = (
@@ -9,17 +21,19 @@ const resolveBlueprintConfirmationQuestions = (
 ) => {
   const confirmation = block?.confirmation
   if (confirmation && Array.isArray(confirmation.questions)) {
-    return confirmation.questions.flatMap((question) => {
-      const title = normalizeText(question?.title)
-      if (!title) {
-        return []
-      }
+    return confirmation.questions
+      .filter(question => !isAnsweredConfirmationQuestion(question))
+      .flatMap((question) => {
+        const title = normalizeText(question?.title)
+        if (!title) {
+          return []
+        }
 
-      return [{
-        title,
-        description: normalizeText(question?.description),
-      }]
-    })
+        return [{
+          title,
+          description: normalizeText(question?.description),
+        }]
+      })
   }
 
   const openQuestions = Array.isArray(block?.blueprint?.openQuestions)

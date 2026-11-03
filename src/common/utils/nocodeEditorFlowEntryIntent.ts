@@ -37,51 +37,36 @@ export const resolveNocodeEditorFlowEntryIntent = (input: {
   activeFormName?: unknown
 }): NocodeEditorFlowEntryIntent => {
   const sourceUserMessage = normalizeText(input.userMessage)
-  const targetFormName = normalizeText(input.activeFormName)
+  // 入口意图只表示“用户要不要流程”，不携带目标表单：当时打开的表单可能是上一轮留下的，
+  // 把 activeFormName 当成目标会把旧表单的流程要求带到新表单上。目标由挂账在表单落地时确定。
+  void input.activeFormName
+  const buildIntent = (
+    state: NocodeEditorFlowEntryIntentState,
+    evidence: string[],
+  ): NocodeEditorFlowEntryIntent => ({
+    state,
+    evidence,
+    sourceUserMessage,
+  })
 
   if (!sourceUserMessage) {
-    return {
-      state: 'none',
-      evidence: [],
-      sourceUserMessage,
-      ...(targetFormName ? { targetFormName } : {}),
-    }
+    return buildIntent('none', [])
   }
 
   const negativeEvidence = collectMatches(sourceUserMessage, NEGATIVE_FLOW_PATTERNS)
   if (negativeEvidence.length) {
-    return {
-      state: 'explicit_negative',
-      evidence: negativeEvidence,
-      sourceUserMessage,
-      ...(targetFormName ? { targetFormName } : {}),
-    }
+    return buildIntent('explicit_negative', negativeEvidence)
   }
 
   const neutralFieldEvidence = collectMatches(sourceUserMessage, NEUTRAL_FLOW_FIELD_PATTERNS)
   if (neutralFieldEvidence.length) {
-    return {
-      state: 'none',
-      evidence: [],
-      sourceUserMessage,
-      ...(targetFormName ? { targetFormName } : {}),
-    }
+    return buildIntent('none', [])
   }
 
   const positiveEvidence = collectMatches(sourceUserMessage, EXPLICIT_POSITIVE_FLOW_PATTERNS)
   if (positiveEvidence.length) {
-    return {
-      state: 'explicit_positive',
-      evidence: positiveEvidence,
-      sourceUserMessage,
-      ...(targetFormName ? { targetFormName } : {}),
-    }
+    return buildIntent('explicit_positive', positiveEvidence)
   }
 
-  return {
-    state: 'none',
-    evidence: [],
-    sourceUserMessage,
-    ...(targetFormName ? { targetFormName } : {}),
-  }
+  return buildIntent('none', [])
 }

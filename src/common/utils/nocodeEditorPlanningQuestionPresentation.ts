@@ -43,6 +43,9 @@ export const normalizePlanningVisibleQuestion = (input: {
     selectedOptionValue: input.question.selectedOptionValue,
     answerSummary: input.question.answerSummary,
     answerDetail: input.question.answerDetail,
+    decisionKey: input.question.decisionKey,
+    decisionKeySource: input.question.decisionKeySource,
+    decisionTarget: input.question.decisionTarget,
   }
 }
 

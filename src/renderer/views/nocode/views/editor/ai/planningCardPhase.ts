@@ -30,6 +30,7 @@ export const resolvePlanningCardPhase = (
     return 'error'
   }
 
+  // 确认已完成且下一阶段加载中：保留加载态，避免方案卡先显示“已完成”再闪成蓝图卡。
   if (matchedBlueprintState === 'loading' && confirmationStatus === 'completed') {
     return 'next-stage-loading'
   }

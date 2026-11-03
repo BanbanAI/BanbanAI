@@ -1,5 +1,9 @@
 import type { NocodeEditorPlanningScope } from './nocodeEditorPlanningScope'
 import { isNocodeEditorPostFormFlowEnabledForScope } from './nocodeEditorPostFormFlowScope'
+import {
+  isNocodeEditorPendingFlowIntentForTarget,
+  normalizeNocodeEditorPendingFlowIntent,
+} from './nocodeEditorPendingFlowIntent'
 
 export type NocodeEditorPostFormFlowReleaseStatus =
   | 'disabled'
@@ -367,6 +371,8 @@ export const resolveNocodeEditorPostFormFlowRelease = (input: {
   dependencies?: NocodeEditorPostFormFlowReleaseDependency[] | null
   formulaSummary?: NocodeEditorPostFormFlowFormulaSummaryLike | null
   pendingFlowIntent?: unknown
+  targetFormId?: unknown
+  targetFormName?: unknown
 }): NocodeEditorPostFormFlowRelease => {
   if (!isNocodeEditorPostFormFlowEnabledForScope(input.planningScope)) {
     return buildRelease({
@@ -436,11 +442,21 @@ export const resolveNocodeEditorPostFormFlowRelease = (input: {
     })
   }
 
+  // 自动续跑只能发生在“挂账所属的那张表单”上：旧表单的流程欠账不能
+  // 借新表单生成完成的机会继续往下跑。
+  const pendingFlowIntentBelongsToTarget = isNocodeEditorPendingFlowIntentForTarget({
+    pendingFlowIntent: normalizeNocodeEditorPendingFlowIntent(input.pendingFlowIntent),
+    targetFormId: input.targetFormId,
+    targetFormName: input.targetFormName,
+  })
   return buildRelease({
     status: 'ready',
     reasonCode: 'ready',
     shouldRender: true,
-    shouldAutoContinue: hasPendingAfterFormApplyIntent(input.pendingFlowIntent),
+    shouldAutoContinue: (
+      hasPendingAfterFormApplyIntent(input.pendingFlowIntent)
+      && pendingFlowIntentBelongsToTarget
+    ),
     canPlan: true,
     canApply: true,
     evaluationPending: false,

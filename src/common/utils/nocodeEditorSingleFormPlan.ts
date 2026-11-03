@@ -67,21 +67,6 @@ const normalizeStringList = (value: unknown) => (
     : []
 )
 
-const COMPLETE_NEW_FORM_ACTION_KEYWORDS = [
-  '创建',
-  '新建',
-  '搭建',
-  '做一个',
-  '做个',
-  '生成一个',
-  '搭一个',
-  '来一个',
-  '来一张',
-  '要一个',
-  '要一张',
-  '落地',
-]
-
 const COMPLETE_NEW_FORM_OBJECT_KEYWORDS = [
   '问卷',
   '登记表',
@@ -112,6 +97,35 @@ const INCREMENTAL_EDIT_HINTS = [
   '改为',
   '继续改',
 ]
+
+// 表单对象：出现在新增动作后面的“表单/表/单”类名词，而不是字段、选项这些表单内部的构件。
+const FORM_OBJECT_TOKEN_PATTERN = /(表单|问卷|台账|清单|报表|申请表|登记表|报名表|审批表|统计表|记录表|明细表|花名册|.{0,8}[表单])/u
+const FIELD_COMPONENT_TOKEN_PATTERN = /(字段|控件|选项|按钮|默认值|公式|校验|权限|视图|列宽|子表单字段)/u
+const NEW_FORM_VERB_PATTERN = /(创建|新建|搭建|建立|添加|新增|增加|加|做|生成|来一|要一|设计|建|落地)/u
+// “给/对/把 + 现有表单”是给已有对象做改动，不构成新建表单。
+const EXISTING_OBJECT_LEAD_PATTERN = /^(?:先|然后|再|顺便|同时)?(?:给|对|把|在)/u
+const EDIT_ONLY_VERB_PATTERN = /(修改|调整|改成|改为|删除|删掉|去掉|重命名|隐藏|显示|排序)/u
+
+const splitIntentClauses = (text: string) => (
+  text.split(/[，。；！？!?;,\n]/u).map(item => item.trim()).filter(Boolean)
+)
+
+const isNewFormCreationClause = (clause: string) => {
+  if (!clause || EXISTING_OBJECT_LEAD_PATTERN.test(clause)) {
+    return false
+  }
+  const verbIndex = clause.search(NEW_FORM_VERB_PATTERN)
+  if (verbIndex < 0) {
+    return false
+  }
+  // 表单对象必须出现在新增动作之后：先点名表单再“加一个流程”是在改已有表单。
+  const objectAfterVerb = FORM_OBJECT_TOKEN_PATTERN.test(clause.slice(verbIndex))
+  if (!objectAfterVerb) {
+    return false
+  }
+  // 同一个分句里出现字段、选项等构件，说明是在改已有表单，而不是新建表单。
+  return !FIELD_COMPONENT_TOKEN_PATTERN.test(clause)
+}
 
 const COMPLETE_NEW_FORM_EXPLICIT_HINTS = [
   '从零',
@@ -154,24 +168,37 @@ const resolveNocodeEditorCompleteNewFormIntentSignal = (options: {
     return 'negative'
   }
 
-  const hasBareFormObject = /(?:创建|新建|搭建|做一个|做个|生成一个|搭一个|来一个|来一张|要一个|要一张)[^，。！？!?]{0,16}表(?:$|[，。！？!?])/.test(text)
-  const hasObject = includesAny(text, COMPLETE_NEW_FORM_OBJECT_KEYWORDS) || hasBareFormObject
-  if (!hasObject) {
-    return includesAny(text, INCREMENTAL_EDIT_HINTS) ? 'negative' : 'unknown'
-  }
-
-  const hasNewFormAction = includesAny(text, COMPLETE_NEW_FORM_ACTION_KEYWORDS)
+  const clauses = splitIntentClauses(text)
   const hasExplicitNewFormHint = (
     includesAny(text, COMPLETE_NEW_FORM_EXPLICIT_HINTS)
     || includesAny(text, COMPLETE_NEW_FORM_RESTART_HINTS)
   )
-  const looksLikeIncrementalEdit = includesAny(text, INCREMENTAL_EDIT_HINTS)
-  if (looksLikeIncrementalEdit && !hasNewFormAction) {
-    return 'negative'
+  if (clauses.some(isNewFormCreationClause)) {
+    return 'positive'
+  }
+  if (
+    hasExplicitNewFormHint
+    && clauses.some(clause => FORM_OBJECT_TOKEN_PATTERN.test(clause))
+  ) {
+    return 'positive'
   }
 
-  if (hasNewFormAction || hasExplicitNewFormHint) {
-    return 'positive'
+  const hasObject = (
+    includesAny(text, COMPLETE_NEW_FORM_OBJECT_KEYWORDS)
+    || FORM_OBJECT_TOKEN_PATTERN.test(text)
+  )
+  if (!hasObject) {
+    return includesAny(text, INCREMENTAL_EDIT_HINTS) ? 'negative' : 'unknown'
+  }
+
+  // 有表单对象，但动作只落在字段/选项/已有表单上：这是修改现有表单，不是新建。
+  if (
+    includesAny(text, INCREMENTAL_EDIT_HINTS)
+    || FIELD_COMPONENT_TOKEN_PATTERN.test(text)
+    || EDIT_ONLY_VERB_PATTERN.test(text)
+    || clauses.every(clause => EXISTING_OBJECT_LEAD_PATTERN.test(clause))
+  ) {
+    return 'negative'
   }
 
   void options.editorMode

@@ -90,6 +90,8 @@ export class AiConfigStore {
       enabled: config.enabled,
       autoTaskEnabled: config.autoTaskEnabled,
       allowModelSelection: config.allowModelSelection,
+      workbenchDefaultOutputTokens: config.workbenchDefaultOutputTokens ?? null,
+      editorDefaultOutputTokens: config.editorDefaultOutputTokens ?? null,
       defaultSelections: this.clone(config.defaultSelections) || { fast: null, balanced: null, deep: null },
       featureFlags: this.clone(config.featureFlags),
       migrations: this.clone(config.migrations),
@@ -135,12 +137,12 @@ export class AiConfigStore {
   }
 
   async saveGlobalConfig(patch: Partial<Pick<AiSettings,
-    'enabled' | 'autoTaskEnabled' | 'allowModelSelection' | 'defaultSelections' | 'featureFlags' | 'migrations'
+    'enabled' | 'autoTaskEnabled' | 'allowModelSelection' | 'workbenchDefaultOutputTokens' | 'editorDefaultOutputTokens' | 'defaultSelections' | 'featureFlags' | 'migrations'
   >>) {
     await this.ensureInitialized()
     return this.withTransaction(async em => {
       const config = await this.ensureConfig(em)
-      for (const key of ['enabled', 'autoTaskEnabled', 'allowModelSelection', 'defaultSelections', 'featureFlags', 'migrations'] as const) {
+      for (const key of ['enabled', 'autoTaskEnabled', 'allowModelSelection', 'workbenchDefaultOutputTokens', 'editorDefaultOutputTokens', 'defaultSelections', 'featureFlags', 'migrations'] as const) {
         if (Object.prototype.hasOwnProperty.call(patch, key)) {
           ;(config as any)[key] = this.clone((patch as any)[key])
         }
@@ -282,6 +284,8 @@ export class AiConfigStore {
       config.enabled = settings.enabled !== false
       config.autoTaskEnabled = settings.autoTaskEnabled === true
       config.allowModelSelection = settings.allowModelSelection !== false
+      config.workbenchDefaultOutputTokens = settings.workbenchDefaultOutputTokens ?? null
+      config.editorDefaultOutputTokens = settings.editorDefaultOutputTokens ?? null
       config.defaultSelections = this.clone(settings.defaultSelections) || { fast: null, balanced: null, deep: null }
       config.featureFlags = this.clone(settings.featureFlags)
       config.migrations = this.clone(settings.migrations)
@@ -451,6 +455,7 @@ export class AiConfigStore {
     entity.limits = {
       maxInputTokens: model.maxInputTokens ?? null,
       maxOutputTokens: model.maxOutputTokens ?? null,
+      maxRequestBodyBytes: model.maxRequestBodyBytes ?? null,
       contextWindow: model.contextWindow ?? null,
       supportsStreaming: model.supportsStreaming !== false,
     }
@@ -522,6 +527,7 @@ export class AiConfigStore {
       endpointTypes: this.clone(entity.endpointTypes) || [],
       maxInputTokens: entity.limits?.maxInputTokens ?? null,
       maxOutputTokens: entity.limits?.maxOutputTokens ?? null,
+      maxRequestBodyBytes: entity.limits?.maxRequestBodyBytes ?? null,
       contextWindow: entity.limits?.contextWindow ?? null,
       supportsStreaming: entity.limits?.supportsStreaming !== false,
       source: entity.source,

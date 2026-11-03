@@ -1,6 +1,23 @@
 import { computed, nextTick, ref } from 'vue'
 import axios from 'axios'
 import { filterNocodeEditorDraftIssueOpenQuestions } from '../../../../../../common/utils/nocodeEditorDraftIssueOpenQuestions'
+import {
+  resolveNocodeEditorFieldEnumOptions,
+  resolveNocodeEditorFieldEnumSourceType,
+} from '../../../../../../common/utils/nocodeEditorFieldEnumOptions'
+import {
+  hasFlowFieldValueOptionQuestions,
+  validateFlowFieldValueOptions,
+} from '../../../../../../common/utils/nocodeEditorFlowFieldValueOptions'
+import {
+  alignPlannedEnumDefaultValue,
+  normalizePlannedEnumOptions,
+} from '../../../../../../common/utils/nocodeEditorPlannedEnumOptions'
+import {
+  collectNocodeEditorBlueprintAutoComputeDesignGaps,
+  collectNocodeEditorBlueprintEnumDesignGaps,
+  type NocodeEditorBlueprintDesignGap,
+} from '../../../../../../common/utils/nocodeEditorBlueprintDesignGaps'
 import type {
   NocodeEditorAiAppBlueprint,
   NocodeEditorAiBlueprintApplyOptions,
@@ -52,6 +69,10 @@ import {
   mergeDraftIssuesIntoBlueprintOpenQuestions,
 } from './blueprintDraftSaveState'
 import {
+  buildBlueprintPersistedFieldExpectations,
+  readBlueprintPersistedFieldReport,
+} from './blueprintPersistenceReadback'
+import {
   hasCrossBlueprintDraftBlockingIssues,
   resolveCrossBlueprintDraftContinuation,
 } from './crossBlueprintDraftContinuation'
@@ -60,6 +81,9 @@ import {
   getNocodeEditorAiBlueprintIdentityKey,
 } from './blueprintArtifactIdentity'
 import {
+  hasBlueprintConfigurationChanged,
+  hasFlowBlueprintConfigurationChanged,
+  hasFlowBlueprintSourceRevisionContentConflict,
   createAppliedDraftBlueprintState,
   createAppliedSavedBlueprintState,
   createStagedBlueprintState,
@@ -71,6 +95,7 @@ import {
   resolveBlueprintFormulaPaths,
   resolveBlueprintFormulaApplyStatus,
   summarizeBlueprintFormulaApply,
+  type NocodeEditorBlueprintFormulaPlan,
 } from './blueprintFormulaApply'
 import {
   normalizeBlueprintDefaultValue,
@@ -81,20 +106,42 @@ import { buildNocodeEditorPostFormFlowReleaseContext } from './postFormFlowRelea
 import { shouldPlanningSupersedeBlueprint } from './planningBlueprintSupersession'
 import { resolveSupportedBlueprintWidgetType } from './blueprintWidgetTypeSupport'
 import {
-  inferBlueprintFieldIntent,
+  isBlueprintFieldClarificationQuestionText,
+  isPlanningTextFirstFieldStrategy,
   resolveBlueprintExplicitWidgetType as resolveExplicitBlueprintWidgetType,
+  resolvePlanningRelationBindingForField,
 } from './blueprintFieldIntent'
+import {
+  applyPlanningRelationBindings,
+  completePartialBlueprintSources,
+  formatRelationBindingAssumption,
+  stripSelfReferentialBlueprintSources,
+} from './blueprintPlanningRelationBindings'
+import {
+  resolveBlueprintFieldInterpretation,
+  type BlueprintFieldInterpretation,
+} from './blueprintFieldInterpretation'
+import {
+  applyBlueprintConfirmationFieldDecisions,
+  attachBlueprintFieldKeepAsTextOptions,
+  collectRawBlueprintFieldWidgetTypeMap,
+  downgradeBlueprintConfirmationResolvedSourceQuestions,
+  hasConfirmedBlueprintFieldClarification,
+} from './blueprintConfirmationDecisionOverride'
 import type {
   NocodeEditorAiConfirmPayload,
   NocodeEditorAiPlanningContinuation,
 } from '@common/types/nocodeEditorConfirmation'
 import {
+  alignNocodeEditorBlueprintFormIdentities,
   normalizeNocodeEditorBlueprintToolInput,
+  resolveNocodeEditorBlueprintScopePlannedForms,
   validateNocodeEditorBlueprintReplaceScope,
 } from '@common/utils/nocodeEditorBlueprintInput'
 import { NocodeStructureType, type NocodeStructure } from '@common/types/nocode'
 import { isBuiltinField } from '@common/utils'
-import type { FormOptions, Table, Field } from '@common/types/project'
+import { buildNocodeEditorPlanningFallbackForms } from '@common/utils/nocodeEditorPlanningArtifactForms'
+import type { FormOptions, Table, Field, NocodeProcessAiDeferredConfigItem } from '@common/types/project'
 import {
   analyzeNocodeEditorRelationSignals,
   buildNocodeEditorRelationContextFromTables,
@@ -107,14 +154,17 @@ import {
 } from '@common/utils/nocodeEditorBlueprintTitle'
 import {
   projectBlueprintConfirmation,
+  reconcileBlueprintConfirmationDecisions,
 } from '@common/utils/nocodeEditorBlueprintConfirmationProjection'
 import {
   buildPlanningConfirmationContextKey,
   isSamePlanningConfirmationContext,
+  parsePlanningConfirmationContextKey,
 } from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
 import {
   normalizeNocodeEditorPlanningOutline,
 } from '@common/utils/nocodeEditorPlanningOutline'
+
 import {
   resolveNocodeEditorPlanningQuestionProjection,
 } from '@common/utils/nocodeEditorPlanningQuestionProjection'
@@ -129,9 +179,18 @@ import {
 } from '@common/utils/nocodeEditorFlowIntentSignal'
 import {
   getNocodeEditorBlueprintFormApplyTargetIdentity,
-  getNocodeEditorBlueprintFormIdentity as getNocodeEditorBlueprintMergeIdentity,
+  isSameNocodeEditorBlueprintForm,
   mergeSingleFormBlueprintFragments,
+  stripNocodeEditorBlueprintFormSuffixes,
 } from '@common/utils/nocodeEditorBlueprintFormNormalization'
+import {
+  NOCODE_EDITOR_BLUEPRINT_SOURCE_TARGET_MISSING,
+  completeNocodeEditorBlueprintSourceTargets,
+  downgradeNocodeEditorBlueprintResolvedSourceQuestions,
+  filterNocodeEditorBlueprintResolvedSourceOpenQuestions,
+  type NocodeEditorBlueprintSynthesizedRelatedForm,
+  type NocodeEditorBlueprintUnresolvedSourceTarget,
+} from '@common/utils/nocodeEditorBlueprintSourceTargets'
 import {
   collectNocodeEditorPostFormFlowSignals,
 } from '@common/utils/nocodeEditorPostFormFlowSignals'
@@ -143,6 +202,17 @@ import {
   buildExcelImportMappingsFromApplyResult,
   compactExcelImportContextForModel,
 } from './excelBlueprintDraft'
+import {
+  buildBlueprintFieldDeletionMatcher,
+  formatBlueprintDeletionPlanIssues,
+  resolveBlueprintDeletionPlan,
+  type BlueprintDeletionPlan,
+} from './blueprintDeletionIdentity'
+import { normalizeBlueprintIdentityToken } from './blueprintFieldIdentity'
+import {
+  mergeBlueprintFormWithExisting,
+  mergeBlueprintFieldsWithExisting,
+} from './blueprintFieldMerge'
 import { normalizeNocodeEditorContentPlan } from '@common/utils/nocodeEditorContentPlan'
 import {
   buildNocodeEditorFormulaEvidenceFingerprint,
@@ -158,6 +228,7 @@ import type {
   NocodeEditorFormulaContextSnapshot,
   NocodeEditorFormulaPath,
   NocodeEditorFormulaPreflightIssue,
+  NocodeEditorFormulaTargetResult,
   NocodeEditorResolvedFormulaWrite,
 } from '@common/types/nocodeEditorFormula'
 import {
@@ -184,6 +255,40 @@ import {
   type NocodeEditorFlowScheme,
 } from '@common/utils/nocodeEditorFlowScheme'
 import {
+  reconcileFlowSchemeConfirmedAnchors,
+  validateFlowSchemeReferences,
+} from '@common/utils/nocodeEditorFlowSchemeReferences'
+import {
+  buildNocodeEditorFlowSchemePlanningContextKey,
+} from '@common/utils/nocodeEditorFlowConfirmationTrust'
+import {
+  healFlowSchemeDecisionKeys,
+  healFlowSchemeDecisionStepScopes,
+} from '@common/utils/nocodeEditorFlowDecisionKeyHealing'
+import { unique } from '@common/utils/unique'
+import {
+  validateRawFlowDecisionContract,
+  validateRawFlowDecisionDependencyDeclarations,
+} from '@common/utils/nocodeEditorFlowDecisionGraph'
+import {
+  validateFlowStructureAssumptions,
+} from '@common/utils/nocodeEditorFlowStructureAssumption'
+import {
+  validateFlowSchemeSubmissionSteps,
+} from '@common/utils/nocodeEditorFlowSchemeSubmissionStep'
+import {
+  validateFlowPersonnelQuestionContracts,
+  validateRawFlowPersonnelDecisionSlots,
+} from '@common/utils/nocodeEditorFlowDecisionIdentity'
+import {
+  collectRawFlowPersonnelRequirementNotices,
+  validateRawFlowPersonnelRequirementShapes,
+} from '@common/utils/nocodeEditorFlowPersonnel'
+import { resolveFlowBlueprintReadiness } from '@common/utils/nocodeEditorFlowBlueprintReadiness'
+import {
+  backfillNocodeEditorFlowPersonnelSourceCandidates,
+} from '@common/utils/nocodeEditorFlowPersonnelSourceOptions'
+import {
   projectNocodeEditorConfirmationDecisions,
   type NocodeEditorConfirmationDecision,
 } from '@common/utils/nocodeEditorConfirmationDecisionProjection'
@@ -191,8 +296,33 @@ import {
   reconcileNocodeEditorConfirmationDecisions,
 } from '@common/utils/nocodeEditorConfirmationDecisionReconciliation'
 import {
+  buildNocodeEditorFlowSchemeConfirmationRejectedIssues,
+  buildNocodeEditorFlowSchemeStaleReplyIssues,
+  matchNocodeEditorFlowSchemeDecisionsToQuestions,
+  resolveNocodeEditorFlowSchemeDecisionMatchDisposition,
+  resolveNocodeEditorFlowSchemePendingQuestions,
+  resolveNocodeEditorFlowSchemeStaleReplyMode,
+} from '@common/utils/nocodeEditorFlowSchemeStaleReply'
+import {
+  collectFlowSchemeApprovalSteps,
   convergeNocodeEditorFlowSchemeApprovalOwners,
 } from '@common/utils/nocodeEditorFlowSchemeApprovalOwnerConvergence'
+import {
+  convergeNocodeEditorFlowFieldDecisions,
+} from '@common/utils/nocodeEditorFlowFieldDecisionConvergence'
+import {
+  convergeNocodeEditorFlowReplanQuestions,
+  hasFlowReplanCapabilityDecisions,
+  isFlowReplanSequentialWriteConfirmed,
+  type FlowReplanQuestionConvergenceResult,
+} from '@common/utils/nocodeEditorFlowReplanQuestionConvergence'
+import {
+  parseFlowGroundingFieldOptionDecision,
+} from '@common/utils/nocodeEditorFlowGroundingPresentation'
+import {
+  resolveFlowSchemeTargetIdentity,
+  resolveFlowTargetFormDeclaration,
+} from '@common/utils/nocodeEditorFlowTargetFormExistence'
 import type {
   FlowIssueRoutingResult,
 } from '@common/utils/nocodeEditorFlowIssueRouter'
@@ -204,6 +334,7 @@ import {
 import type {
   FlowIssueStateResolutionLike,
   UnifiedFlowIssue,
+  UnifiedFlowIssueDiagnostic,
   UnifiedFlowIssueSourceStage,
 } from '@common/utils/nocodeEditorFlowUnifiedIssue'
 import {
@@ -211,9 +342,23 @@ import {
   buildUnifiedFlowIssuesFromExecutionBlocker,
   buildUnifiedFlowIssuesFromFlowIssueState,
   buildUnifiedFlowIssuesFromFlowScheme,
+  buildUnifiedFlowIssuesFromFlowSchemeNotReady,
   buildUnifiedFlowIssuesFromGrounding,
+  buildUnifiedFlowIssuesFromSchemeRestageDiagnostics,
   normalizeUnifiedFlowIssues,
 } from '@common/utils/nocodeEditorFlowUnifiedIssue'
+import {
+  buildUnifiedFlowIssuesFromFlowSchemeStructure,
+} from '@common/utils/nocodeEditorFlowSchemeStructure'
+import type {
+  NocodeEditorFlowPersonnelSourceEvidence,
+} from '@common/utils/nocodeEditorFlowPersonnelSourceAnchor'
+import {
+  deriveFlowSchemePersonnelRequirementsFromClues,
+} from '@common/utils/nocodeEditorFlowPersonnelClueDerivation'
+import {
+  materializeFlowPersonnelDecisionAnswers,
+} from '@common/utils/nocodeEditorFlowPersonnelDecisionMaterialization'
 import {
   NocodeEditorFlowPatchError,
   normalizeNocodeEditorFlowPatch,
@@ -226,6 +371,10 @@ import {
   assertUniqueFlowSchemeStepKeys,
   assessAndDecorateFlowSchemePersonnelDependencies,
   hasFlowSchemePersonnelRequirements,
+  reconcilePersonnelQuestionsWithRequirements,
+  removeDeferredCapabilityConfirmationQuestions,
+  resolveNocodeEditorFlowPersonnelSourceEvidence,
+  validateFlowPersonnelConfirmationCandidates,
 } from './flowPersonnelDependencyAssessment'
 import {
   buildPlannedFlowFieldMaterializationPlan,
@@ -244,8 +393,13 @@ import {
   requiresFlowSchemeForFlowPlan,
 } from './flowSchemeArtifactState'
 import {
+  hasNocodeEditorBlueprintPlanningCarryoverEntries,
+  mergeNocodeEditorBlueprintPlanningCarryovers,
+  resolveConfirmedRelationFieldDecision,
+  resolveConfirmedTextFirstFieldDecision,
   resolveNocodeEditorBlueprintPlanningCarryover,
   type NocodeEditorBlueprintPlanningCarryover,
+  type NocodeEditorBlueprintPlanningOwnerForm,
 } from './nocodeEditorBlueprintPlanningCarryover'
 import {
   alignPlanningOutlineIdentityToContextKey,
@@ -259,6 +413,7 @@ import {
 import { normalizeFormulaResultTargetErrorReason } from './formulaResultTargetError'
 import { asArray, asRecord } from '../form/ai-form-process-runtime'
 import { validateFlowPlanGrounding } from '../form/ai-flow-plan-grounding'
+import { convergeFlowPlanFieldDecisions } from '../form/flowFieldDecisionPlanRewrite'
 import {
   buildFlowGroundingBusinessUserMessage,
   buildFlowGroundingIssueGroups,
@@ -479,34 +634,119 @@ class FlowGroundingConfirmationError extends Error {
   }
 }
 
+type FlowExecutionBlockerErrorInput = {
+  blockedNextAction: 'editor_stage_flow_blueprint' | 'editor_apply_staged_flow'
+} & (
+  | { unifiedIssues: UnifiedFlowIssue[] }
+  | {
+    issueId: string
+    sourceStage: UnifiedFlowIssueSourceStage
+    planningContextKey?: string
+    userMessage: string
+    code?: string
+    path?: string
+    diagnostics?: UnifiedFlowIssueDiagnostic[]
+    /** 纯入参契约问题：同轮交回模型自修，用户侧不展示失败卡。 */
+    modelSelfRepairable?: boolean
+    /** 要用户先做动作（如打开目标表单）才能继续：失败卡已写明下一步，不再自动续跑。 */
+    userActionRequired?: boolean
+  }
+)
+
 class FlowExecutionBlockerError extends Error {
   flowUnifiedIssues: UnifiedFlowIssue[]
   flowIssueRouting: FlowIssueRoutingResult
   blockedNextAction: 'editor_stage_flow_blueprint' | 'editor_apply_staged_flow'
+  modelSelfRepairable: boolean
+  userActionRequired: boolean
 
-  constructor(input: {
-    issueId: string
-    sourceStage: UnifiedFlowIssueSourceStage
-    planningContextKey?: string
-    blockedNextAction: 'editor_stage_flow_blueprint' | 'editor_apply_staged_flow'
-    userMessage: string
-    code?: string
-    path?: string
-  }) {
-    super(input.userMessage)
+  constructor(input: FlowExecutionBlockerErrorInput) {
+    const presetIssues = 'unifiedIssues' in input ? input.unifiedIssues : []
+    const blockerInput = 'unifiedIssues' in input ? null : input
+    super(presetIssues.length
+      ? (presetIssues[0].userMessage || '当前流程存在阻塞问题，请先修正后再继续。')
+      : (blockerInput?.userMessage || '当前流程存在阻塞问题，请先修正后再继续。'))
     this.name = 'FlowExecutionBlockerError'
     this.blockedNextAction = input.blockedNextAction
-    this.flowUnifiedIssues = buildUnifiedFlowIssuesFromExecutionBlocker({
-      issueId: input.issueId,
-      sourceStage: input.sourceStage,
-      planningContextKey: input.planningContextKey,
-      blockedNextAction: input.blockedNextAction,
-      userMessage: input.userMessage,
-      code: input.code,
-      path: input.path,
-    })
+    this.modelSelfRepairable = Boolean(blockerInput?.modelSelfRepairable)
+    this.userActionRequired = Boolean(blockerInput?.userActionRequired)
+    this.flowUnifiedIssues = blockerInput
+      ? buildUnifiedFlowIssuesFromExecutionBlocker({
+        ...blockerInput,
+        blockedNextAction: input.blockedNextAction,
+      })
+      : presetIssues
     this.flowIssueRouting = routeUnifiedFlowIssues(this.flowUnifiedIssues)
   }
+}
+
+const normalizeRuntimeText = (value: unknown) => String(value || '').trim()
+
+const normalizePersistedFormula = (value: unknown) => (
+  typeof value === 'string'
+    ? value.replace(/\r\n/g, '\n').trim()
+    : undefined
+)
+
+const readPersistedFormula = (widget: Record<string, any> | undefined, formulaPath: string) => {
+  if (!widget) return undefined
+  const optionValue = widget.options?.[formulaPath]
+  if (typeof optionValue === 'string') return normalizePersistedFormula(optionValue)
+  const extra = widget.field?.meta?.extra
+  if (formulaPath === 'compute-formula' && typeof extra?.formula === 'string') {
+    return normalizePersistedFormula(extra.formula)
+  }
+  if (formulaPath === 'default-formula' && typeof extra?.defaultFormula === 'string') {
+    return normalizePersistedFormula(extra.defaultFormula)
+  }
+  return undefined
+}
+
+type PersistedNocodeTableLike = {
+  uid?: string
+  alias?: string
+  fields?: Array<{
+    alias?: string
+    meta?: { name?: string; extra?: { subTableUID?: unknown } }
+  } | null> | null
+}
+
+const readPersistedNocodeFormData = async (nocodeId: string) => {
+  const response = await axios.get<{
+    formData?: { tables?: PersistedNocodeTableLike[] }
+  }>(`/project/get-nocode-body/${encodeURIComponent(nocodeId)}`)
+  return response.data?.formData || null
+}
+
+const readPersistedFormulaValues = async (input: {
+  nocodeId: string
+  targets: Array<{
+    tableId?: string
+    widgetId?: string
+    formulaPath?: string
+  }>
+}) => {
+  const response = await axios.get<{
+    formData?: {
+      formOptions?: Record<string, any>
+    }
+  }>(`/project/get-nocode-body/${encodeURIComponent(input.nocodeId)}`)
+  const formOptions = response.data?.formData?.formOptions || {}
+  const values = new Map<string, string | undefined>()
+  Object.entries(formOptions).forEach(([tableId, formOption]) => {
+    const widgets = Array.isArray(formOption?.widget?.widgets)
+      ? formOption.widget.widgets as Array<Record<string, any>>
+      : []
+    const widgetById = new Map(flattenWidgetTree(widgets).map(widget => [normalizeRuntimeText(widget?.uid), widget]))
+    input.targets.forEach((target) => {
+      if (normalizeRuntimeText(target.tableId) !== tableId) return
+      const widgetId = normalizeRuntimeText(target.widgetId)
+      const formulaPath = normalizeRuntimeText(target.formulaPath)
+      const value = readPersistedFormula(widgetById.get(widgetId), formulaPath)
+      values.set(`${tableId}::${widgetId}::${formulaPath}`, value)
+    })
+  })
+  return values
 }
 
 const cloneValue = <T>(value: T): T => {
@@ -522,22 +762,10 @@ type TBlueprint = {
 
 const normalizeSingleFormBlueprintFragments = <T extends TBlueprint>(blueprint: T): T => {
   const normalizedForms = Array.isArray(blueprint.forms) ? blueprint.forms : []
-  const bucketedForms = new Map<string, typeof normalizedForms>()
-
-  for (const form of normalizedForms) {
-    const bucketKey = String(form?.formKey || '').trim()
-      ? `form:${String(form?.formKey || '').trim()}`
-      : `target:${getNocodeEditorBlueprintFormApplyTargetIdentity(form)}`
-    const currentBucket = bucketedForms.get(bucketKey) || []
-    currentBucket.push(form)
-    bucketedForms.set(bucketKey, currentBucket)
-  }
 
   return {
     ...blueprint,
-    forms: [...bucketedForms.values()].flatMap(forms => (
-      mergeSingleFormBlueprintFragments(forms)
-    )) as T['forms'],
+    forms: mergeSingleFormBlueprintFragments(normalizedForms) as T['forms'],
   }
 }
 
@@ -697,6 +925,61 @@ const hasMeaningfulBlueprintSource = (value: unknown) => {
     .some(key => String(source[key] || '').trim().length > 0)
 }
 
+type BlueprintSourceReferenceIndex = Set<string>
+
+const addBlueprintSourceReference = (
+  index: BlueprintSourceReferenceIndex,
+  value: unknown,
+) => {
+  if (!hasMeaningfulBlueprintSource(value)) {
+    return
+  }
+  const source = value as Record<string, unknown>
+  const formTokens = [source.formKey, source.formName]
+    .map(normalizeToken)
+    .filter(Boolean)
+  const fieldTokens = [source.fieldKey, source.fieldName]
+    .map(normalizeToken)
+    .filter(Boolean)
+  formTokens.forEach(formToken => fieldTokens.forEach(fieldToken => {
+    index.add(`${formToken}::${fieldToken}`)
+  }))
+}
+
+const createBlueprintSourceReferenceIndex = (
+  blueprint: NocodeEditorAiAppBlueprint,
+): BlueprintSourceReferenceIndex => {
+  const index: BlueprintSourceReferenceIndex = new Set()
+  const visit = (fields: NocodeEditorAiAppBlueprintField[] | undefined) => {
+    const sourceFields = Array.isArray(fields) ? fields : []
+    sourceFields.forEach((field) => {
+      addBlueprintSourceReference(index, field?.source)
+      visit(field?.children)
+    })
+  }
+  blueprint.forms.forEach(form => visit(form.fields))
+  return index
+}
+
+// 被其他表单 source 引用的字段是主数据的“定义字段”（如学生信息管理.班级），
+// 它本身不需要再去别的表单取值，不能按缺少 source 的引用字段追问。
+const isBlueprintReferencedSourceField = (
+  index: BlueprintSourceReferenceIndex,
+  form: NocodeEditorAiAppBlueprint['forms'][number] | undefined,
+  field: NocodeEditorAiAppBlueprintField,
+) => {
+  if (!index.size) return false
+  const formTokens = [form?.formKey, form?.tableName]
+    .map(normalizeToken)
+    .filter(Boolean)
+  const fieldTokens = [field?.fieldKey, field?.name]
+    .map(normalizeToken)
+    .filter(Boolean)
+  return formTokens.some(formToken => fieldTokens.some(
+    fieldToken => index.has(`${formToken}::${fieldToken}`),
+  ))
+}
+
 export const mergeBlueprintOpenQuestions = (...values: unknown[]) => Array.from(new Set(
   values.flatMap(value => normalizeStringArray(value)),
 ))
@@ -706,49 +989,54 @@ export const subtractBlueprintOpenQuestions = (source: unknown, resolved: unknow
   return normalizeStringArray(source).filter(question => !resolvedSet.has(question))
 }
 
+const resolveOutlinePlanningCarryoverOwnerForm = (
+  outline?: NocodeEditorAiSolutionOutline | null,
+  confirmation?: NocodeEditorAiConfirmPayload | null,
+): NocodeEditorBlueprintPlanningOwnerForm | null => {
+  if (confirmation?.stage === 'app-plan') {
+    return null
+  }
+  const parsed = parsePlanningConfirmationContextKey(confirmation?.planningContextKey)
+  const isFormPlanContext = parsed.stage === 'form-plan'
+  const isSingleFormOutline = !parsed.stage && (outline?.forms?.length || 0) === 1
+  if (!isFormPlanContext && !isSingleFormOutline) {
+    return null
+  }
+  const outlineForm = outline?.forms?.[0]
+  if (outlineForm) {
+    return {
+      formKey: outlineForm.formKey || undefined,
+      formName: outlineForm.tableName || undefined,
+    }
+  }
+  // 草稿恢复等场景可能没有活动规划大纲；退回到确认自带的暂存键取主表单。
+  return parsed.primaryFormKey
+    ? { formKey: parsed.primaryFormKey, formName: parsed.primaryFormKey }
+    : null
+}
+
 const resolveBlueprintPlanningCarryover = (
   confirmation?: NocodeEditorAiConfirmPayload | null,
-) => resolveNocodeEditorBlueprintPlanningCarryover(confirmation)
+  ownerForm?: NocodeEditorBlueprintPlanningOwnerForm | null,
+) => resolveNocodeEditorBlueprintPlanningCarryover(confirmation, { ownerForm })
 
 const resolveBlueprintPlanningCarryoverFromOutline = (
   outline?: NocodeEditorAiSolutionOutline | null,
 ) => {
+  const confirmation = (
+    (outline as NocodeEditorAiSolutionOutlineWithConfirmation | null | undefined)?.confirmation
+  ) || null
   return resolveBlueprintPlanningCarryover(
-    ((outline as NocodeEditorAiSolutionOutlineWithConfirmation | null | undefined)?.confirmation) || null,
+    confirmation,
+    resolveOutlinePlanningCarryoverOwnerForm(outline, confirmation),
   )
 }
 
-const isBlueprintFieldClarificationQuestion = (question: string) => {
-  const normalizedQuestion = String(question || '').trim()
-  if (!normalizedQuestion) {
-    return false
-  }
-
-  return [
-    /^“.*”这类字段通常来自其他表单数据。请确认它要关联哪个表单、显示哪个字段？$/,
-    /^“.*”是一个多选集合字段。.*请确认 source；如果是自定义选项，请明确需要哪些值。$/,
-    /^“.*”需要记录单个时间点、时间范围，还是仅记录时分秒？$/,
-    /^“.*”更适合上传图片证据，还是通用文件附件？$/,
-    /^“.*”需要作为流程节点自动选人，还是只是表单展示字段？$/,
-    /^“.*”是要选择一个部门，还是选择该部门对应的负责人成员？$/,
-    /^“.*”是组织内成员，还是业务档案中的负责人？$/,
-    /^这里的“.*”是组织内成员，还是业务档案中的人员？$/,
-  ].some(pattern => pattern.test(normalizedQuestion))
-}
+const isBlueprintFieldClarificationQuestion = (question: string) => (
+  isBlueprintFieldClarificationQuestionText(question)
+)
 
 const pickFirstDefined = <T,>(...values: Array<T | undefined>) => values.find(value => value !== undefined)
-
-const normalizeBlueprintIdentityToken = (value: unknown) => String(value || '')
-  .trim()
-  .toLowerCase()
-  .replace(/[\s\-_/\\]/g, '')
-  .replace(/[？?！!，,。、“”"'‘’：:；;（）()【】\[\]《》<>]/g, '')
-
-const GENERIC_BLUEPRINT_WIDGET_TYPES = new Set([
-  '',
-  'widget.form.textInput',
-  'widget.form.numberInput',
-])
 
 const MASTER_FORM_SUFFIX_REGEXP = /(档案|信息|管理|资料|台账|列表|清单|字典|基础数据|基础资料|主数据|记录|表单|表)$/
 const RELATION_FIELD_PREFIX_REGEXP = /^(所属|关联|选择|对应|目标|默认|来源|参考|引用|绑定)/
@@ -880,152 +1168,169 @@ const getRawBlueprintFieldChildren = (field: Record<string, any>) => {
   return []
 }
 
-const isGenericBlueprintWidgetType = (value: unknown) => GENERIC_BLUEPRINT_WIDGET_TYPES.has(resolveExplicitBlueprintWidgetType(value))
+const countBlueprintFieldNames = (
+  blueprint: NocodeEditorAiAppBlueprint,
+  fieldName: string,
+) => {
+  const visit = (fields: NocodeEditorAiAppBlueprintField[]): number => fields.reduce((count, field) => (
+    count
+    + (isSameToken(field.name, fieldName) ? 1 : 0)
+    + visit(Array.isArray(field.children) ? field.children : [])
+  ), 0)
+  return blueprint.forms.reduce((count, form) => count + visit(form.fields), 0)
+}
+
+const buildConfirmedFieldDecisionInput = (input: {
+  blueprint: NocodeEditorAiAppBlueprint
+  form?: NocodeEditorAiAppBlueprintForm
+  field: NocodeEditorAiAppBlueprintField
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+}) => ({
+  carryover: input.planningCarryover,
+  formKey: input.form?.formKey,
+  fieldKey: input.field.fieldKey,
+  fieldName: input.field.name,
+  formCount: input.blueprint.forms.length,
+  fieldNameOccurrenceCount: countBlueprintFieldNames(input.blueprint, input.field.name),
+})
+
+const hasConfirmedTextFirstFieldSource = (input: {
+  blueprint: NocodeEditorAiAppBlueprint
+  form?: NocodeEditorAiAppBlueprintForm
+  field: NocodeEditorAiAppBlueprintField
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+}) => Boolean(resolveConfirmedTextFirstFieldDecision(buildConfirmedFieldDecisionInput(input)))
+
+const hasConfirmedRelationFieldSource = (input: {
+  blueprint: NocodeEditorAiAppBlueprint
+  form?: NocodeEditorAiAppBlueprintForm
+  field: NocodeEditorAiAppBlueprintField
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+}) => Boolean(resolveConfirmedRelationFieldDecision(buildConfirmedFieldDecisionInput(input)))
+
+// 字段来源是否已由规划阶段定死（文本优先或已指定关联表）的唯一判定入口。
+const shouldUseTextForBlueprintField = (input: {
+  blueprint: NocodeEditorAiAppBlueprint
+  form?: NocodeEditorAiAppBlueprintForm
+  field: NocodeEditorAiAppBlueprintField
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+}) => {
+  const decisionInput = {
+    blueprint: input.blueprint,
+    form: input.form,
+    field: input.field,
+    planningCarryover: input.planningCarryover,
+  }
+  if (hasConfirmedTextFirstFieldSource(decisionInput)) {
+    return true
+  }
+  if (hasConfirmedRelationFieldSource(decisionInput)) {
+    return false
+  }
+  if (!input.planningCarryover?.fieldStrategyHints.length) {
+    return false
+  }
+  // 这里问的是“如果没有 source，它会按文本处理吗”；有 source 恰是需要被剥离的情况。
+  return isPlanningTextFirstFieldStrategy({
+    formName: input.form?.tableName,
+    fieldName: String(input.field.name || ''),
+    explicitWidgetType: input.field.widgetType,
+    description: input.field.description,
+    notes: Array.isArray(input.field.notes) ? input.field.notes : undefined,
+    hasSource: false,
+    canResolveRelationSource: false,
+    hasChildren: Array.isArray(input.field.children) && input.field.children.length > 0,
+    enumOptionsCount: normalizeEnumOptions(input.field.enumOptions).length,
+    relationConfirmed: false,
+    planningCarryover: input.planningCarryover,
+  })
+}
+
+type BlueprintFieldInterpretationContext = {
+  resolvedSource?: Record<string, any> | null
+  formName?: string
+  form?: NocodeEditorAiAppBlueprintForm
+  blueprint?: NocodeEditorAiAppBlueprint
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  isReferencedSourceField?: boolean
+}
+
+const interpretBlueprintField = (
+  field: Record<string, any>,
+  context?: BlueprintFieldInterpretationContext,
+): BlueprintFieldInterpretation => {
+  const children = Array.isArray(field?.children) ? field.children : getRawBlueprintFieldChildren(field)
+  const resolvedSource = context?.resolvedSource
+  const hasResolvedSource = hasMeaningfulBlueprintSource(resolvedSource)
+    || hasMeaningfulBlueprintSource(field?.source)
+  const blueprint = context?.blueprint
+  const decisionScope = {
+    blueprint: blueprint as NocodeEditorAiAppBlueprint,
+    form: context?.form,
+    field: field as NocodeEditorAiAppBlueprintField,
+    planningCarryover: context?.planningCarryover,
+  }
+  const textFirstConfirmed = Boolean(
+    blueprint
+    && !hasResolvedSource
+    && hasConfirmedTextFirstFieldSource(decisionScope),
+  )
+  const relationConfirmed = Boolean(
+    blueprint
+    && hasConfirmedRelationFieldSource(decisionScope),
+  )
+  return resolveBlueprintFieldInterpretation({
+    formName: context?.formName,
+    name: String(field?.name || '').trim(),
+    explicitWidgetType: field?.widgetType,
+    description: field?.description,
+    notes: Array.isArray(field?.notes) ? field.notes : undefined,
+    hasSource: hasResolvedSource,
+    canResolveRelationSource: hasMeaningfulBlueprintSource(resolvedSource),
+    hasChildren: children.length > 0,
+    enumOptionsCount: normalizeEnumOptions(field?.enumOptions).length,
+    hasBlueprint: Boolean(blueprint),
+    textFirstConfirmed,
+    planningCarryover: context?.planningCarryover,
+    isReferencedSourceField: context?.isReferencedSourceField,
+    relationConfirmed,
+  })
+}
 
 const guessWidgetType = (
   field: Record<string, any>,
-  context?: {
-    resolvedSource?: Record<string, any> | null
-    formName?: string
-    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  context?: BlueprintFieldInterpretationContext,
+) => interpretBlueprintField(field, context).widgetType
+
+const resolveRawBlueprintFieldLabel = (field: Record<string, any>) => (
+  String(field?.name || field?.fieldName || field?.fieldKey || '').trim()
+)
+
+const buildBlueprintFieldIdentityError = (
+  field: Record<string, any>,
+  context: {
+    fieldIndex: number
+    allowMissingName?: boolean
+    formLabel?: string
+    parentFieldLabel?: string
   },
 ) => {
-  const explicitWidgetType = resolveExplicitBlueprintWidgetType(field?.widgetType)
-  const name = String(field?.name || '').trim()
-  if (!name) {
-    return 'widget.form.textInput'
-  }
-
-  const description = String(field?.description || '').trim()
-  const notes = normalizeStringArray(field?.notes)
-  const fieldText = [name, description, ...notes].join(' ')
-  const children = Array.isArray(field?.children) ? field.children : getRawBlueprintFieldChildren(field)
-  const hasResolvedSource = hasMeaningfulBlueprintSource(context?.resolvedSource) || hasMeaningfulBlueprintSource(field?.source)
-  const canResolveRelationSource = hasMeaningfulBlueprintSource(context?.resolvedSource)
-  const enumOptions = normalizeEnumOptions(field?.enumOptions)
-
-  if (children.length || /(明细|子项|条目|清单)(表|列表)?$/i.test(name)) {
-    return 'widget.form.subform'
-  }
-
-  if (/(签名|手写签名|签字|signature|handwritten)/i.test(fieldText)) {
-    return 'widget.form.handwrittenSignature'
-  }
-
-  if (hasResolvedSource && (isGenericBlueprintWidgetType(explicitWidgetType) || !explicitWidgetType)) {
-    return 'widget.form.treeSelect'
-  }
-
-  const shouldDeferExplicitTreeSelectToIntent = (
-    explicitWidgetType === 'widget.form.treeSelect'
-    && !hasResolvedSource
-  )
-
-  if (
-    explicitWidgetType
-    && !isGenericBlueprintWidgetType(explicitWidgetType)
-    && !shouldDeferExplicitTreeSelectToIntent
-  ) {
-    return explicitWidgetType
-  }
-
-  const intentDecision = inferBlueprintFieldIntent({
-    formName: String(context?.formName || '').trim(),
-    fieldName: name,
-    explicitWidgetType,
-    description,
-    notes,
-    hasSource: hasResolvedSource,
-    canResolveRelationSource,
-    hasChildren: children.length > 0,
-    enumOptionsCount: enumOptions.length,
-    planningCarryover: context?.planningCarryover,
-  })
-
-  if (
-    intentDecision.trustedExplicitWidgetType
-    && intentDecision.trustedExplicitWidgetType === explicitWidgetType
-  ) {
-    return explicitWidgetType
-  }
-  if (intentDecision.requiresClarification) {
-    return undefined
-  }
-  if (intentDecision.widgetType) {
-    return intentDecision.widgetType
-  }
-  if (intentDecision.intent === 'free-text-name') {
-    return 'widget.form.textInput'
-  }
-
-  if (/(地址|住址|所在地|收货地址|发货地址|联系地址|配送地址)/.test(fieldText)) {
-    return 'widget.form.address'
-  }
-
-  if (/(金额|单价|总价|售价|进价|成本价|成本金额|合计金额|应收|应付|实收|实付|优惠金额|税额|余额)/.test(fieldText)) {
-    return 'widget.form.amountInput'
-  }
-
-  if (/(编号|编码|单号|单据号|流水号|序号)$/.test(name) && !/(身份证|手机号|电话|邮编|工号|学号|卡号|证号)/.test(name)) {
-    return 'widget.form.serialNumber'
-  }
-
-  if (/(是否启用|是否加急|是否通过|是否公开|是否默认|是否可见|是否允许)/.test(fieldText)) {
-    return /(是否通过|是\/否|通过\/不通过)/.test(fieldText)
-      ? 'widget.form.radioGroup'
-      : 'widget.form.switch'
-  }
-
-  if (hasResolvedSource && /(标签|技能|角色|适用范围|参与角色|覆盖区域|适用品类)/.test(fieldText)) {
-    return 'widget.form.treeMultipleSelect'
-  }
-
-  if (/(时间范围|日期范围|起止时间|起止日期|开始至结束|开始时间到结束时间|开始日期到结束日期)/.test(fieldText)) {
-    return 'widget.form.dateRangePicker'
-  }
-
-  if (/(上课时间|营业时间|时间段|时分秒|钟点|几点|上班时间|下班时间|班次时间)/.test(fieldText)) {
-    return 'widget.form.timePicker'
-  }
-
-  if (/(现场照片|图片|截图|头像|封面|证件照|照片)/.test(fieldText)) {
-    return 'widget.form.image-uploader'
-  }
-
-  if (/(合同附件|报销凭证|证明材料|上传文件|文件附件|资料附件|证件材料|审批附件|附件材料)/.test(fieldText)) {
-    return 'widget.form.file-uploader'
-  }
-
-  if (/^.+附件$/.test(name)) {
-    return 'widget.form.file-uploader'
-  }
-
-  if (enumOptions.length) {
-    if (/(标签|技能|角色|适用范围|参与角色|覆盖区域|适用品类)/.test(fieldText)) {
-      return 'widget.form.checkboxGroup'
-    }
-    return enumOptions.length <= 4 ? 'widget.form.radioGroup' : 'widget.form.treeSelect'
-  }
-
-  if (/(手机|电话|联系方式|联系电话)/.test(name)) {
-    return 'widget.form.phoneInput'
-  }
-  if (/(日期|时间|生日|入职日期|下单日期|采购日期|出库日期|入库日期|交货日期)/.test(fieldText)) {
-    return 'widget.form.datePicker'
-  }
-  if (/(备注|说明|描述|详情|原因|摘要)/.test(fieldText)) {
-    return 'widget.form.textarea'
-  }
-  if (/(学分|学时|数量|库存|件数|箱数|分数|总分|次数|天数|重量|率)/.test(fieldText)) {
-    return 'widget.form.numberInput'
-  }
-  if (/(性别|状态|类型|性质|类别)/.test(name)) {
-    return 'widget.form.radioGroup'
-  }
-  if (/^(所属|关联|选择)?(院系|店铺|门店|负责人)$/.test(name) || /(所属院系)/.test(name)) {
-    return 'widget.form.treeSelect'
-  }
-  return explicitWidgetType || 'widget.form.textInput'
+  const rawLabel = resolveRawBlueprintFieldLabel(field)
+  const position = context.parentFieldLabel
+    ? `字段「${context.parentFieldLabel}」的子字段${rawLabel ? `「${rawLabel}」` : ` #${context.fieldIndex + 1}`}`
+    : rawLabel
+      ? `字段「${rawLabel}」`
+      : `第 ${context.fieldIndex + 1} 个字段`
+  const scope = context.formLabel ? `表单「${context.formLabel}」的${position}` : position
+  const receivedKeys = field && typeof field === 'object' ? Object.keys(field) : []
+  const identityRule = context.allowMissingName
+    ? 'patch 模式下字段至少需要 name 或 fieldKey 之一。'
+    : 'replace 模式下每个字段都必须提供 name（字段名称），只有 fieldKey 不足以创建字段。'
+  return [
+    `${scope}缺少可识别的字段身份，蓝图未暂存。${identityRule}`,
+    '请按 editor_stage_app_blueprint 的字段 schema 重新提交：字段名称用 name，字段标识用 fieldKey，组件类型用 widgetType，选项用 enumOptions；不要使用 fieldName、componentType、options 等非 schema 键。',
+    receivedKeys.length ? `收到的字段键：${receivedKeys.join('、')}。` : '',
+  ].filter(Boolean).join('')
 }
 
 const normalizeBlueprintField = (
@@ -1033,35 +1338,54 @@ const normalizeBlueprintField = (
   context: {
     fieldIndex: number
     keyPrefix: string
+    allowMissingName?: boolean
+    formLabel?: string
+    parentFieldLabel?: string
   },
-): NocodeEditorAiAppBlueprintField | null => {
+): NocodeEditorAiAppBlueprintField => {
   const name = String(field?.name || '').trim()
-  if (!name) return null
-
   const fieldKey = String(field?.fieldKey || '').trim() || undefined
+  // 字段被静默丢弃会让暂存以成功收尾却落出空蓝图，身份缺失必须在归一化入口直接失败。
+  if (!name && !(context.allowMissingName && fieldKey)) {
+    throw new Error(buildBlueprintFieldIdentityError(field, context))
+  }
+
   const children = getRawBlueprintFieldChildren(field)
     .map((child, childIndex) => normalizeBlueprintField(child, {
       fieldIndex: childIndex,
       keyPrefix: `${context.keyPrefix}${context.fieldIndex + 1}-child-`,
+      allowMissingName: context.allowMissingName,
+      formLabel: context.formLabel,
+      parentFieldLabel: name || fieldKey || context.parentFieldLabel,
     }))
-    .filter(Boolean) as NocodeEditorAiAppBlueprintField[]
-  const enumOptions = normalizeEnumOptions(field?.enumOptions)
-  const widgetType = guessWidgetType({
-    ...(field || {}),
-    enumOptions,
-    children,
-  })
+  const rawEnumOptions = normalizeEnumOptions(field?.enumOptions)
+  const enumOptions = normalizePlannedEnumOptions(field?.enumOptions)
+  const widgetType = name
+    ? guessWidgetType({
+      ...(field || {}),
+      enumOptions,
+      children,
+    })
+    : (
+      // 无 name 的片段不参与按名称的字段类型猜测，避免把既有字段改写成 textInput 等错误类型
+      resolveExplicitBlueprintWidgetType(field?.widgetType)
+      || (children.length ? 'widget.form.subform' : undefined)
+    )
 
   return {
     fieldKey,
-    name,
+    ...(name ? { name } : {}),
     widgetType,
     description: String(field?.description || '').trim() || undefined,
     required: typeof field?.required === 'boolean' ? field.required : undefined,
     placeholder: String(field?.placeholder || '').trim() || undefined,
     validationFormat: inferValidationFormat(name, field?.validationFormat),
     enumOptions,
-    defaultValue: normalizeBlueprintDefaultValue(field?.defaultValue),
+    defaultValue: alignPlannedEnumDefaultValue(
+      normalizeBlueprintDefaultValue(field?.defaultValue),
+      rawEnumOptions,
+      enumOptions,
+    ),
     source: field?.source && typeof field.source === 'object'
       ? {
         formKey: String(field.source.formKey || '').trim() || undefined,
@@ -1083,12 +1407,16 @@ const normalizeBlueprintField = (
       : undefined,
     children: children.length ? children : undefined,
     notes: normalizeStringArray(field?.notes),
-  }
+  } as NocodeEditorAiAppBlueprintField
 }
 
 const normalizeBlueprint = (
   input: Record<string, any>,
-  options: { allowEmptyForms?: boolean } = {},
+  options: {
+    allowEmptyForms?: boolean
+    allowMissingFieldNames?: boolean
+    allowMissingFormTableName?: boolean
+  } = {},
 ): NocodeEditorAiAppBlueprint => {
   const rawBlueprint = (input?.blueprint && typeof input.blueprint === 'object')
     ? input.blueprint
@@ -1097,16 +1425,19 @@ const normalizeBlueprint = (
   const forms = rawForms
     .map((form, formIndex) => {
       const tableName = String(form?.tableName || form?.name || '').trim()
-      if (!tableName) return null
+      const formKey = String(form?.formKey || '').trim()
+      // patch 只需要表单身份用于匹配当前暂存蓝图；formKey 已足够，表名由合并阶段从暂存蓝图回填。
+      if (!tableName && !(options.allowMissingFormTableName === true && formKey)) return null
       const fields = (Array.isArray(form?.fields) ? form.fields : [])
         .map((field, fieldIndex) => normalizeBlueprintField(field, {
           fieldIndex,
           keyPrefix: `field-${formIndex + 1}-`,
+          allowMissingName: options.allowMissingFieldNames === true,
+          formLabel: tableName,
         }))
-        .filter(Boolean) as NocodeEditorAiAppBlueprint['forms'][number]['fields']
 
       return {
-        formKey: String(form?.formKey || '').trim() || undefined,
+        formKey: formKey || undefined,
         tableName,
         groupName: String(form?.groupName || '').trim() || undefined,
         description: String(form?.description || '').trim() || undefined,
@@ -1407,20 +1738,7 @@ const buildFallbackAppPlanOutlineInput = (options: {
   }>
   openQuestions: string[]
 }) => {
-  const forms = options.artifacts
-    .map((artifact, index) => {
-      const tableName = String(artifact?.name || '').trim()
-      if (!tableName) {
-        return null
-      }
-
-      return {
-        formKey: `artifact-${index + 1}`,
-        tableName,
-        description: String(artifact?.purpose || '').trim() || undefined,
-      }
-    })
-    .filter(Boolean) as NocodeEditorAiSolutionOutlineForm[]
+  const forms = buildNocodeEditorPlanningFallbackForms(options.artifacts) as NocodeEditorAiSolutionOutlineForm[]
 
   return {
     title: options.goal ? `${options.goal}应用结构` : '应用结构',
@@ -1631,10 +1949,14 @@ const compactBlueprintStructure = (blueprint: NocodeEditorAiAppBlueprint | null 
     summary: String(blueprint.summary || '').trim() || undefined,
     forms: forms.map((form) => {
       const fields = Array.isArray(form.fields) ? form.fields : []
+      const formKey = String(form.formKey || '').trim()
+      const tableName = String(form.tableName || '').trim()
       return {
-        formKey: String(form.formKey || '').trim() || undefined,
+        formKey: formKey || undefined,
+        formIdentity: formKey || tableName || undefined,
+        formIdentitySource: formKey ? 'formKey' : tableName ? 'tableName' : undefined,
         tableId: String((form as any).tableId || '').trim() || undefined,
-        tableName: String(form.tableName || '').trim(),
+        tableName,
         groupName: String(form.groupName || '').trim() || undefined,
         description: String(form.description || '').trim() || undefined,
         excelImportContext: compactExcelImportContextForModel(form),
@@ -1902,9 +2224,13 @@ const pushBlueprintFieldBinding = (
   input: {
     tableId?: string
     fieldKey?: string
+    fieldPath?: string
     fieldName?: string
     widgetId?: string
     widgetType?: string
+    valueType?: string
+    sourceScope?: 'blueprint' | 'current-form' | 'linked-table' | 'other-table'
+    sourceFormKey?: string
     parentFieldKey?: string
     parentWidgetId?: string
   },
@@ -1932,9 +2258,13 @@ const pushBlueprintFieldBinding = (
     {
       tableId: String(input.tableId || '').trim() || undefined,
       fieldKey,
+      fieldPath: String(input.fieldPath || [input.parentFieldKey, fieldKey].filter(Boolean).join('.') || fieldKey).trim(),
       fieldName,
       widgetId,
       widgetType: String(input.widgetType || '').trim() || undefined,
+      valueType: String(input.valueType || '').trim() || undefined,
+      sourceScope: input.sourceScope || 'blueprint',
+      sourceFormKey: String(input.sourceFormKey || '').trim() || undefined,
       parentFieldKey: String(input.parentFieldKey || '').trim() || undefined,
       parentWidgetId: String(input.parentWidgetId || '').trim() || undefined,
     },
@@ -2044,20 +2374,9 @@ const pickBlueprintSourceField = (fields: NocodeEditorAiAppBlueprintField[] = []
   return candidates[0]
 }
 
-const stripBlueprintFormSuffixes = (value: unknown) => {
-  let current = String(value || '').trim()
-  if (!current) return ''
-
-  while (MASTER_FORM_SUFFIX_REGEXP.test(current)) {
-    current = current.replace(MASTER_FORM_SUFFIX_REGEXP, '').trim()
-  }
-
-  return current || String(value || '').trim()
-}
-
 const getBlueprintFormAliasTokens = (value: unknown) => {
   const rawName = String(value || '').trim()
-  const strippedName = stripBlueprintFormSuffixes(rawName)
+  const strippedName = stripNocodeEditorBlueprintFormSuffixes(rawName)
   return Array.from(new Set([
     normalizeToken(rawName),
     normalizeToken(strippedName),
@@ -2089,7 +2408,7 @@ const getBlueprintRelationFieldTokens = (field: Partial<NocodeEditorAiAppBluepri
 
   if (field?.source?.formName) {
     addToken(field.source.formName)
-    addToken(stripBlueprintFormSuffixes(field.source.formName))
+    addToken(stripNocodeEditorBlueprintFormSuffixes(field.source.formName))
   }
 
   return Array.from(result)
@@ -2159,9 +2478,46 @@ const inferBlueprintFieldSource = (
   }
 }
 
+// 索引要在补全前就覆盖所有字段（含待推导来源），否则“先被补全的引用字段”看不到
+// “排在后面才补出 source 的定义字段”，识别结果会随表单/字段顺序变化。
+const createCompleteBlueprintSourceReferenceIndex = (
+  blueprint: NocodeEditorAiAppBlueprint,
+  options: {
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  } = {},
+): BlueprintSourceReferenceIndex => {
+  const index = createBlueprintSourceReferenceIndex(blueprint)
+  const visit = (
+    currentForm: NocodeEditorAiAppBlueprint['forms'][number],
+    field: NocodeEditorAiAppBlueprintField,
+  ) => {
+    let resolvedSource = field.source
+    if (!hasMeaningfulBlueprintSource(resolvedSource) && String(field?.name || '').trim()) {
+      const textFirstConfirmed = hasConfirmedTextFirstFieldSource({
+        blueprint,
+        form: currentForm,
+        field,
+        planningCarryover: options.planningCarryover,
+      })
+      resolvedSource = textFirstConfirmed
+        ? null
+        : inferBlueprintFieldSource(blueprint, currentForm, field)
+    }
+    addBlueprintSourceReference(index, resolvedSource)
+    if (Array.isArray(field.children) && field.children.length) {
+      field.children.forEach(child => visit(currentForm, child))
+    }
+  }
+  blueprint.forms.forEach(form => {
+    (Array.isArray(form.fields) ? form.fields : []).forEach(field => visit(form, field))
+  })
+  return index
+}
+
 type EnhanceBlueprintOptions = {
   collectFieldClarifications?: boolean
   planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  sourceReferenceIndex?: BlueprintSourceReferenceIndex
 }
 
 const appendBlueprintOpenQuestion = (
@@ -2175,40 +2531,129 @@ const appendBlueprintOpenQuestion = (
   blueprint.openQuestions = mergeBlueprintOpenQuestions(blueprint.openQuestions, [normalizedQuestion])
 }
 
-const getBlueprintFieldClarificationQuestion = (
+type BlueprintFieldClarification = {
+  question: string
+  clarificationKind?: 'relation-source'
+}
+
+const getBlueprintFieldClarification = (
+  blueprint: NocodeEditorAiAppBlueprint,
   currentForm: NocodeEditorAiAppBlueprint['forms'][number] | undefined,
   field: NocodeEditorAiAppBlueprintField,
   resolvedSource: NocodeEditorAiBlueprintFieldSource | null | undefined,
   planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
-) => {
-  const children = Array.isArray(field.children) ? field.children : []
-  const decision = inferBlueprintFieldIntent({
-    formName: String(currentForm?.tableName || '').trim(),
-    fieldName: field.name,
-    explicitWidgetType: field.widgetType,
-    description: field.description,
-    notes: field.notes,
-    hasSource: hasMeaningfulBlueprintSource(resolvedSource) || hasMeaningfulBlueprintSource(field.source),
-    canResolveRelationSource: hasMeaningfulBlueprintSource(resolvedSource),
-    hasChildren: children.length > 0,
-    enumOptionsCount: normalizeEnumOptions(field.enumOptions).length,
+  isReferencedSourceField = false,
+): BlueprintFieldClarification | undefined => {
+  if (
+    currentForm
+    && hasConfirmedBlueprintFieldClarification({
+      blueprint,
+      form: currentForm,
+      field,
+    })
+  ) {
+    return undefined
+  }
+  const interpretation = interpretBlueprintField(field, {
+    resolvedSource,
+    formName: currentForm?.tableName,
+    form: currentForm,
+    blueprint,
     planningCarryover,
+    isReferencedSourceField,
   })
-
-  return decision.requiresClarification ? decision.clarificationQuestion : undefined
+  if (!interpretation.requiresClarification || !interpretation.clarificationQuestion) {
+    return undefined
+  }
+  return {
+    question: interpretation.clarificationQuestion,
+    clarificationKind: interpretation.clarificationKind,
+  }
 }
 
 const collectBlueprintFieldClarification = (
   blueprint: NocodeEditorAiAppBlueprint,
   currentForm: NocodeEditorAiAppBlueprint['forms'][number] | undefined,
   field: NocodeEditorAiAppBlueprintField,
-  resolvedSource: NocodeEditorAiBlueprintFieldSource | null | undefined,
-  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
+  interpretation: BlueprintFieldInterpretation,
 ) => {
-  appendBlueprintOpenQuestion(
-    blueprint,
-    getBlueprintFieldClarificationQuestion(currentForm, field, resolvedSource, planningCarryover),
-  )
+  if (!interpretation.requiresClarification) {
+    return
+  }
+  if (
+    currentForm
+    && hasConfirmedBlueprintFieldClarification({
+      blueprint,
+      form: currentForm,
+      field,
+    })
+  ) {
+    return
+  }
+  appendBlueprintOpenQuestion(blueprint, interpretation.clarificationQuestion)
+}
+
+type BlueprintFieldClarificationEntry = {
+  question: string
+  clarificationKind?: 'relation-source'
+  form: NocodeEditorAiAppBlueprint['forms'][number]
+  field: NocodeEditorAiAppBlueprintField
+}
+
+type BlueprintFieldClarificationTarget = {
+  formKey?: string
+  formName?: string
+  fieldKey: string
+  fieldName?: string
+}
+
+const collectBlueprintFieldClarificationEntries = (
+  blueprint: NocodeEditorAiAppBlueprint,
+  options: {
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  } = {},
+): BlueprintFieldClarificationEntry[] => {
+  const entries: BlueprintFieldClarificationEntry[] = []
+  const sourceReferenceIndex = createCompleteBlueprintSourceReferenceIndex(blueprint, options)
+  const visitField = (
+    currentForm: NocodeEditorAiAppBlueprint['forms'][number],
+    field: NocodeEditorAiAppBlueprintField,
+  ) => {
+    const textDecisionApplies = shouldUseTextForBlueprintField({
+      blueprint,
+      form: currentForm,
+      field,
+      planningCarryover: options.planningCarryover,
+    })
+    const resolvedSource = field.source || (textDecisionApplies
+      ? null
+      : inferBlueprintFieldSource(blueprint, currentForm, field))
+    const clarification = getBlueprintFieldClarification(
+      blueprint,
+      currentForm,
+      field,
+      resolvedSource,
+      options.planningCarryover,
+      isBlueprintReferencedSourceField(sourceReferenceIndex, currentForm, field),
+    )
+    if (clarification) {
+      entries.push({
+        question: clarification.question,
+        clarificationKind: clarification.clarificationKind,
+        form: currentForm,
+        field,
+      })
+    }
+    if (Array.isArray(field.children) && field.children.length) {
+      field.children.forEach(child => visitField(currentForm, child))
+    }
+  }
+
+  blueprint.forms.forEach(form => {
+    form.fields.forEach(field => visitField(form, field))
+  })
+
+  return entries
 }
 
 export const deriveBlueprintClarificationQuestions = (
@@ -2221,31 +2666,111 @@ export const deriveBlueprintClarificationQuestions = (
     return []
   }
 
-  const questions: string[] = []
-  const visitField = (
-    currentForm: NocodeEditorAiAppBlueprint['forms'][number],
-    field: NocodeEditorAiAppBlueprintField,
-  ) => {
-    const resolvedSource = field.source || inferBlueprintFieldSource(blueprint, currentForm, field)
-    const question = getBlueprintFieldClarificationQuestion(
-      currentForm,
-      field,
-      resolvedSource,
-      options.planningCarryover,
-    )
-    if (question) {
-      questions.push(question)
-    }
-    if (Array.isArray(field.children) && field.children.length) {
-      field.children.forEach(child => visitField(currentForm, child))
-    }
+  return mergeBlueprintOpenQuestions(
+    collectBlueprintFieldClarificationEntries(blueprint, options)
+      .map(entry => entry.question),
+  )
+}
+
+// 只有“主数据字段缺来源”这类追问带“先不关联”答案；其他追问的答案空间仍由模型/补充说明决定。
+export const resolveBlueprintFieldClarificationRelationQuestionTitles = (
+  blueprint: NocodeEditorAiAppBlueprint | null | undefined,
+  options: {
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  } = {},
+): Set<string> => {
+  if (!blueprint) {
+    return new Set()
+  }
+  return new Set(
+    collectBlueprintFieldClarificationEntries(blueprint, options)
+      .filter(entry => entry.clarificationKind === 'relation-source')
+      .map(entry => entry.question),
+  )
+}
+
+// 自动推导的澄清题原本只有题面字符串，渲染层无法判断它属于哪张表单。
+// 这里把题面映射回产生它的表单/字段；同一题面来自多个字段时不归属，避免误挂。
+export const resolveBlueprintFieldClarificationQuestionTargets = (
+  blueprint: NocodeEditorAiAppBlueprint | null | undefined,
+  options: {
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null
+  } = {},
+) => {
+  const targets = new Map<string, BlueprintFieldClarificationTarget | null>()
+  if (!blueprint) {
+    return targets
   }
 
-  blueprint.forms.forEach(form => {
-    form.fields.forEach(field => visitField(form, field))
+  collectBlueprintFieldClarificationEntries(blueprint, options).forEach((entry) => {
+    const formKey = String(entry.form.formKey || entry.form.tableName || '').trim()
+    const fieldKey = String(entry.field.fieldKey || entry.field.name || '').trim()
+    if (!formKey || !fieldKey) {
+      return
+    }
+    const target = {
+      formKey,
+      formName: String(entry.form.tableName || '').trim() || undefined,
+      fieldKey,
+      fieldName: String(entry.field.name || '').trim() || undefined,
+    }
+    if (!targets.has(entry.question)) {
+      targets.set(entry.question, target)
+      return
+    }
+    const existing = targets.get(entry.question)
+    if (
+      existing
+      && (existing.formKey !== formKey || existing.fieldKey !== fieldKey)
+    ) {
+      targets.set(entry.question, null)
+    }
   })
 
-  return mergeBlueprintOpenQuestions(questions)
+  return targets
+}
+
+const attachBlueprintFieldClarificationQuestionTargets = (
+  confirmation: NocodeEditorAiConfirmPayload | null | undefined,
+  blueprint: NocodeEditorAiAppBlueprint,
+  planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
+) => {
+  if (!confirmation || !Array.isArray(confirmation.questions) || !confirmation.questions.length) {
+    return confirmation
+  }
+
+  const targets = resolveBlueprintFieldClarificationQuestionTargets(blueprint, {
+    planningCarryover,
+  })
+  if (!targets.size) {
+    return confirmation
+  }
+
+  let changed = false
+  const questions = confirmation.questions.map((question) => {
+    if (question.decisionTarget?.kind === 'field-source') {
+      return question
+    }
+    const target = targets.get(String(question.title || '').trim())
+    if (!target) {
+      return question
+    }
+    changed = true
+    return {
+      ...question,
+      decisionTarget: {
+        kind: 'field-source' as const,
+        formKey: target.formKey,
+        formName: target.formName,
+        fieldKey: target.fieldKey,
+        fieldName: target.fieldName,
+      },
+    }
+  })
+
+  return changed
+    ? { ...confirmation, questions }
+    : confirmation
 }
 
 export const resolveStageBlueprintOpenQuestions = (options: {
@@ -2287,30 +2812,61 @@ const enhanceBlueprintField = (
   field: NocodeEditorAiAppBlueprintField,
   options: EnhanceBlueprintOptions = {},
 ) => {
-  const resolvedSource = field.source || inferBlueprintFieldSource(blueprint, currentForm, field)
-  if (resolvedSource) {
-    field.source = {
-      formKey: resolvedSource.formKey,
-      formName: resolvedSource.formName,
-      fieldKey: resolvedSource.fieldKey,
-      fieldName: resolvedSource.fieldName,
-    }
-  }
-
-  field.widgetType = guessWidgetType(field, {
-    resolvedSource,
-    formName: currentForm?.tableName,
-    planningCarryover: options.planningCarryover,
-  })
-
-  if (options.collectFieldClarifications) {
-    collectBlueprintFieldClarification(
+  // 无 name 片段只可能是 patch 的字段锚定壳（以 fieldKey 表达身份）：跳过来源/类型推断与追问采集，
+  // 保留其显式声明的修改意图（guessWidgetType 会把无名字段强制猜成 textInput，覆盖既有字段类型）。
+  if (String(field?.name || '').trim()) {
+    const textFirstConfirmed = hasConfirmedTextFirstFieldSource({
       blueprint,
-      currentForm,
+      form: currentForm,
       field,
+      planningCarryover: options.planningCarryover,
+    })
+    if (textFirstConfirmed && hasMeaningfulBlueprintSource(field.source)) {
+      throw new Error(`字段「${field.name}」已确认为手填，蓝图不能同时配置关联来源。请先重新确认字段来源。`)
+    }
+    // 规划阶段已确定按文本处理时，不能再从同名表单反推关联来源。
+    const textDecisionApplies = shouldUseTextForBlueprintField({
+      blueprint,
+      form: currentForm,
+      field,
+      planningCarryover: options.planningCarryover,
+    })
+    const resolvedSource = field.source || (textDecisionApplies
+      ? null
+      : inferBlueprintFieldSource(blueprint, currentForm, field))
+    if (resolvedSource) {
+      field.source = {
+        formKey: resolvedSource.formKey,
+        formName: resolvedSource.formName,
+        fieldKey: resolvedSource.fieldKey,
+        fieldName: resolvedSource.fieldName,
+      }
+      if (options.sourceReferenceIndex) {
+        addBlueprintSourceReference(options.sourceReferenceIndex, field.source)
+      }
+    }
+
+    const isReferencedSourceField = options.sourceReferenceIndex
+      ? isBlueprintReferencedSourceField(options.sourceReferenceIndex, currentForm, field)
+      : false
+    const interpretation = interpretBlueprintField(field, {
       resolvedSource,
-      options.planningCarryover,
-    )
+      formName: currentForm?.tableName,
+      form: currentForm,
+      blueprint,
+      planningCarryover: options.planningCarryover,
+      isReferencedSourceField,
+    })
+    field.widgetType = interpretation.widgetType
+
+    if (options.collectFieldClarifications) {
+      collectBlueprintFieldClarification(
+        blueprint,
+        currentForm,
+        field,
+        interpretation,
+      )
+    }
   }
 
   if (Array.isArray(field.children) && field.children.length) {
@@ -2322,8 +2878,15 @@ const enhanceBlueprint = (
   blueprint: NocodeEditorAiAppBlueprint,
   options: EnhanceBlueprintOptions = {},
 ) => {
+  const sourceReferenceIndex = options.sourceReferenceIndex
+    || createCompleteBlueprintSourceReferenceIndex(blueprint, {
+      planningCarryover: options.planningCarryover,
+    })
   blueprint.forms.forEach(form => {
-    form.fields.forEach(field => enhanceBlueprintField(blueprint, form, field, options))
+    form.fields.forEach(field => enhanceBlueprintField(blueprint, form, field, {
+      ...options,
+      sourceReferenceIndex,
+    }))
   })
   return blueprint
 }
@@ -2542,6 +3105,15 @@ const shouldCarryCurrentBlueprintId = (options: {
     return false
   }
 
+  // 与暂存蓝图不共享任何表单说明这是一份新蓝图，沿用旧 id 会把旧开放问题、
+  // 假设和版本血缘带到新任务上。
+  const sharesFormWithCurrent = options.nextBlueprint.forms.some(nextForm => (
+    currentBlueprint.forms.some(currentForm => isSameNocodeEditorBlueprintForm(currentForm, nextForm))
+  ))
+  if (!sharesFormWithCurrent) {
+    return false
+  }
+
   const currentPlanningContextKey = getBlueprintPlanningContextKey(
     currentBlueprint as NocodeEditorAiAppBlueprint & { confirmation?: NocodeEditorAiConfirmPayload | null },
     options.currentSourcePlanningContextKey,
@@ -2564,193 +3136,6 @@ const shouldCarryCurrentBlueprintId = (options: {
   return true
 }
 
-const getBlueprintFieldStableIdentityKey = (field: Partial<NocodeEditorAiAppBlueprintField> | null | undefined) => (
-  String(field?.fieldKey || '').trim()
-)
-
-const getBlueprintFieldNameIdentityKey = (field: Partial<NocodeEditorAiAppBlueprintField> | null | undefined) => (
-  normalizeBlueprintIdentityToken(field?.name)
-)
-
-const buildBlueprintFieldLookupMaps = (fields: NocodeEditorAiAppBlueprintField[] = []) => {
-  const stableMap = new Map<string, NocodeEditorAiAppBlueprintField>()
-  const nameMap = new Map<string, NocodeEditorAiAppBlueprintField>()
-
-  fields.forEach((field) => {
-    const stableKey = getBlueprintFieldStableIdentityKey(field)
-    if (stableKey) {
-      stableMap.set(stableKey, field)
-    }
-    const nameKey = getBlueprintFieldNameIdentityKey(field)
-    if (nameKey && !nameMap.has(nameKey)) {
-      nameMap.set(nameKey, field)
-    }
-  })
-
-  return {
-    stableMap,
-    nameMap,
-  }
-}
-
-const resolveCurrentBlueprintField = (
-  nextField: NocodeEditorAiAppBlueprintField,
-  lookupMaps: ReturnType<typeof buildBlueprintFieldLookupMaps>,
-) => {
-  const stableKey = getBlueprintFieldStableIdentityKey(nextField)
-  if (stableKey) {
-    const matchedByStable = lookupMaps.stableMap.get(stableKey)
-    if (matchedByStable) {
-      return matchedByStable
-    }
-  }
-
-  const nameKey = getBlueprintFieldNameIdentityKey(nextField)
-  if (nameKey) {
-    return lookupMaps.nameMap.get(nameKey)
-  }
-
-  return undefined
-}
-
-const mergeBlueprintFieldWithExisting = (
-  nextField: NocodeEditorAiAppBlueprintField,
-  currentField?: NocodeEditorAiAppBlueprintField,
-  options: {
-    updateMode?: 'patch' | 'replace'
-    deletedFieldKeys?: Set<string>
-  } = {},
-): NocodeEditorAiAppBlueprintField => {
-  const currentChildren = Array.isArray(currentField?.children) ? currentField.children : []
-  const currentChildLookupMaps = buildBlueprintFieldLookupMaps(currentChildren)
-
-  const mergedChildren = options.updateMode === 'patch'
-    ? mergeBlueprintFieldsWithExisting(
-      Array.isArray(nextField.children) ? nextField.children : [],
-      currentChildren,
-      options.deletedFieldKeys,
-    )
-    : Array.isArray(nextField.children)
-      ? nextField.children.map((child) => {
-        const currentChild = resolveCurrentBlueprintField(child, currentChildLookupMaps)
-        return mergeBlueprintFieldWithExisting(child, currentChild)
-      })
-      : currentField?.children
-
-  return {
-    ...cloneValue(currentField || {}),
-    ...cloneValue(nextField),
-    fieldKey: String(nextField.fieldKey || currentField?.fieldKey || '').trim() || undefined,
-    widgetType: String(nextField.widgetType || currentField?.widgetType || '').trim() || undefined,
-    description: pickFirstDefined(
-      String(nextField.description || '').trim() || undefined,
-      currentField?.description,
-    ),
-    required: typeof nextField.required === 'boolean'
-      ? nextField.required
-      : currentField?.required,
-    placeholder: pickFirstDefined(
-      String(nextField.placeholder || '').trim() || undefined,
-      currentField?.placeholder,
-    ),
-    validationFormat: pickFirstDefined(
-      String(nextField.validationFormat || '').trim() || undefined,
-      currentField?.validationFormat,
-    ),
-    enumOptions: Array.isArray(nextField.enumOptions)
-      ? cloneValue(nextField.enumOptions)
-      : currentField?.enumOptions,
-    source: nextField.source
-      ? cloneValue(nextField.source)
-      : currentField?.source
-        ? cloneValue(currentField.source)
-        : undefined,
-    notes: nextField.notes?.length
-      ? cloneValue(nextField.notes)
-      : currentField?.notes
-        ? cloneValue(currentField.notes)
-        : undefined,
-    children: mergedChildren?.length ? mergedChildren : undefined,
-  }
-}
-
-const mergeBlueprintFieldsWithExisting = (
-  nextFields: NocodeEditorAiAppBlueprintField[],
-  currentFields: NocodeEditorAiAppBlueprintField[],
-  deletedFieldKeys: Set<string> = new Set(),
-) => {
-  const currentFieldLookupMaps = buildBlueprintFieldLookupMaps(currentFields)
-  const nextFieldByCurrent = new Map<NocodeEditorAiAppBlueprintField, NocodeEditorAiAppBlueprintField>()
-  const addedFields: NocodeEditorAiAppBlueprintField[] = []
-
-  nextFields.forEach((nextField) => {
-    const currentField = resolveCurrentBlueprintField(nextField, currentFieldLookupMaps)
-    if (currentField && !nextFieldByCurrent.has(currentField)) {
-      nextFieldByCurrent.set(currentField, nextField)
-      return
-    }
-    addedFields.push(nextField)
-  })
-
-  return [
-    ...currentFields.flatMap((currentField) => {
-      if (deletedFieldKeys.has(getBlueprintFieldStableIdentityKey(currentField))) {
-        return []
-      }
-      const nextField = nextFieldByCurrent.get(currentField)
-      return [nextField
-        ? mergeBlueprintFieldWithExisting(nextField, currentField, {
-          updateMode: 'patch',
-          deletedFieldKeys,
-        })
-        : cloneValue(currentField)]
-    }),
-    ...addedFields
-      .filter(field => !deletedFieldKeys.has(getBlueprintFieldStableIdentityKey(field)))
-      .map(field => mergeBlueprintFieldWithExisting(field, undefined, {
-        updateMode: 'patch',
-        deletedFieldKeys,
-      })),
-  ]
-}
-
-const mergeBlueprintFormWithExisting = (
-  nextForm: NocodeEditorAiAppBlueprintForm,
-  currentForm?: NocodeEditorAiAppBlueprintForm,
-  options: {
-    updateMode?: 'patch' | 'replace'
-    deletedFieldKeys?: Set<string>
-  } = {},
-): NocodeEditorAiAppBlueprintForm => {
-  const currentFieldLookupMaps = buildBlueprintFieldLookupMaps(
-    Array.isArray(currentForm?.fields) ? currentForm.fields : [],
-  )
-
-  return {
-    ...cloneValue(currentForm || {}),
-    ...cloneValue(nextForm),
-    formKey: String(nextForm.formKey || currentForm?.formKey || '').trim() || undefined,
-    groupName: pickFirstDefined(
-      String(nextForm.groupName || '').trim() || undefined,
-      currentForm?.groupName,
-    ),
-    description: pickFirstDefined(
-      String(nextForm.description || '').trim() || undefined,
-      currentForm?.description,
-    ),
-    fields: options.updateMode === 'patch'
-      ? mergeBlueprintFieldsWithExisting(
-        nextForm.fields,
-        Array.isArray(currentForm?.fields) ? currentForm.fields : [],
-        options.deletedFieldKeys,
-      )
-      : nextForm.fields.map(field => mergeBlueprintFieldWithExisting(
-        field,
-        resolveCurrentBlueprintField(field, currentFieldLookupMaps),
-      )),
-  }
-}
-
 export const mergeBlueprintWithCurrent = (
   nextBlueprint: NocodeEditorAiAppBlueprint,
   currentBlueprint?: NocodeEditorAiAppBlueprint | null,
@@ -2761,59 +3146,72 @@ export const mergeBlueprintWithCurrent = (
       formKey: string
       fieldKeys: string[]
     }>
+    deletionPlan?: BlueprintDeletionPlan
   } = {},
 ) => {
   if (!currentBlueprint) {
     return nextBlueprint
   }
 
-  const currentFormMap = new Map(
-    currentBlueprint.forms
-      .map(form => [getNocodeEditorBlueprintMergeIdentity(form), form] as const)
-      .filter(([key]) => Boolean(key)),
-  )
-
   const updateMode = options.updateMode || 'replace'
-  const deletedFormKeySet = new Set(options.deletedFormKeys || [])
-  const deletedFieldKeyMap = new Map(
-    (options.deletedFields || []).map(item => [item.formKey, new Set(item.fieldKeys)] as const),
+  const deletionPlan = updateMode === 'patch'
+    ? options.deletionPlan || resolveBlueprintDeletionPlan(
+      currentBlueprint,
+      options.deletedFormKeys,
+      options.deletedFields,
+    )
+    : null
+  if (deletionPlan?.issues.length) {
+    throw new Error(formatBlueprintDeletionPlanIssues(deletionPlan, currentBlueprint))
+  }
+  const findCurrentFormForNextForm = (nextForm: NocodeEditorAiAppBlueprintForm) => (
+    currentBlueprint.forms.find(currentForm => isSameNocodeEditorBlueprintForm(currentForm, nextForm))
   )
   const forms = updateMode === 'patch'
     ? [
       ...currentBlueprint.forms.flatMap((currentForm) => {
-        const formKey = String(currentForm.formKey || '').trim()
-        if (formKey && deletedFormKeySet.has(formKey)) {
+        if (deletionPlan?.deletedForms.has(currentForm)) {
           return []
         }
-        const identity = getNocodeEditorBlueprintMergeIdentity(currentForm)
         const nextForm = nextBlueprint.forms.find(form => (
-          getNocodeEditorBlueprintMergeIdentity(form) === identity
+          isSameNocodeEditorBlueprintForm(form, currentForm)
         ))
+        const deletionMatcher = buildBlueprintFieldDeletionMatcher(
+          currentForm.fields,
+          deletionPlan?.fieldKeysByForm.get(currentForm),
+        )
         return [nextForm
           ? mergeBlueprintFormWithExisting(nextForm, currentForm, {
             updateMode: 'patch',
-            deletedFieldKeys: deletedFieldKeyMap.get(formKey),
+            deletionMatcher,
           })
           : {
             ...cloneValue(currentForm),
             fields: mergeBlueprintFieldsWithExisting(
               [],
               currentForm.fields,
-              deletedFieldKeyMap.get(formKey),
+              deletionMatcher,
             ),
           }]
       }),
       ...nextBlueprint.forms
-        .filter(form => !currentFormMap.has(getNocodeEditorBlueprintMergeIdentity(form)))
-        .filter(form => !deletedFormKeySet.has(String(form.formKey || '').trim()))
-        .map(form => mergeBlueprintFormWithExisting(form, undefined, {
-          updateMode: 'patch',
-          deletedFieldKeys: deletedFieldKeyMap.get(String(form.formKey || '').trim()),
-        })),
+        .filter(form => !findCurrentFormForNextForm(form))
+        .map((form) => {
+          // formKey 未命中且没有表名时无法为新表单建立身份，静默落地会产生无表名表单。
+          if (!String(form.tableName || '').trim()) {
+            throw new Error(
+              `patch 的表单 formKey「${String(form.formKey || '').trim() || '未提供'}」无法匹配当前暂存蓝图，且没有提供 tableName。`
+              + '请先调用 editor_get_staged_app_blueprint（detail="structure"）核对当前暂存的 formKey / tableName 后重试。',
+            )
+          }
+          return mergeBlueprintFormWithExisting(form, undefined, {
+            updateMode: 'patch',
+          })
+        }),
     ]
     : nextBlueprint.forms.map(form => mergeBlueprintFormWithExisting(
       form,
-      currentFormMap.get(getNocodeEditorBlueprintMergeIdentity(form)),
+      findCurrentFormForNextForm(form),
     ))
 
   return enhanceBlueprint({
@@ -2944,20 +3342,6 @@ const buildBlueprintWidgetMapByTable = (formOptions: FormOptions = {}) => {
   return result
 }
 
-const normalizeSchemaFieldEnumSourceType = (field: Field) => {
-  const sourceType = String(
-    field?.meta?.extra?.enumSourceType
-      || field?.meta?.extra?.['select-choices-type']
-      || '',
-  ).trim()
-  if (sourceType) {
-    return sourceType
-  }
-
-  const enumOptions = normalizeEnumOptions(field?.meta?.extra?.options || field?.meta?.extra?.enumOptions)
-  return enumOptions.length ? 'custom' : ''
-}
-
 const buildAiWidgetSummaryFromSchemaField = (
   field: Field,
   index: number,
@@ -2974,8 +3358,8 @@ const buildAiWidgetSummaryFromSchemaField = (
 
   const uid = String(field?.uid || `schema-field-${index + 1}`).trim()
   const widgetType = normalizeBlueprintFieldWidgetType(field) || 'widget.form.textInput'
-  const enumOptionsPreview = normalizeEnumOptions(field?.meta?.extra?.options || field?.meta?.extra?.enumOptions)
-  const enumSourceType = normalizeSchemaFieldEnumSourceType(field)
+  const enumOptionsPreview = resolveNocodeEditorFieldEnumOptions(field)
+  const enumSourceType = resolveNocodeEditorFieldEnumSourceType(field)
   const childFields = Array.isArray(field?.subTableFields)
     ? field.subTableFields
       .map((child, childIndex) => buildAiWidgetSummaryFromSchemaField(child, childIndex, uid))
@@ -3089,6 +3473,8 @@ export const useNocodeEditorAiHostRuntime = (
     revision: 0,
     plan: null,
   })
+  const stagedFormPlanTurnTraceId = ref('')
+  const stagedAppPlanTurnTraceId = ref('')
   const stagedFlowScheme = ref<NocodeEditorAiStagedFlowScheme>({
     revision: 0,
     scheme: null,
@@ -3110,6 +3496,34 @@ export const useNocodeEditorAiHostRuntime = (
     flowPlan: null,
     applyResult: null,
   })
+  // 蓝图阶段连续同一原因失败时用于收敛：面板据此停止自动续跑。
+  const flowBlueprintStageFailureState = ref<{
+    planningContextKey: string
+    code: string
+    count: number
+  } | null>(null)
+  const recordFlowBlueprintStageFailure = (input: {
+    code?: unknown
+    planningContextKey?: unknown
+  }) => {
+    const code = String(input.code || '').trim()
+    if (!code) {
+      return
+    }
+    const planningContextKey = String(input.planningContextKey || '').trim()
+    const previous = flowBlueprintStageFailureState.value
+    const isSameCause = Boolean(previous && planningContextKey)
+      && previous!.code === code
+      && previous!.planningContextKey === planningContextKey
+    flowBlueprintStageFailureState.value = {
+      planningContextKey,
+      code,
+      count: isSameCause ? previous!.count + 1 : 1,
+    }
+  }
+  const clearFlowBlueprintStageFailureState = () => {
+    flowBlueprintStageFailureState.value = null
+  }
   const stagedAppBlueprint = ref<NocodeEditorAiStagedAppBlueprint>({
     phase: 'staged',
     planningScope: 'unknown',
@@ -3119,6 +3533,11 @@ export const useNocodeEditorAiHostRuntime = (
     draftPersistenceState: null,
     sourcePlanningContextKey: null,
   })
+  // 蓝图阶段自身确认过的答复只能缓存在当前蓝图链里，链一变就作废，避免拿旧决策压新结构。
+  const latestBlueprintPlanningCarryover = ref<{
+    sourcePlanningContextKey: string
+    carryover: NocodeEditorBlueprintPlanningCarryover
+  } | null>(null)
   const stagedContentPlan = ref<{
     revision: number
     stagedAt?: number
@@ -3242,6 +3661,12 @@ export const useNocodeEditorAiHostRuntime = (
     stagedFormPlan.value.outline || stagedAppPlan.value.plan?.outline || null
   )
 
+  const resolvePlanningCarryoverOwnerForm = (
+    confirmation?: NocodeEditorAiConfirmPayload | null,
+  ): NocodeEditorBlueprintPlanningOwnerForm | null => (
+    resolveOutlinePlanningCarryoverOwnerForm(getActivePlanningOutline(), confirmation)
+  )
+
   const getActivePlanningStage = (): 'app-plan' | 'form-plan' | '' => {
     if (stagedFormPlan.value.outline) {
       return 'form-plan'
@@ -3251,6 +3676,14 @@ export const useNocodeEditorAiHostRuntime = (
     }
     return ''
   }
+
+  const getActivePlanningOutlineTurnTraceId = () => (
+    stagedFormPlan.value.outline
+      ? stagedFormPlanTurnTraceId.value
+      : stagedAppPlan.value.plan?.outline
+        ? stagedAppPlanTurnTraceId.value
+        : ''
+  )
 
   const resolvePlanningScopeFromContextKey = (
     value?: string | null,
@@ -3308,8 +3741,53 @@ export const useNocodeEditorAiHostRuntime = (
     })
   }
 
-  const getLatestCompletedPlanningCarryover = () => (
-    resolveBlueprintPlanningCarryoverFromOutline(getActivePlanningOutline())
+  const resolveCurrentStagedBlueprintSourceContextKey = () => (
+    String(stagedAppBlueprint.value.sourcePlanningContextKey || '').trim()
+  )
+
+  const resolveCachedBlueprintPlanningCarryover = () => {
+    const cached = latestBlueprintPlanningCarryover.value
+    if (!cached) {
+      return null
+    }
+    const currentSourceContextKey = resolveCurrentStagedBlueprintSourceContextKey()
+    if (
+      cached.sourcePlanningContextKey
+      && currentSourceContextKey
+      && !isSamePlanningConfirmationContext(
+        cached.sourcePlanningContextKey,
+        currentSourceContextKey,
+      )
+    ) {
+      latestBlueprintPlanningCarryover.value = null
+      return null
+    }
+
+    return cached.carryover
+  }
+
+  const resolveBlueprintPlanningCarryoverForToolInput = (input?: Record<string, any>) => {
+    const confirmation = (
+      input?.latestCompletedBlueprintConfirmation as NocodeEditorAiConfirmPayload | null | undefined
+    ) || null
+    const carryover = resolveBlueprintPlanningCarryover(
+      confirmation,
+      resolvePlanningCarryoverOwnerForm(confirmation),
+    )
+    if (hasNocodeEditorBlueprintPlanningCarryoverEntries(carryover)) {
+      latestBlueprintPlanningCarryover.value = {
+        sourcePlanningContextKey: resolveCurrentStagedBlueprintSourceContextKey(),
+        carryover,
+      }
+      return carryover
+    }
+
+    return resolveCachedBlueprintPlanningCarryover()
+  }
+
+  const getLatestCompletedPlanningCarryover = () => mergeNocodeEditorBlueprintPlanningCarryovers(
+    resolveBlueprintPlanningCarryoverFromOutline(getActivePlanningOutline()),
+    resolveCachedBlueprintPlanningCarryover(),
   )
 
   const resolveCurrentStagedPlanningContextKey = () => {
@@ -3336,31 +3814,31 @@ export const useNocodeEditorAiHostRuntime = (
   }
 
   const resolvePlanningCarryoverForToolInput = (input?: Record<string, any>) => {
+    const blueprintCarryover = resolveBlueprintPlanningCarryoverForToolInput(input)
     const confirmation = (
       input?.latestCompletedPlanningConfirmation as NocodeEditorAiConfirmPayload | null | undefined
     ) || null
-    if (
+    const isPlanningContextMismatched = Boolean(
       confirmation?.planningContextKey
       && !isSamePlanningConfirmationContext(
         confirmation.planningContextKey,
         resolveCurrentStagedPlanningContextKey(),
-      )
-    ) {
-      return {
-        resolvedQuestionIds: [],
-        resolvedQuestions: [],
-        fieldStrategyHints: [],
-      }
+      ),
+    )
+    if (isPlanningContextMismatched) {
+      return mergeNocodeEditorBlueprintPlanningCarryovers(blueprintCarryover)
     }
-    const carryoverFromInput = resolveBlueprintPlanningCarryover(confirmation)
-    if (
-      carryoverFromInput.resolvedQuestionIds.length
-      || carryoverFromInput.resolvedQuestions.length
-      || carryoverFromInput.fieldStrategyHints.length
-    ) {
-      return carryoverFromInput
-    }
-    return getLatestCompletedPlanningCarryover()
+
+    const carryoverFromInput = resolveBlueprintPlanningCarryover(
+      confirmation,
+      resolvePlanningCarryoverOwnerForm(confirmation),
+    )
+    return mergeNocodeEditorBlueprintPlanningCarryovers(
+      hasNocodeEditorBlueprintPlanningCarryoverEntries(carryoverFromInput)
+        ? carryoverFromInput
+        : getLatestCompletedPlanningCarryover(),
+      blueprintCarryover,
+    )
   }
 
   const resolvePlanningContinuationForToolInput = (
@@ -3387,7 +3865,10 @@ export const useNocodeEditorAiHostRuntime = (
       return
     }
 
-    const carryover = resolveBlueprintPlanningCarryover(confirmation)
+    const carryover = resolveBlueprintPlanningCarryover(
+      confirmation,
+      resolvePlanningCarryoverOwnerForm(confirmation),
+    )
     if (
       !carryover.resolvedQuestionIds.length
       && !carryover.resolvedQuestions.length
@@ -3507,6 +3988,7 @@ export const useNocodeEditorAiHostRuntime = (
   const restoreStagedFormPlan = async (
     value: NocodeEditorAiStagedFormPlan | null,
   ) => {
+    stagedFormPlanTurnTraceId.value = ''
     const rawOutline = value?.outline
       ? cloneValue(value.outline)
       : null
@@ -3559,6 +4041,7 @@ export const useNocodeEditorAiHostRuntime = (
   const restoreStagedAppPlan = async (
     value: NocodeEditorAiStagedAppPlan | null,
   ) => {
+    stagedAppPlanTurnTraceId.value = ''
     const plan = value?.plan
       ? normalizeAppPlan({ plan: cloneValue(value.plan) })
       : null
@@ -3581,9 +4064,13 @@ export const useNocodeEditorAiHostRuntime = (
     const scheme = rawScheme
       ? decorateStagedFlowScheme(rawScheme)
       : null
+    // 暂存时顶层 key 独立持久化（卡片答完后 confirmation 会被消费成 null），恢复时不能丢。
+    const planningContextKey = normalizeRuntimeText(value?.planningContextKey)
+      || normalizeRuntimeText(scheme?.confirmation?.planningContextKey)
+      || undefined
     const routingState = resolveFlowSchemeRoutingState({
       scheme,
-      planningContextKey: scheme?.confirmation?.planningContextKey,
+      planningContextKey,
       flowUnifiedIssues: value?.flowUnifiedIssues,
       flowIssueRouting: value?.flowIssueRouting,
     })
@@ -3594,6 +4081,7 @@ export const useNocodeEditorAiHostRuntime = (
     stagedFlowScheme.value = {
       revision: Number(value?.revision || 0),
       stagedAt: value?.stagedAt,
+      planningContextKey,
       scheme: projectedScheme,
       planningStatus: projectedScheme
         ? routingState.projection?.planningStatus || resolveFlowSchemePlanningStatus(projectedScheme)
@@ -4049,14 +4537,15 @@ export const useNocodeEditorAiHostRuntime = (
         const widgetId = String(widget?.uid || widget?.widgetId || '').trim()
         const fieldName = String(widget?.fieldName || widget?.name || widget?.title || '').trim()
         const fieldKey = String(widget?.fieldKey || fieldName || '').trim()
-        const token = tokenByTitle.get(fieldName) || widgetId
+        const token = tokenByTitle.get(fieldName) || undefined
         const widgetType = String(widget?.widgetType || widget?.type || '').trim()
-        return widgetId && fieldName && token
+        return widgetId && fieldName
           ? {
             widgetId,
             fieldKey,
+            fieldPath: fieldKey,
             fieldName,
-            token,
+            ...(token ? { token } : {}),
             formulaPaths: resolveBlueprintFormulaPaths({
               widgetType,
               formulaPaths: widget?.formulaPaths,
@@ -4210,6 +4699,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
   const syncCurrentAiDraft = async (syncOptions: {
     persistToApp?: boolean
     skipProcessValidation?: boolean
+    aiDeferredConfigItems?: NocodeProcessAiDeferredConfigItem[]
   } = {}) => {
     if (!options.formCreateRef.value?.hasLocalChanges) {
       return {
@@ -4226,6 +4716,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const result = await options.formCreateRef.value.saveAiDraft({
       persistToApp: Boolean(syncOptions.persistToApp),
       skipProcessValidation: Boolean(syncOptions.skipProcessValidation),
+      aiDeferredConfigItems: syncOptions.aiDeferredConfigItems,
     })
     if (!isDraftSaveFailed(result)) {
       const hasBlockingDraft = result.hasBlockingIssues
@@ -4415,11 +4906,14 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     projectSaveFailureMessage: string
     preferCallerDraftSyncFailureMessage?: boolean
     skipProcessValidation?: boolean
+    // 蓝图应用收尾：即使当前表单无本地改动也要整包落盘
+    forcePersist?: boolean
   }): Promise<BlueprintPersistOutcome> => {
     const formRuntime = input.formRuntime
     const draftResult = await formRuntime?.saveAiDraft?.({
       persistToApp: true,
       skipProcessValidation: Boolean(input.skipProcessValidation),
+      force: Boolean(input.forcePersist),
     })
     if (draftResult && draftResult.ok === false) {
       throw new Error(input.preferCallerDraftSyncFailureMessage
@@ -4443,6 +4937,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const formRuntime = options.formCreateRef.value
     return await runBlueprintPersistencePipeline({
       formRuntime,
+      forcePersist: true,
       draftSyncFailureMessage: '蓝图已写入编辑器，但草稿同步失败',
       formalSaveFailureMessage: '蓝图已写入编辑器，但正式保存失败，请先完成配置后再保存',
       projectSaveFailureMessage: '已按蓝图生成，但自动保存失败，请先手动保存后再刷新页面',
@@ -4762,7 +5257,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         const tableId = String(update?.tableId || '').trim()
         const tableName = String(update?.tableName || '').trim()
         const widgetId = String(update?.widgetId || '').trim()
-        const enumOptions = normalizeEnumOptions(update?.options)
+        const enumOptions = normalizePlannedEnumOptions(update?.options)
 
         if (!widgetId) {
           failed.push({
@@ -5017,8 +5512,19 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     if (!normalizedFormPlanOutline) {
       throw new Error('规划至少需要包含一个表单')
     }
+    const carriedConfirmation = latestCompletedPlanningConfirmation
+      && latestCompletedPlanningConfirmation.stage === 'form-plan'
+      && latestCompletedPlanningConfirmation.status === 'completed'
+      ? cloneValue(latestCompletedPlanningConfirmation)
+      : null
+    const normalizedOutlineWithCarryover = carriedConfirmation
+      ? {
+        ...normalizedFormPlanOutline,
+        confirmation: carriedConfirmation,
+      }
+      : normalizedFormPlanOutline
     const outline = alignPlanningOutlineIdentityToContextKey(
-      normalizedFormPlanOutline as NocodeEditorAiSolutionOutline,
+      normalizedOutlineWithCarryover as NocodeEditorAiSolutionOutline,
       planningContextKey,
       {
         force: Boolean(latestCompletedPlanningConfirmation),
@@ -5033,6 +5539,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         relationAnalysis: latestRelationAnalysis.value,
       }),
     })
+    stagedFormPlanTurnTraceId.value = String(input?.__currentTurnTraceId || '').trim()
     stagedFormPlan.value = {
       revision: stagedFormPlan.value.revision + 1,
       stagedAt: Date.now(),
@@ -5137,6 +5644,12 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const latestCompletedPlanningConfirmation = (
       input?.latestCompletedPlanningConfirmation as NocodeEditorAiConfirmPayload | null | undefined
     ) || null
+    if (
+      latestCompletedPlanningConfirmation?.stage === 'app-plan'
+      && latestCompletedPlanningConfirmation.status === 'completed'
+    ) {
+      plan.outline.confirmation = cloneValue(latestCompletedPlanningConfirmation)
+    }
     const planningContinuation = resolvePlanningContinuationForToolInput(input)
     const planningContextKey = latestCompletedPlanningConfirmation?.planningContextKey || planningContinuation?.planningContextKey
     plan.outline = alignPlanningOutlineIdentityToContextKey(
@@ -5147,6 +5660,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         forceReason: latestCompletedPlanningConfirmation ? 'confirmed-same-chain' : undefined,
       },
     )
+    stagedAppPlanTurnTraceId.value = String(input?.__currentTurnTraceId || '').trim()
     stagedAppPlan.value = {
       revision: stagedAppPlan.value.revision + 1,
       stagedAt: Date.now(),
@@ -5483,14 +5997,16 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     scheme?: NocodeEditorFlowScheme | null
     planningContextKey?: string | null
     internalIssues?: UnifiedFlowIssue[]
+    personnelSourceEvidence?: NocodeEditorFlowPersonnelSourceEvidence | null
   }) => {
-    const flowUnifiedIssues = [
+    const flowUnifiedIssues = normalizeUnifiedFlowIssues([
       ...buildUnifiedFlowIssuesFromFlowScheme({
         scheme: input.scheme || null,
         planningContextKey: String(input.planningContextKey || '').trim() || undefined,
+        personnelSourceEvidence: input.personnelSourceEvidence || null,
       }),
       ...(input.internalIssues || []),
-    ]
+    ])
     const flowIssueRouting = routeUnifiedFlowIssues(flowUnifiedIssues)
     const projection = projectFlowIssueRouteToLegacyFields({
       issues: flowUnifiedIssues,
@@ -5557,10 +6073,36 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       routingState.flowIssueRouting?.outcome === 'return_to_flow_scheme'
       && routingState.projection
     ) {
+      const projectedConfirmation = routingState.projection.confirmation
+      const originalQuestionsByKey = new Map((scheme.confirmation?.questions || []).map(question => [
+        String(question.decisionKey || question.id || '').trim(),
+        question,
+      ]))
+      const projectedKeys = new Set((projectedConfirmation?.questions || []).map(question => (
+        String(question.decisionKey || question.id || '').trim()
+      )))
+      const historicalQuestions = (scheme.confirmation?.questions || []).filter(question => (
+        !projectedKeys.has(String(question.decisionKey || question.id || '').trim())
+      ))
       return {
         ...scheme,
         openQuestions: routingState.projection.openQuestions,
-        confirmation: routingState.projection.confirmation,
+        confirmation: projectedConfirmation
+          ? {
+              ...projectedConfirmation,
+              questions: [
+                ...historicalQuestions,
+                ...projectedConfirmation.questions.map(question => ({
+                  ...originalQuestionsByKey.get(String(question.decisionKey || question.id || '').trim()),
+                  ...question,
+                  prerequisites: question.prerequisites
+                    || originalQuestionsByKey.get(String(question.decisionKey || question.id || '').trim())?.prerequisites,
+                  dependsOn: question.dependsOn
+                    || originalQuestionsByKey.get(String(question.decisionKey || question.id || '').trim())?.dependsOn,
+                })),
+              ],
+            }
+          : projectedConfirmation,
       }
     }
 
@@ -5592,6 +6134,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
   const resolveCurrentFlowPlanningContextKey = (fallback?: unknown) => (
     String(
       fallback
+      || stagedFlowScheme.value.planningContextKey
       || stagedFlowScheme.value.scheme?.confirmation?.planningContextKey
       || stagedFlowScheme.value.flowIssueRouting?.activeIssues?.[0]?.planningContextKey
       || '',
@@ -5599,46 +6142,145 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
   )
 
   const stageFlowScheme = async (input: Record<string, any>) => {
-    const scheme = normalizeNocodeEditorFlowScheme(input?.scheme || input)
-    if (!scheme) {
-      throw new Error('流程方案缺少标题、摘要或触发信息')
+    // 用户本轮原话只用于校验人员线索不是模型自造的标题回声，不进入方案本体。
+    const currentUserMessage = String(input?.__currentUserMessage || '').trim()
+    delete input.__currentUserMessage
+    const flowConfirmationDiagnostics: Array<Record<string, any>> = []
+    const currentTurnUserTexts = (Array.isArray(input?.__flowSchemeUserTexts) ? input.__flowSchemeUserTexts : [])
+      .map(item => String(item || '').trim())
+      .filter(Boolean)
+    delete input.__flowSchemeUserTexts
+    const rawDependencyDiagnostics = validateRawFlowDecisionDependencyDeclarations(input?.scheme || input)
+    if (rawDependencyDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-decision-dependency-declaration-missing',
+        sourceStage: 'flow-scheme',
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程确认题缺少依赖声明，请明确哪些问题独立、哪些问题依赖前置决策后重试。',
+        code: 'flow_decision_dependency_declaration_missing',
+        modelSelfRepairable: true,
+        diagnostics: rawDependencyDiagnostics.map(item => ({
+          code: item.code,
+          message: item.decisionKey,
+          decisionKey: item.decisionKey,
+        })),
+      })
     }
-
+    const rawStructureAssumptionDiagnostics = validateFlowStructureAssumptions(input?.scheme || input)
+    const rawPersonnelSlotDiagnostics = validateRawFlowPersonnelDecisionSlots(input?.scheme || input)
+    // 结构假设和人员决策跨槽位都属于确认题契约问题，同一轮一起报出，模型才能一次改完。
+    if (rawStructureAssumptionDiagnostics.length || rawPersonnelSlotDiagnostics.length) {
+      const hasStructureAssumptionIssue = rawStructureAssumptionDiagnostics.length > 0
+      throw new FlowExecutionBlockerError({
+        issueId: hasStructureAssumptionIssue
+          ? 'flow-structure-assumption-unconfirmed'
+          : 'flow-personnel-decision-slot-invalid',
+        sourceStage: 'flow-scheme',
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: hasStructureAssumptionIssue
+          ? '流程方案把一部分结构选择当成了默认假设，用户还没机会确认或否决。请先把这些结构做成确认题，并让受影响的后续问题等结构确认后再出现，然后重新提交方案。'
+          : '流程方案里有确认题的决策类型和题目内容对不上。请修正这些确认题后重新提交方案。',
+        code: hasStructureAssumptionIssue
+          ? 'flow_structure_assumption_unconfirmed'
+          : 'flow_personnel_decision_slot_invalid',
+        modelSelfRepairable: true,
+        diagnostics: [
+          ...rawStructureAssumptionDiagnostics.map(item => ({
+            code: item.code,
+            message: item.message,
+            decisionKey: item.decisionKey,
+            dependencyKey: item.dependencyKey,
+            // 收口卡要按假设原文出题，丢了这句就只能回落到一句泛化话术。
+            ...(item.assumptionText ? { assumptionText: item.assumptionText } : {}),
+          })),
+          ...rawPersonnelSlotDiagnostics.map(item => ({
+            code: item.code,
+            message: item.message,
+            decisionKey: item.decisionKey,
+          })),
+        ],
+      })
+    }
+    const rawSubmissionStepDiagnostics = validateFlowSchemeSubmissionSteps(input?.scheme || input)
+    if (rawSubmissionStepDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-scheme-submission-step-invalid',
+        sourceStage: 'flow-scheme',
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程方案把提交动作写成了审批步骤，已退回模型删除该步骤。',
+        code: 'flow_scheme_submission_step_invalid',
+        modelSelfRepairable: true,
+        diagnostics: rawSubmissionStepDiagnostics,
+      })
+    }
     const hostContext = await getHostContext()
-    const targetedScheme: NocodeEditorFlowScheme = {
-      ...scheme,
-      target: {
-        formId: scheme.target?.formId || hostContext?.activeFormId || undefined,
-        formName: scheme.target?.formName || hostContext?.activeFormName || undefined,
-      },
-    }
-    const activeFormId = String(hostContext?.activeFormId || '').trim()
-    const activeFormName = String(hostContext?.activeFormName || '').trim()
-    const targetFormId = String(targetedScheme.target?.formId || '').trim()
-    const targetFormName = String(targetedScheme.target?.formName || '').trim()
-    const schemePlanningContextKey = String(targetedScheme.confirmation?.planningContextKey || '').trim()
+    const rawScheme = asRecord(input?.scheme || input)
+    const rawTarget = asRecord(rawScheme.target)
+    const rawConfirmation = asRecord(rawScheme.confirmation)
     const trustedConfirmationContext = asRecord(input?.__flowSchemeConfirmationContext)
+    const confirmationRejection = asRecord(input?.__flowSchemeConfirmationRejection)
+    const confirmationRejectionCode = String(confirmationRejection.code || '').trim()
+    const confirmationRejectionStage = String(confirmationRejection.confirmationStage || '').trim()
     const trustedPlanningContextKey = String(trustedConfirmationContext.planningContextKey || '').trim()
     const trustedContinuationPlanningContextKey = String(
       trustedConfirmationContext.continuationPlanningContextKey || '',
     ).trim()
+    const declaredTargetFormId = String(rawTarget.formId || '').trim()
+    const declaredTargetFormName = String(rawTarget.formName || '').trim()
+    const schemePlanningContextKey = String(rawConfirmation.planningContextKey || '').trim()
     const trustedTargetFormId = String(trustedConfirmationContext.targetFormId || '').trim()
     const trustedTargetFormName = String(trustedConfirmationContext.targetFormName || '').trim()
+    const previousScheme = stagedFlowScheme.value.scheme
+    const previousContextKey = String(previousScheme?.confirmation?.planningContextKey || '').trim()
+    // 方案目标表单属于方案身份：模型未显式声明时，先继承可信确认上下文（卡片所属表单），
+    // 再继承上一版同名方案，最后才兜底“当前打开的表单”。用户切到别的表单后回答卡片或重提
+    // 方案时，当前打开表单不能覆盖已建立的目标身份。
+    const targetIdentity = resolveFlowSchemeTargetIdentity({
+      declaredFormId: declaredTargetFormId,
+      declaredFormName: declaredTargetFormName,
+      trustedFormId: trustedTargetFormId,
+      trustedFormName: trustedTargetFormName,
+      previousFormId: previousScheme?.target?.formId,
+      previousFormName: previousScheme?.target?.formName,
+      previousTitle: previousScheme?.title,
+      currentTitle: rawScheme.title,
+      activeFormId: hostContext?.activeFormId,
+      activeFormName: hostContext?.activeFormName,
+    })
+    const declaredTargetConflictsWithTrusted = targetIdentity.declaredConflictsWithTrusted
+    const targetFormId = targetIdentity.formId
+    const targetFormName = targetIdentity.formName
     const trustedTargetMatches = Boolean(
-      (trustedTargetFormId && targetFormId && trustedTargetFormId === targetFormId)
-      || (
-        !trustedTargetFormId
-        && trustedTargetFormName
-        && targetFormName
-        && isSameToken(trustedTargetFormName, targetFormName)
+      !declaredTargetConflictsWithTrusted
+      && (
+        (trustedTargetFormId && targetFormId && trustedTargetFormId === targetFormId)
+        || (
+          !trustedTargetFormId
+          && trustedTargetFormName
+          && targetFormName
+          && isSameToken(trustedTargetFormName, targetFormName)
+        )
       ),
+    )
+    const previousTargetMatches = Boolean(previousScheme && (
+      (previousScheme.target?.formId && previousScheme.target.formId === targetFormId)
+      || (!previousScheme.target?.formId && previousScheme.target?.formName
+        && isSameToken(previousScheme.target.formName, targetFormName))
+    ))
+    const sameNamedFlowContinuation = Boolean(
+      previousTargetMatches
+      && previousContextKey
+      && normalizeToken(previousScheme?.title) === normalizeToken(rawScheme.title)
+      && normalizeToken(previousScheme?.title),
     )
     const trustedContextMatches = Boolean(
       trustedPlanningContextKey
-      && trustedContinuationPlanningContextKey
-      && isSamePlanningConfirmationContext(
-        trustedPlanningContextKey,
-        trustedContinuationPlanningContextKey,
+      && (
+        !trustedContinuationPlanningContextKey
+        || isSamePlanningConfirmationContext(
+          trustedPlanningContextKey,
+          trustedContinuationPlanningContextKey,
+        )
       )
       && (!schemePlanningContextKey || isSamePlanningConfirmationContext(
         trustedPlanningContextKey,
@@ -5646,9 +6288,46 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       ))
       && trustedTargetMatches,
     )
+    // 首版方案也必须由宿主分配身份；模型提供的 key 不能代替用户确认的信任边界。
     const planningContextKey = trustedContextMatches
       ? trustedPlanningContextKey
-      : schemePlanningContextKey
+      : sameNamedFlowContinuation
+        ? previousContextKey
+      : buildNocodeEditorFlowSchemePlanningContextKey({
+        schemeIdentity: unique(),
+        targetFormId,
+        targetFormName,
+      })
+    // 目标表单不存在时方案无落地对象：与 apply 侧同码拦截，避免把幻影表单写进方案身份。
+    // 身份只用“声明值 + 可信确认上下文 + 上一版同名方案”：当前打开表单的兜底值不参与校验。
+    // 继承来的上一版目标也要过存在性校验：目标表被删时不能因“没声明”而跳过。
+    const declaredTargetExistenceFormId = declaredTargetFormId
+      || (declaredTargetConflictsWithTrusted ? '' : trustedTargetFormId)
+      || (targetIdentity.inheritedFromPrevious ? String(previousScheme?.target?.formId || '').trim() : '')
+    const declaredTargetExistenceFormName = declaredTargetFormName
+      || (declaredTargetConflictsWithTrusted ? '' : trustedTargetFormName)
+      || (targetIdentity.inheritedFromPrevious ? String(previousScheme?.target?.formName || '').trim() : '')
+    const targetFormExistence = resolveFlowTargetFormDeclaration({
+      declaredFormId: declaredTargetExistenceFormId,
+      declaredFormName: declaredTargetExistenceFormName,
+      availableForms: availableForms.value,
+    })
+    if (targetFormExistence.status === 'not_found') {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-scheme-target-form-not-found',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '目标表单尚不存在，请先完成表单创建或生成后再规划流程。',
+        code: 'form_not_found',
+        diagnostics: [{
+          code: 'form_not_found',
+          message: `target form not found: ${declaredTargetExistenceFormName || declaredTargetExistenceFormId}`,
+          targetFormId: declaredTargetExistenceFormId || undefined,
+          targetFormName: declaredTargetExistenceFormName || undefined,
+        }],
+      })
+    }
     const trustedFlowConfirmationDecisions = Array.isArray(trustedConfirmationContext.flowConfirmationDecisions)
       ? trustedConfirmationContext.flowConfirmationDecisions.filter((item): item is NocodeEditorConfirmationDecision => {
         const decision = asRecord(item)
@@ -5661,69 +6340,674 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         )
       })
       : []
-    const flowConfirmationDecisions = trustedPlanningContextKey
+    // 卡片版本过期不能硬拒绝：主进程整轮注入同一张卡的版本，硬拒绝等于死锁。
+    // 按三态给活路——幂等重放/重基接受直接放行，不可愈合且仍有待答问题时路由重问。
+    const staleReplyVersion = Number(input?.__flowSchemeReplyVersion || 0)
+    if (staleReplyVersion > 0 && staleReplyVersion !== stagedFlowScheme.value.revision) {
+      const staleReplyResolution = resolveNocodeEditorFlowSchemeStaleReplyMode({
+        confirmation: previousScheme?.confirmation || null,
+        replyDecisions: trustedFlowConfirmationDecisions,
+        expectedPlanningContextKey: trustedPlanningContextKey || undefined,
+      })
+      if (staleReplyResolution.mode === 'route') {
+        // 记录失败码，确认卡提交失败时才能提示“卡片已过期”，而不是笼统的提交失败。
+        recordFlowBlueprintStageFailure({
+          code: 'flow_scheme_answer_version_stale',
+          planningContextKey: trustedPlanningContextKey || undefined,
+        })
+        throw new FlowExecutionBlockerError({
+          unifiedIssues: buildNocodeEditorFlowSchemeStaleReplyIssues({
+            pendingQuestions: staleReplyResolution.pendingQuestions,
+            planningContextKey: trustedPlanningContextKey || undefined,
+            answerRevision: staleReplyVersion,
+            currentRevision: stagedFlowScheme.value.revision,
+            unhealedDecisionKeys: staleReplyResolution.unhealedDecisionKeys,
+          }),
+          blockedNextAction: 'editor_stage_flow_blueprint',
+        })
+      }
+    }
+    const canReusePreviousFacts = Boolean(
+      trustedContextMatches
+      && previousTargetMatches
+      && previousContextKey
+      && isSamePlanningConfirmationContext(previousContextKey, planningContextKey),
+    )
+    const canReusePreviousDecisions = Boolean(
+      sameNamedFlowContinuation
+      && previousTargetMatches
+      && isSamePlanningConfirmationContext(previousContextKey, planningContextKey),
+    )
+    const previousSchemeDecisions = canReusePreviousDecisions
+      ? projectNocodeEditorConfirmationDecisions({
+        stage: 'flow-scheme',
+        confirmation: previousScheme?.confirmation,
+        planningContextKey: previousContextKey,
+        expectedPlanningContextKey: previousContextKey,
+        fallbackPlanningContextKey: previousContextKey,
+      }).decisions
+      : []
+    // 答案账本：卡片答案不回写 stagedFlowScheme，只认「本轮请求携带的已答决策 + 上一版方案里已作答的题」，
+    // 否则换名后没有可继承的答案。两项上游已各自过滤：trustedFlowConfirmationDecisions 按 trustedContextMatches，
+    // previousSchemeDecisions 按 canReusePreviousDecisions。
+    const answeredDecisionLedger = [
+      ...trustedFlowConfirmationDecisions,
+      ...previousSchemeDecisions,
+    ]
+    const keyHealing = canReusePreviousDecisions
+      ? healFlowSchemeDecisionKeys({
+        scheme: input?.scheme || input,
+        previousQuestions: previousScheme?.confirmation?.questions || [],
+        answeredDecisions: answeredDecisionLedger,
+      })
+      : { scheme: input?.scheme || input, healed: [] }
+    keyHealing.healed.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_decision_key_healed',
+        message: `决策键已按上一版同锚点题归一：${item.from} -> ${item.to}`,
+        decisionKey: item.to,
+        previousDecisionKey: item.from,
+        reason: item.reason,
+      })
+    })
+    // 步骤键每轮都会重新生成，已确认题的显式作用域不能拿来做本轮契约身份：
+    // 只摘掉「上一版同锚点题确认过同一旧步骤」的失效作用域，交给后面的同锚点重锚。
+    const stepScopeHealing = healFlowSchemeDecisionStepScopes({
+      scheme: keyHealing.scheme,
+      previousQuestions: canReusePreviousDecisions
+        ? previousScheme?.confirmation?.questions || []
+        : [],
+    })
+    stepScopeHealing.healed.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_decision_step_scope_healed',
+        message: `决策题的步骤作用域已按上一版同锚点题重锚：${item.staleStepKey}`,
+        questionId: item.questionId,
+        decisionKey: item.decisionKey,
+        stepKey: item.staleStepKey,
+      })
+    })
+    const rawContractDiagnostics = validateRawFlowDecisionContract(
+      stepScopeHealing.scheme,
+      trustedContextMatches
+        ? Object.fromEntries(trustedFlowConfirmationDecisions.map(decision => [
+          decision.decisionKey,
+          String(decision.selectedOptionValue || decision.answerSummary || '').trim(),
+        ]).filter(([key]) => Boolean(key)))
+        : undefined,
+      canReusePreviousFacts ? previousScheme?.factSnapshot || {} : {},
+    )
+    if (rawContractDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-decision-contract-invalid',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程确认题的决策键、题型或前置关系不一致，请修订后重试。是非题必须表达明确的是非判断；询问互斥处理方式时应改为单选题，并提供含义明确的选项。',
+        code: 'flow_decision_contract_invalid',
+        diagnostics: rawContractDiagnostics.map(item => ({
+          code: item.code,
+          message: `${item.decisionKey}${item.dependencyKey ? ` -> ${item.dependencyKey}` : ''}`,
+          decisionKey: item.decisionKey,
+          dependencyKey: item.dependencyKey,
+          factKey: item.factKey,
+          scopeKey: item.scopeKey,
+          reason: item.reason,
+        })),
+      })
+    }
+    const rawPersonnelShapeDiagnostics = validateRawFlowPersonnelRequirementShapes(
+      input?.scheme || input,
+    )
+    if (rawPersonnelShapeDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-personnel-requirement-shape-invalid',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程人员配置的结构不正确，已中止本次方案。部门主管方向/层级必须写在 departmentManager 内，表单人员字段必须写在 fieldRef 内。',
+        code: 'flow_personnel_requirement_shape_invalid',
+        diagnostics: rawPersonnelShapeDiagnostics.map(item => ({
+          code: item.code,
+          message: item.message,
+          path: item.path,
+          stepKey: item.stepKey,
+        })),
+      })
+    }
+    collectRawFlowPersonnelRequirementNotices(input?.scheme || input).forEach((notice) => {
+      flowConfirmationDiagnostics.push({
+        code: notice.code,
+        message: notice.message,
+        path: notice.path,
+        stepKey: notice.stepKey,
+      })
+    })
+    // 信任链先于决策图：模型自答剥离、可信答案回填之后再算 openQuestions/status，
+    // 避免出现「pending 但没有 openQuestion」的错位（重问只能由白名单投影重建题目）。
+    const scheme = normalizeNocodeEditorFlowScheme(stepScopeHealing.scheme, {
+      trustedAnswers: {
+        planningContextKey: planningContextKey || undefined,
+        decisions: trustedFlowConfirmationDecisions,
+        userTexts: currentTurnUserTexts.length ? currentTurnUserTexts : (currentUserMessage ? [currentUserMessage] : []),
+        diagnostics: flowConfirmationDiagnostics,
+      },
+    })
+    if (!scheme) {
+      throw new Error('流程方案缺少标题、摘要或触发信息')
+    }
+    if (scheme.decisionDiagnostics?.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-decision-graph-invalid',
+        sourceStage: 'flow-scheme',
+        planningContextKey: scheme.confirmation?.planningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程确认题的依赖关系无效，请修订决策键、选项条件或循环引用后重试。',
+        code: 'flow_decision_graph_invalid',
+        diagnostics: scheme.decisionDiagnostics.map(item => ({
+          code: item.code,
+          message: `${item.decisionKey}${item.dependencyKey ? ` -> ${item.dependencyKey}` : ''}`,
+          decisionKey: item.decisionKey,
+          dependencyKey: item.dependencyKey,
+        })),
+      })
+    }
+
+    const targetedScheme: NocodeEditorFlowScheme = {
+      ...scheme,
+      ...(scheme.decisionContractVersion === 2 && canReusePreviousFacts
+        && (!scheme.factSnapshot || !Object.keys(scheme.factSnapshot).length)
+        && previousScheme?.factSnapshot
+        ? { factSnapshot: previousScheme.factSnapshot }
+        : {}),
+      confirmation: scheme.confirmation && scheme.decisionContractVersion === 2 && canReusePreviousFacts
+        && (!scheme.confirmation.factSnapshot || !Object.keys(scheme.confirmation.factSnapshot).length)
+        && previousScheme?.confirmation?.factSnapshot
+        ? {
+          ...scheme.confirmation,
+          factSnapshot: previousScheme.confirmation.factSnapshot,
+        }
+        : scheme.confirmation,
+      dependencies: scheme.dependencies?.map(dependency => ({
+        ...dependency,
+        lifecycleStatus: dependency.resolutionStatus === 'unresolved'
+          ? 'pending' as const
+          : dependency.materializationStatus === 'planned'
+            ? 'planned' as const : 'resolved' as const,
+      })),
+      deferredConfigItems: scheme.deferredConfigItems?.map(item => ({
+        ...item,
+        lifecycleStatus: 'pending' as const,
+      })),
+      target: {
+        formId: targetFormId || undefined,
+        formName: targetFormName || undefined,
+      },
+    }
+    // D3：上下文未建立（rejection）或可信答案与当前题目键失配时，复用 A1/A3 的路由出口回到重问；
+    // 非阻断形态只把诊断带给模型，不打断用户。
+    {
+      const pendingQuestions = resolveNocodeEditorFlowSchemePendingQuestions(targetedScheme.confirmation)
+      if (
+        confirmationRejectionCode
+        && confirmationRejectionStage === 'flow-scheme'
+        && pendingQuestions.length
+      ) {
+        throw new FlowExecutionBlockerError({
+          unifiedIssues: buildNocodeEditorFlowSchemeConfirmationRejectedIssues({
+            rejection: confirmationRejection,
+            pendingQuestions,
+            planningContextKey: planningContextKey || undefined,
+          }),
+          blockedNextAction: 'editor_stage_flow_blueprint',
+        })
+      }
+      const decisionMatch = matchNocodeEditorFlowSchemeDecisionsToQuestions({
+        decisions: trustedFlowConfirmationDecisions,
+        questions: targetedScheme.confirmation?.questions || [],
+      })
+      if (trustedContextMatches && decisionMatch.providedKeys.length) {
+        const decisionDisposition = resolveNocodeEditorFlowSchemeDecisionMatchDisposition({
+          match: decisionMatch,
+          pendingQuestionCount: pendingQuestions.length,
+        })
+        if (decisionDisposition === 'superseded_by_replan') {
+          flowConfirmationDiagnostics.push({
+            code: 'flow_confirmation_decision_superseded_by_replan',
+            message: '提供的答案与当前流程确认题无交集（题目已按最新规划重建），本次未应用任何答案，请按当前确认题重新作答。',
+            ...decisionMatch,
+          })
+        } else if (decisionDisposition === 'partially_applied') {
+          flowConfirmationDiagnostics.push({
+            code: 'flow_confirmation_decision_partially_applied',
+            message: '提供的答案未全部匹配当前流程确认题，未匹配的答案未被应用。',
+            ...decisionMatch,
+          })
+        }
+      } else if (confirmationRejectionCode) {
+        flowConfirmationDiagnostics.push({
+          code: confirmationRejectionCode,
+          message: `流程方案确认上下文未建立（${confirmationRejectionCode}），未绑定本次可信确认答案。`,
+          confirmationStage: confirmationRejectionStage || undefined,
+          missingFields: Array.isArray(confirmationRejection.missingFields)
+            ? confirmationRejection.missingFields
+            : undefined,
+          expected: confirmationRejection.expected,
+          actual: confirmationRejection.actual,
+          replyRevision: confirmationRejection.replyRevision,
+          currentRevision: confirmationRejection.currentRevision,
+        })
+      }
+    }
+    const activeFormId = String(hostContext?.activeFormId || '').trim()
+    const activeFormName = String(hostContext?.activeFormName || '').trim()
+    const flowConfirmationDecisions = trustedContextMatches && trustedFlowConfirmationDecisions.length
       ? trustedFlowConfirmationDecisions
-      : projectNocodeEditorConfirmationDecisions({
+      : canReusePreviousDecisions && previousSchemeDecisions.length
+        ? previousSchemeDecisions
+        : projectNocodeEditorConfirmationDecisions({
         stage: 'flow-scheme',
         confirmation: targetedScheme.confirmation,
         planningContextKey,
         expectedPlanningContextKey: planningContextKey || undefined,
         fallbackPlanningContextKey: planningContextKey || undefined,
       }).decisions
+    // 重规划收敛只认经过信任链的当前答案或可复用的上一轮答案；
+    // flowConfirmationDecisions 里的模型自报兜底不能当作“用户已确认”。
+    const trustedReplanDecisions = trustedContextMatches && trustedFlowConfirmationDecisions.length
+      ? trustedFlowConfirmationDecisions
+      : canReusePreviousDecisions && previousSchemeDecisions.length
+        ? previousSchemeDecisions
+        : []
     const decisionReconciliation = reconcileNocodeEditorConfirmationDecisions({
       confirmation: targetedScheme.confirmation,
       previousDecisions: flowConfirmationDecisions,
+      previousConfirmation: canReusePreviousDecisions ? previousScheme?.confirmation : null,
       expectedPlanningContextKey: planningContextKey || undefined,
+      trustedCurrentDecisionKeys: trustedContextMatches
+        ? trustedFlowConfirmationDecisions.map(decision => (
+          String(decision.decisionKey || decision.questionId || '').trim()
+        )).filter(Boolean)
+        : [],
     })
     const decisionReconciledScheme: NocodeEditorFlowScheme = {
       ...targetedScheme,
-      confirmation: decisionReconciliation.confirmation,
+      // 规范来源题经卡片展示与信任链回传后选项只余展示字段，personnelCandidate 丢失；
+      // 暂存校验前按规范来源值回填，避免已确认的规范来源被误判为未接地而反复停损。
+      confirmation: decisionReconciliation.confirmation
+        ? {
+          ...decisionReconciliation.confirmation,
+          questions: decisionReconciliation.confirmation.questions.map(
+            question => backfillNocodeEditorFlowPersonnelSourceCandidates(question),
+          ),
+        }
+        : decisionReconciliation.confirmation,
       openQuestions: targetedScheme.openQuestions.filter(question => (
         !decisionReconciliation.resolvedDecisionKeys.includes(question.key)
       )),
+    }
+    const sameTarget = Boolean(previousScheme && (
+      (previousScheme.target?.formId && previousScheme.target.formId === decisionReconciledScheme.target?.formId)
+      || (!previousScheme.target?.formId && previousScheme.target?.formName
+        && isSameToken(previousScheme.target.formName, decisionReconciledScheme.target?.formName))
+    ))
+    const sameContext = previousContextKey && planningContextKey
+      ? isSamePlanningConfirmationContext(previousContextKey, planningContextKey)
+      : Boolean(previousScheme?.id && decisionReconciledScheme.id
+        && previousScheme.id === decisionReconciledScheme.id)
+    // 跨版本已确认决策的锚点：按“决策是否仍被当前方案引用”判定，步骤键只作为可重锚的线索。
+    const previousSchemeForReference = sameTarget && sameContext ? previousScheme : null
+    const anchorReconciliation = reconcileFlowSchemeConfirmedAnchors({
+      scheme: decisionReconciledScheme,
+      previousScheme: previousSchemeForReference,
+    })
+    anchorReconciliation.notices.forEach((notice) => {
+      flowConfirmationDiagnostics.push({
+        code: notice.code,
+        message: notice.message,
+        questionId: notice.questionId,
+        questionTitle: notice.questionTitle,
+        decisionKey: notice.decisionKey,
+        stepKey: notice.stepKey,
+        stepTitle: notice.stepTitle,
+        candidateStepKeys: notice.candidateStepKeys,
+      })
+    })
+    if (anchorReconciliation.blockers.length) {
+      const first = anchorReconciliation.blockers[0]
+      throw new FlowExecutionBlockerError({
+        issueId: first.code,
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: first.message,
+        code: first.code,
+        path: first.path,
+        diagnostics: anchorReconciliation.blockers.map(item => ({
+          code: item.code,
+          message: item.message,
+          path: item.path,
+          questionId: item.questionId,
+          questionTitle: item.questionTitle,
+          decisionKey: item.decisionKey,
+          stepKey: item.stepKey,
+          stepTitle: item.stepTitle,
+          candidateStepKeys: item.candidateStepKeys,
+        })),
+      })
+    }
+    const anchoredScheme = anchorReconciliation.scheme
+    const referenceDiagnostics = validateFlowSchemeReferences(
+      anchoredScheme,
+      previousSchemeForReference,
+    )
+    if (referenceDiagnostics.length) {
+      const first = referenceDiagnostics[0]
+      throw new FlowExecutionBlockerError({
+        issueId: first.code,
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: first.message,
+        code: first.code,
+        path: first.path,
+        diagnostics: referenceDiagnostics.map(item => ({
+          code: item.code,
+          message: item.message,
+          path: item.path,
+          questionId: item.questionId,
+          questionTitle: item.questionTitle,
+          decisionKey: item.decisionKey,
+          stepKey: item.stepKey,
+          stepTitle: item.stepTitle,
+          candidateStepKeys: item.candidateStepKeys,
+        })),
+      })
+    }
+    const personnelQuestionContractDiagnostics = validateFlowPersonnelQuestionContracts(
+      anchoredScheme,
+    )
+    if (personnelQuestionContractDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-personnel-question-contract-invalid',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '人员确认题缺少 personnelDecision（stepKey 与 slot），无法与流程步骤和人员配置对齐，请补齐后重试。',
+        code: 'flow_personnel_question_contract_invalid',
+        diagnostics: personnelQuestionContractDiagnostics.map(item => ({
+          code: item.code,
+          message: item.message,
+          questionId: item.questionId,
+          decisionKey: item.decisionKey,
+          stepKey: item.stepKey,
+          slot: item.slot,
+        })),
+      })
     }
     const targetIsCurrentForm = Boolean(
       (targetFormId && activeFormId && targetFormId === activeFormId)
       || (!targetFormId && targetFormName && activeFormName && targetFormName === activeFormName),
     )
-    const requiresPersonnelEvidence = hasFlowSchemePersonnelRequirements(decisionReconciledScheme)
+    const hasPersonnelConfirmationCandidates = Boolean(
+      anchoredScheme.confirmation?.questions.some(question => (
+        Boolean(question.personnelDecision)
+        && Array.isArray(question.options)
+        && question.options.some(option => Boolean(option.personnelCandidate))
+      )),
+    )
+    const requiresPersonnelEvidence = hasFlowSchemePersonnelRequirements(anchoredScheme)
     const requiresApprovalFieldEvidence = flowConfirmationDecisions.some(
       item => item.approvalOwnerSource === 'form_member_field',
     )
+    const hasFieldDecisionAnswers = flowConfirmationDecisions.some(decision => (
+      Boolean(parseFlowGroundingFieldOptionDecision(decision.selectedOptionValue))
+    ))
+    const hasReplanCapabilityDecisions = hasFlowReplanCapabilityDecisions(trustedReplanDecisions)
+    const hasApprovalSteps = collectFlowSchemeApprovalSteps(anchoredScheme).length > 0
     let flowSummary: unknown = null
-    if (targetIsCurrentForm && (requiresPersonnelEvidence || requiresApprovalFieldEvidence)) {
+    const hasFieldValueOptionQuestions = hasFlowFieldValueOptionQuestions(anchoredScheme)
+    if (
+      targetIsCurrentForm
+      && (
+        hasFieldValueOptionQuestions
+        || requiresPersonnelEvidence
+        || requiresApprovalFieldEvidence
+        || hasPersonnelConfirmationCandidates
+        || hasApprovalSteps
+        || hasFieldDecisionAnswers
+        || hasReplanCapabilityDecisions
+      )
+    ) {
       try {
         flowSummary = await getFlowSummary()
       } catch {
         flowSummary = null
       }
     }
-    assertUniqueFlowSchemeStepKeys(decisionReconciledScheme)
-    const assessedScheme = assessAndDecorateFlowSchemePersonnelDependencies({
-      scheme: decisionReconciledScheme,
+    assertUniqueFlowSchemeStepKeys(anchoredScheme)
+    // 已确认的人员决策先落进人员配置：评估链路只认 personnelRequirement，
+    // 不回写就会重新派生同键依赖，路由投影再把已确认题覆盖回待答。
+    const personnelDecisionMaterialization = materializeFlowPersonnelDecisionAnswers({
+      scheme: anchoredScheme,
+      decisions: trustedReplanDecisions,
+    })
+    personnelDecisionMaterialization.applied.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_personnel_decision_materialized',
+        message: `已把已确认的部门主管层级写回“${item.stepKey}”的人员配置。`,
+        decisionKey: item.decisionKey,
+        stepKey: item.stepKey,
+        mode: item.departmentManager.mode,
+        level: item.departmentManager.level,
+      })
+    })
+    personnelDecisionMaterialization.skipped.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_personnel_decision_materialization_skipped',
+        message: '这条人员决策未能写回人员配置，已按当前方案继续。',
+        decisionKey: item.decisionKey,
+        stepKey: item.stepKey,
+        reason: item.reason,
+      })
+    })
+    // 业务线索已点名具体对象时先落位人员配置，再回收重复题：
+    // 已确定的来源不会退化成一道五选项来源题，缺层级才由后续评估单独追问。
+    const clueDerivation = deriveFlowSchemePersonnelRequirementsFromClues({
+      scheme: personnelDecisionMaterialization.scheme,
+      evidence: resolveNocodeEditorFlowPersonnelSourceEvidence(flowSummary),
+      userMessage: currentUserMessage,
+    })
+    clueDerivation.derived.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_personnel_source_derived_from_clue',
+        message: `人员来源已按业务线索“${item.matchedText}”确定为 ${item.sourceType}，无需再确认来源。`,
+        stepKey: item.stepKey,
+        sourceType: item.sourceType,
+        matchedText: item.matchedText,
+      })
+    })
+    // 人员来源/层级已在方案里确定时，回收模型重复提出的确认题；
+    // 先收敛再评估，避免已确定的来源又被派生成一道来源题。
+    const personnelReconciliation = reconcilePersonnelQuestionsWithRequirements({
+      scheme: clueDerivation.scheme,
+    })
+    personnelReconciliation.reconciled.forEach((item) => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_personnel_question_superseded_by_requirement',
+        message: `“${item.stepTitle}”的${item.slot === 'source' ? '人员来源' : '审批层级'}已在方案中确定，无需重复确认。`,
+        decisionKey: item.decisionKey,
+        stepKey: item.stepKey,
+        slot: item.slot,
+      })
+    })
+    const assessedScheme = removeDeferredCapabilityConfirmationQuestions(
+      assessAndDecorateFlowSchemePersonnelDependencies({
+        scheme: personnelReconciliation.scheme,
+        flowSummary,
+      }),
+    )
+    const fieldDecisionConvergence = convergeNocodeEditorFlowFieldDecisions({
+      scheme: assessedScheme,
       flowSummary,
+      flowConfirmationDecisions,
     })
     const approvalOwnerConvergence = convergeNocodeEditorFlowSchemeApprovalOwners({
-      scheme: assessedScheme,
+      scheme: fieldDecisionConvergence.scheme,
       flowSummary,
       flowConfirmationDecisions,
       planningContextKey,
     })
-    const decoratedScheme = decorateStagedFlowScheme(assessedScheme)
+    const convergedScheme = approvalOwnerConvergence.scheme
+    let replanQuestionConvergence: FlowReplanQuestionConvergenceResult = {
+      scheme: convergedScheme,
+      diagnostics: [],
+      consumedDecisionKeys: [],
+    }
+    try {
+      replanQuestionConvergence = convergeNocodeEditorFlowReplanQuestions({
+        scheme: convergedScheme,
+        decisions: trustedReplanDecisions,
+        flowSummary,
+      })
+    } catch (error) {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_replan_question_convergence_failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    flowConfirmationDiagnostics.push(...replanQuestionConvergence.diagnostics)
+    const replanConvergedScheme = replanQuestionConvergence.scheme
+    // 收敛之后再校验：只拦真正会展示给用户的待答选项。
+    const fieldValueOptionDiagnostics = validateFlowFieldValueOptions({
+      scheme: replanConvergedScheme,
+      flowSummary,
+    })
+    if (fieldValueOptionDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-field-value-options-invalid',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程方案里有确认题的选项和对应字段的现有选项对不上。请直接使用字段已有选项，或去掉该题后重新提交方案。',
+        code: 'flow_field_value_options_invalid',
+        diagnostics: fieldValueOptionDiagnostics.map(item => ({
+          code: item.code,
+          message: item.message,
+          questionId: item.questionId,
+          questionTitle: item.questionTitle,
+          decisionKey: item.decisionKey,
+          fieldId: item.fieldId,
+          fieldName: item.fieldName,
+          invalidOptions: item.invalidOptions,
+          validOptions: item.validOptions,
+        })),
+      })
+    }
+    fieldDecisionConvergence.applied.forEach(item => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_field_decision_applied',
+        message: `已把用户选择的现有字段应用到流程方案（${item.capability === 'condition' ? '条件判断' : '数据来源'}）。`,
+        decisionKey: item.decisionKey,
+        capability: item.capability,
+        scopeKey: item.scopeKey,
+        fieldId: item.fieldId,
+        fieldName: item.fieldName,
+        dependencyIds: item.dependencyIds,
+        closedQuestionIds: item.closedQuestionIds,
+      })
+    })
+    fieldDecisionConvergence.skipped.forEach(item => {
+      flowConfirmationDiagnostics.push({
+        code: 'flow_field_decision_skipped',
+        message: '用户选择的现有字段未能写入流程方案，请按当前确认题重新确认。',
+        decisionKey: item.decisionKey,
+        capability: item.capability,
+        reason: item.reason,
+        fieldId: item.fieldId,
+      })
+    })
+    const consumedDecisionKeys = new Set([
+      ...fieldDecisionConvergence.consumedDecisionKeys,
+      ...replanQuestionConvergence.consumedDecisionKeys,
+    ].map(key => String(key).trim().toLowerCase()).filter(Boolean))
+    flowConfirmationDiagnostics.forEach((diagnostic) => {
+      if (
+        diagnostic.code !== 'flow_confirmation_decision_superseded_by_replan'
+        && diagnostic.code !== 'flow_confirmation_decision_partially_applied'
+      ) {
+        return
+      }
+      const keys = diagnostic.code === 'flow_confirmation_decision_superseded_by_replan'
+        ? diagnostic.providedKeys
+        : diagnostic.unmatchedKeys
+      const unresolvedKeys = Array.isArray(keys) ? keys : []
+      if (
+        unresolvedKeys.length
+        && unresolvedKeys.every(key => consumedDecisionKeys.has(String(key).trim().toLowerCase()))
+      ) {
+        diagnostic.consumedByDecisionConvergence = true
+      }
+    })
+    const personnelCandidateDiagnostics = validateFlowPersonnelConfirmationCandidates({
+      scheme: personnelReconciliation.scheme,
+      confirmation: personnelReconciliation.scheme.confirmation,
+      flowSummary,
+    })
+    if (personnelCandidateDiagnostics.length) {
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-personnel-confirmation-candidate-not-grounded',
+        sourceStage: 'flow-scheme',
+        planningContextKey: planningContextKey || undefined,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '流程人员确认题包含未被当前项目证据支持的选项，请先修订确认题后再继续。',
+        code: 'personnel_confirmation_candidate_not_grounded',
+        diagnostics: personnelCandidateDiagnostics.map(diagnostic => ({
+          code: 'personnel_confirmation_candidate_not_grounded',
+          message: diagnostic.message,
+          questionId: diagnostic.questionId,
+          decisionKey: diagnostic.decisionKey,
+          stepKey: diagnostic.stepKey,
+          optionValue: diagnostic.optionValue,
+        })),
+      })
+    }
+    const decoratedScheme = decorateStagedFlowScheme(replanConvergedScheme)
     const decisionConflictIssues = buildUnifiedFlowIssuesFromDecisionConflicts({
       conflicts: decisionReconciliation.conflicts,
+      planningContextKey,
+    })
+    const schemeStructureIssues = buildUnifiedFlowIssuesFromFlowSchemeStructure({
+      scheme: decoratedScheme,
       planningContextKey,
     })
     const routingState = buildFlowSchemeRoutingState({
       scheme: decoratedScheme,
       planningContextKey,
+      personnelSourceEvidence: resolveNocodeEditorFlowPersonnelSourceEvidence(flowSummary),
       internalIssues: [
         ...decisionConflictIssues,
         ...approvalOwnerConvergence.issues,
+        ...schemeStructureIssues,
       ],
     })
     const projectedScheme = projectFlowSchemeWithRoutingState(decoratedScheme, routingState)
+    if (projectedScheme.confirmation) {
+      projectedScheme.confirmation = {
+        ...projectedScheme.confirmation,
+        schemeRevision: stagedFlowScheme.value.revision + 1,
+        decisionSnapshot: Object.fromEntries(
+          projectedScheme.confirmation.questions
+            .filter(question => question.confirmed === true)
+            .map(question => [
+              String(question.decisionKey || question.id || '').trim(),
+              String(question.selectedOptionValue || question.options?.find(option => option.selected)?.value || question.answerSummary || '').trim(),
+            ]),
+        ),
+      }
+    }
     const reviewResult = normalizeNocodeEditorFlowSchemeReviewResult(input?.reviewResult)
+    clearFlowBlueprintStageFailureState()
     stagedFlowScheme.value = {
       revision: stagedFlowScheme.value.revision + 1,
       stagedAt: Date.now(),
@@ -5732,24 +7016,102 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       reviewResult,
       flowUnifiedIssues: routingState.flowUnifiedIssues,
       flowIssueRouting: routingState.flowIssueRouting,
+      // 方案身份随暂存结果一起持久化：卡片答完后 confirmation 会被消费成 null，
+      // 只有这里留存的 key 才能让下一轮摘要恢复同一个可信确认上下文，避免身份漂移导致答案作废重问。
+      planningContextKey: planningContextKey || undefined,
     }
 
-    return cloneValue(stagedFlowScheme.value)
+    const stagedResult = cloneValue(stagedFlowScheme.value)
+    const effectiveFlowConfirmationDiagnostics = flowConfirmationDiagnostics
+      .filter(item => item.consumedByDecisionConvergence !== true)
+    if (effectiveFlowConfirmationDiagnostics.length) {
+      return {
+        ...stagedResult,
+        flowConfirmationDiagnostics: effectiveFlowConfirmationDiagnostics,
+      }
+    }
+    return stagedResult
   }
 
   const stageFlowBlueprint = async (input: Record<string, any>) => {
+    const storedScheme = stagedFlowScheme.value.scheme
+    const storedSchemePlanningContextKey = storedScheme?.confirmation?.planningContextKey
+    const readiness = resolveFlowBlueprintReadiness(storedScheme)
+    if (!readiness.canStageBlueprint) {
+      const firstIssue = readiness.blockingIssues.find(issue => issue.stage === 'blueprint')!
+      recordFlowBlueprintStageFailure({
+        code: firstIssue.code,
+        planningContextKey: storedSchemePlanningContextKey,
+      })
+      if (firstIssue.code === 'flow_scheme_not_ready_for_blueprint') {
+        throw new FlowExecutionBlockerError({
+          blockedNextAction: 'editor_stage_flow_blueprint',
+          unifiedIssues: buildUnifiedFlowIssuesFromFlowSchemeNotReady({
+            planningContextKey: storedSchemePlanningContextKey,
+            blockedNextAction: 'editor_stage_flow_blueprint',
+            userMessage: firstIssue.message,
+          }),
+        })
+      }
+      const diagnostics = readiness.blockingIssues
+        .filter(issue => issue.stage === 'blueprint')
+        .map(issue => ({
+          code: issue.code,
+          message: issue.message,
+          path: issue.decisionKey
+            ? `confirmation.questions.${issue.decisionKey}`
+            : issue.dependencyId
+              ? `dependencies.${issue.dependencyId}`
+              : issue.deferredConfigItemId
+                ? `deferredConfigItems.${issue.deferredConfigItemId}`
+                : undefined,
+          decisionKey: issue.decisionKey,
+          dependencyId: issue.dependencyId,
+          deferredConfigItemId: issue.deferredConfigItemId,
+          ...(issue.diagnostics ? { diagnostics: issue.diagnostics } : {}),
+        }))
+      throw new FlowExecutionBlockerError({
+        issueId: firstIssue.issueId,
+        sourceStage: 'flow-plan',
+        planningContextKey: storedSchemePlanningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: firstIssue.message,
+        code: firstIssue.code,
+        diagnostics,
+      })
+    }
+    const storedSchemeStructureIssues = buildUnifiedFlowIssuesFromFlowSchemeStructure({
+      scheme: storedScheme,
+      planningContextKey: storedSchemePlanningContextKey,
+    })
+    if (storedSchemeStructureIssues.length) {
+      recordFlowBlueprintStageFailure({
+        code: String(storedSchemeStructureIssues[0].diagnostics?.[0]?.code || ''),
+        planningContextKey: storedSchemePlanningContextKey,
+      })
+      throw new FlowExecutionBlockerError({
+        unifiedIssues: storedSchemeStructureIssues,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+      })
+    }
     const rawBlueprint = input?.blueprint || input
     const contractValidation = validateNocodeEditorFlowBlueprintContract(rawBlueprint)
     if (!contractValidation.valid) {
       const firstDiagnostic = contractValidation.diagnostics[0]
+      const planningContextKey = stagedFlowScheme.value.scheme?.confirmation?.planningContextKey
+      recordFlowBlueprintStageFailure({
+        code: firstDiagnostic?.code,
+        planningContextKey,
+      })
       throw new FlowExecutionBlockerError({
         issueId: 'flow-blueprint-contract-invalid',
         sourceStage: 'flow-plan',
-        planningContextKey: stagedFlowScheme.value.scheme?.confirmation?.planningContextKey,
+        planningContextKey,
         blockedNextAction: 'editor_stage_flow_blueprint',
         userMessage: '流程蓝图节点配置不符合当前运行时约定，请基于节点示例修复后重新生成流程蓝图。',
         code: firstDiagnostic?.code,
         path: firstDiagnostic?.path,
+        diagnostics: contractValidation.diagnostics,
       })
     }
     const blueprint = normalizeNocodeEditorFlowBlueprint(rawBlueprint)
@@ -5786,6 +7148,39 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     }
     const targetFormId = String(targetedFlowPlan.target?.formId || '').trim()
     const targetFormName = String(targetedFlowPlan.target?.formName || '').trim()
+    // 蓝图目标同样兜底了当前打开表单：目标表单不存在时暂存只会产出无法应用的蓝图。
+    // 身份只用“声明值 + 已暂存方案”：当前打开表单的兜底 id 不能给幻影表单名背书。
+    const declaredBlueprintTargetFormId = String(
+      blueprint.target?.formId || inputFlowPlan?.target?.formId || currentScheme?.target?.formId || '',
+    ).trim()
+    const declaredBlueprintTargetFormName = String(
+      blueprint.target?.formName || inputFlowPlan?.target?.formName || currentScheme?.target?.formName || '',
+    ).trim()
+    const targetFormExistence = resolveFlowTargetFormDeclaration({
+      declaredFormId: declaredBlueprintTargetFormId,
+      declaredFormName: declaredBlueprintTargetFormName,
+      availableForms: availableForms.value,
+    })
+    if (targetFormExistence.status === 'not_found') {
+      recordFlowBlueprintStageFailure({
+        code: 'form_not_found',
+        planningContextKey: storedSchemePlanningContextKey,
+      })
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-blueprint-target-form-not-found',
+        sourceStage: 'flow-plan',
+        planningContextKey: storedSchemePlanningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '目标表单尚不存在，请先完成表单创建或生成后再暂存流程蓝图。',
+        code: 'form_not_found',
+        diagnostics: [{
+          code: 'form_not_found',
+          message: `target form not found: ${declaredBlueprintTargetFormName || declaredBlueprintTargetFormId}`,
+          targetFormId: declaredBlueprintTargetFormId || undefined,
+          targetFormName: declaredBlueprintTargetFormName || undefined,
+        }],
+      })
+    }
     const activeFormId = String(options.activeFormId.value || '').trim()
     const activeFormName = activeFormId
       ? String(
@@ -5801,64 +7196,11 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       )
     )
 
-    let validatedFlowPlan = targetedFlowPlan
-    if (isTargetFormAlreadyOpen) {
-      const formRuntime = options.formCreateRef.value
-      if (!formRuntime) {
-        throw new Error('当前未打开表单编辑器')
-      }
-      const flowSummary = await formRuntime.getAiFlowSummary?.()
-      if (flowSummary) {
-        if (currentScheme) {
-          const personnelPreflight = validateFlowBlueprintPersonnelRequirements({
-            plan: targetedFlowPlan,
-            scheme: currentScheme,
-            flowSummary,
-          })
-          if (personnelPreflight.diagnostics.length) {
-            const firstDiagnostic = personnelPreflight.diagnostics[0]
-            const isApprovalOwnerDiagnostic = String(firstDiagnostic?.code || '')
-              .startsWith('blueprint_approval_owner_')
-            throw new FlowExecutionBlockerError({
-              issueId: isApprovalOwnerDiagnostic
-                ? 'flow-blueprint-approval-owner-reference-inconsistent'
-                : 'flow-blueprint-personnel-reference-inconsistent',
-              sourceStage: 'flow-plan',
-              planningContextKey: currentScheme?.confirmation?.planningContextKey,
-              blockedNextAction: 'editor_stage_flow_blueprint',
-              userMessage: isApprovalOwnerDiagnostic
-                ? '流程蓝图内部的审批人字段引用与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。'
-                : '流程蓝图内部的人员来源与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。',
-              code: firstDiagnostic?.code,
-            })
-          }
-        }
-        const groundingDiagnostics = validateFlowPlanGrounding({
-          plan: targetedFlowPlan,
-          summary: flowSummary,
-        })
-        const groundingPartition = partitionFlowGroundingDiagnosticsByPlannedDependencies({
-          diagnostics: groundingDiagnostics,
-          dependencies: currentScheme?.dependencies || [],
-          targetFormId: targetFormId || activeFormId || undefined,
-          targetFormName: targetFormName || activeFormName || undefined,
-        })
-        if (groundingPartition.blocking.length > 0) {
-          throw new FlowGroundingConfirmationError({
-            planningContextKey: currentScheme?.confirmation?.planningContextKey,
-            diagnostics: groundingPartition.blocking,
-          })
-        }
-      }
-      validatedFlowPlan = await validateFlowPlanWithRuntime(targetedFlowPlan, formRuntime)
-    } else {
-      validatedFlowPlan = buildFlowNotValidatedPlan(targetedFlowPlan)
-    }
-    if (input?.__aiFlowPlanOptimizerStrictValidation) {
-      assertFlowPlanCanPassOptimizerStrictValidation(validatedFlowPlan)
-    }
-
-    if (sourceSchemeRevision > 0 && currentSchemeRevision > 0 && sourceSchemeRevision !== currentSchemeRevision) {
+    // 版本一致性是蓝图写入的前置条件：必须先于人员/审批人预检执行，否则旧方案会先报出
+    // 人员来源错误，掩盖真正的 source_scheme_revision_mismatch。
+    if (sourceSchemeRevision <= 0) {
+      mismatchReasons.push('source_scheme_revision_unverifiable')
+    } else if (currentSchemeRevision > 0 && sourceSchemeRevision !== currentSchemeRevision) {
       mismatchReasons.push('source_scheme_revision_mismatch')
     }
     if (
@@ -5875,13 +7217,193 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     ) {
       mismatchReasons.push('target_mismatch')
     }
-    const revision = stagedFlowBlueprint.value.revision + 1
-    const stagedAt = Date.now()
+    if (mismatchReasons.length) {
+      const firstMismatch = mismatchReasons[0]
+      const planningContextKey = String(currentScheme?.confirmation?.planningContextKey || '').trim()
+      recordFlowBlueprintStageFailure({
+        code: firstMismatch,
+        planningContextKey,
+      })
+      throw new FlowExecutionBlockerError({
+        issueId: firstMismatch === 'source_scheme_revision_mismatch'
+          ? 'flow-blueprint-source-scheme-revision-mismatch'
+          : firstMismatch === 'source_scheme_revision_unverifiable'
+            ? 'flow-blueprint-source-scheme-revision-unverifiable'
+            : 'flow-blueprint-target-mismatch',
+        sourceStage: 'flow-plan',
+        planningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: firstMismatch === 'source_scheme_revision_mismatch'
+          ? '流程方案已更新，当前蓝图基于旧方案版本，不能写入；请基于当前方案重新生成流程蓝图。'
+          : firstMismatch === 'source_scheme_revision_unverifiable'
+            ? '流程蓝图未携带来源方案版本，无法验证是否与当前方案一致，不能写入；请基于当前流程方案重新生成流程蓝图。'
+            : '流程蓝图目标表单与当前流程方案不一致，不能写入；请基于当前方案重新生成流程蓝图。',
+        code: firstMismatch,
+      })
+    }
+
+    // 生成前校验必须跑在目标表单的运行上下文里；编辑器没打开它时，严格校验只能拿到
+    // “未校验”的方案。这里直接告诉用户下一步，不再把内部校验口径当成失败原因抛给用户。
+    if (input?.__aiFlowPlanOptimizerStrictValidation && !isTargetFormAlreadyOpen) {
+      recordFlowBlueprintStageFailure({
+        code: 'target_form_not_open',
+        planningContextKey: storedSchemePlanningContextKey,
+      })
+      const targetFormLabel = targetFormName || targetFormId
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-blueprint-target-form-not-open',
+        sourceStage: 'flow-plan',
+        planningContextKey: storedSchemePlanningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: targetFormLabel
+          ? `需要先打开目标表单“${targetFormLabel}”，才能在这里生成流程。请在编辑器中打开该表单，然后回复“继续”接着生成。`
+          : '需要先打开目标表单，才能在这里生成流程。请在编辑器中打开该表单，然后回复“继续”接着生成。',
+        code: 'target_form_not_open',
+        userActionRequired: true,
+      })
+    }
+
+    let validatedFlowPlan = targetedFlowPlan
+    let groundedFlowPlan = targetedFlowPlan
+    if (isTargetFormAlreadyOpen) {
+      const formRuntime = options.formCreateRef.value
+      if (!formRuntime) {
+        throw new Error('当前未打开表单编辑器')
+      }
+      const flowSummary = await formRuntime.getAiFlowSummary?.()
+      if (flowSummary) {
+        groundedFlowPlan = convergeFlowPlanFieldDecisions({
+          plan: targetedFlowPlan,
+          scheme: currentScheme,
+          flowSummary,
+        }).plan
+        if (currentScheme) {
+          const personnelPreflight = validateFlowBlueprintPersonnelRequirements({
+            plan: groundedFlowPlan,
+            scheme: currentScheme,
+            flowSummary,
+          })
+          const blockingDiagnostics = personnelPreflight.diagnostics.filter(diagnostic => (
+            (diagnostic.severity || 'blocking') === 'blocking'
+          ))
+          if (blockingDiagnostics.length) {
+            const planningContextKey = currentScheme?.confirmation?.planningContextKey
+            const schemeRootedDiagnostics = blockingDiagnostics.filter(diagnostic => diagnostic.routeToScheme === true)
+            if (schemeRootedDiagnostics.length) {
+              recordFlowBlueprintStageFailure({
+                code: schemeRootedDiagnostics[0]?.code,
+                planningContextKey,
+              })
+              throw new FlowExecutionBlockerError({
+                unifiedIssues: buildUnifiedFlowIssuesFromSchemeRestageDiagnostics({
+                  diagnostics: schemeRootedDiagnostics,
+                  sourceStage: 'flow-plan',
+                  planningContextKey,
+                  blockedNextAction: 'editor_stage_flow_blueprint',
+                }),
+                blockedNextAction: 'editor_stage_flow_blueprint',
+              })
+            }
+            const firstDiagnostic = blockingDiagnostics[0]
+            const isApprovalOwnerDiagnostic = String(firstDiagnostic?.code || '')
+              .startsWith('blueprint_approval_owner_')
+            recordFlowBlueprintStageFailure({
+              code: firstDiagnostic?.code,
+              planningContextKey,
+            })
+            throw new FlowExecutionBlockerError({
+              issueId: isApprovalOwnerDiagnostic
+                ? 'flow-blueprint-approval-owner-reference-inconsistent'
+                : 'flow-blueprint-personnel-reference-inconsistent',
+              sourceStage: 'flow-plan',
+              planningContextKey,
+              blockedNextAction: 'editor_stage_flow_blueprint',
+              userMessage: isApprovalOwnerDiagnostic
+                ? '流程蓝图内部的审批人字段引用与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。'
+                : '流程蓝图内部的人员来源与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。',
+              code: firstDiagnostic?.code,
+              diagnostics: blockingDiagnostics,
+            })
+          }
+        }
+        const groundingDiagnostics = validateFlowPlanGrounding({
+          plan: groundedFlowPlan,
+          summary: flowSummary,
+          allowConfirmedSequentialWrites: isFlowReplanSequentialWriteConfirmed(currentScheme),
+        })
+        const groundingPartition = partitionFlowGroundingDiagnosticsByPlannedDependencies({
+          diagnostics: groundingDiagnostics,
+          dependencies: currentScheme?.dependencies || [],
+          targetFormId: targetFormId || activeFormId || undefined,
+          targetFormName: targetFormName || activeFormName || undefined,
+        })
+        if (groundingPartition.blocking.length > 0) {
+          throw new FlowGroundingConfirmationError({
+            planningContextKey: currentScheme?.confirmation?.planningContextKey,
+            diagnostics: groundingPartition.blocking,
+          })
+        }
+      }
+      validatedFlowPlan = await validateFlowPlanWithRuntime(groundedFlowPlan, formRuntime)
+    } else {
+      const pathDiagnostics = validateFlowPlanGrounding({
+        plan: targetedFlowPlan,
+        summary: null,
+        allowConfirmedSequentialWrites: isFlowReplanSequentialWriteConfirmed(currentScheme),
+      }).filter(diagnostic => diagnostic.code === 'grounding_sequential_write_conflict')
+      if (pathDiagnostics.length) {
+        throw new FlowGroundingConfirmationError({
+          planningContextKey: currentScheme?.confirmation?.planningContextKey,
+          diagnostics: pathDiagnostics,
+        })
+      }
+      validatedFlowPlan = buildFlowNotValidatedPlan(targetedFlowPlan)
+    }
+    if (input?.__aiFlowPlanOptimizerStrictValidation) {
+      assertFlowPlanCanPassOptimizerStrictValidation(validatedFlowPlan)
+    }
+
+    const effectiveSourceSchemeRevision = sourceSchemeRevision || undefined
+    if (hasFlowBlueprintSourceRevisionContentConflict({
+      previousBlueprint: stagedFlowBlueprint.value.blueprint,
+      previousSourceSchemeRevision: stagedFlowBlueprint.value.sourceSchemeRevision,
+      nextBlueprint: targetedBlueprint,
+      nextSourceSchemeRevision: effectiveSourceSchemeRevision,
+    })) {
+      recordFlowBlueprintStageFailure({
+        code: 'flow_blueprint_source_revision_content_conflict',
+        planningContextKey: storedSchemePlanningContextKey,
+      })
+      throw new FlowExecutionBlockerError({
+        issueId: 'flow-blueprint-source-revision-content-conflict',
+        sourceStage: 'flow-plan',
+        planningContextKey: storedSchemePlanningContextKey,
+        blockedNextAction: 'editor_stage_flow_blueprint',
+        userMessage: '当前流程方案版本已暂存不同内容的流程蓝图，请先更新流程方案版本后再提交新的蓝图。',
+        code: 'flow_blueprint_source_revision_content_conflict',
+        diagnostics: [{
+          code: 'flow_blueprint_source_revision_content_conflict',
+          message: 'same sourceSchemeRevision cannot be overwritten with different blueprint content',
+          sourceSchemeRevision: effectiveSourceSchemeRevision,
+        }],
+      })
+    }
+    const configurationChanged = hasFlowBlueprintConfigurationChanged(
+      stagedFlowBlueprint.value.blueprint,
+      targetedBlueprint,
+    )
+    const revision = configurationChanged
+      ? stagedFlowBlueprint.value.revision + 1
+      : stagedFlowBlueprint.value.revision
+    const stagedAt = configurationChanged
+      ? Date.now()
+      : stagedFlowBlueprint.value.stagedAt
     const applyResult = null
+    clearFlowBlueprintStageFailureState()
     stagedFlowBlueprint.value = {
       revision,
       stagedAt,
-      sourceSchemeRevision: sourceSchemeRevision || currentSchemeRevision || undefined,
+      sourceSchemeRevision: effectiveSourceSchemeRevision,
       blueprint: targetedBlueprint,
       mismatchReasons: mismatchReasons.length ? mismatchReasons : null,
       applyResult,
@@ -5889,7 +7411,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     stagedFlowPlan.value = {
       revision,
       stagedAt,
-      sourceSchemeRevision: sourceSchemeRevision || currentSchemeRevision || undefined,
+      sourceSchemeRevision: effectiveSourceSchemeRevision,
       flowPlan: validatedFlowPlan,
       applyResult,
     }
@@ -5897,7 +7419,221 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     return {
       ...cloneValue(stagedFlowBlueprint.value),
       flowPlan: cloneValue(validatedFlowPlan),
+      configurationChanged,
+      versionChanged: configurationChanged,
     }
+  }
+
+  type BlueprintSourceTargetCompletion = Pick<
+    ReturnType<typeof completeNocodeEditorBlueprintSourceTargets>,
+    'synthesizedForms' | 'resolvedSourceFields'
+  >
+
+  const PLAN_TEXT_FIRST_SOURCE_REASON = 'planning_text_first_default'
+  const PLAN_RELATION_SOURCE_REASON = 'planning_relation_binding'
+
+  const buildBlueprintSourceTargetMissingMessage = (
+    unresolved: ReturnType<typeof completeNocodeEditorBlueprintSourceTargets>['unresolved'],
+  ) => {
+    const labels = unresolved.map((item) => {
+      const target = item.formName || item.formKey || '未命名关联表'
+      const fields = item.fieldNames.length
+        ? `被引用字段：${item.fieldNames.join('、')}`
+        : '缺少被引用的显示字段'
+      const owners = item.owners.length ? `引用位置：${item.owners.join('、')}` : ''
+      return `${target}（${[fields, owners].filter(Boolean).join('；')}）`
+    })
+    return [
+      `蓝图字段的 source 指向了未包含在蓝图中的关联表：${labels.join('；')}。`,
+      '如果这些字段需要关联，请在 blueprint.forms 中加入该关联表，并在其 fields 中补齐被 source 引用的显示字段，保留主表字段的 source 指向；不要只保留 source 引用，也不要把“表不存在/是否新建”写进 openQuestions 或待确认项。',
+      '如果不再需要关联，请删除对应 source；如果关联表或显示字段仍未确定，请提出一个问题，并给出完整可选项：新建该表并关联（默认）、改用已有表单、先手填文本。',
+    ].join('')
+  }
+
+  const stripTextFirstFieldSources = (
+    blueprint: NocodeEditorAiAppBlueprint,
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
+  ) => {
+    const stripped: string[] = []
+    const visit = (
+      form: NocodeEditorAiAppBlueprintForm,
+      field: NocodeEditorAiAppBlueprintField,
+    ) => {
+      if (
+        hasMeaningfulBlueprintSource(field.source)
+        && shouldUseTextForBlueprintField({ blueprint, form, field, planningCarryover })
+      ) {
+        // 规划已确认“不关联”，模型仍写了 source：以用户决策为准，直接落文本字段。
+        field.source = undefined
+        stripped.push(`${form.tableName}.${field.name}`)
+      }
+      ;(Array.isArray(field.children) ? field.children : []).forEach(child => visit(form, child))
+    }
+    blueprint.forms.forEach(form => {
+      ;(Array.isArray(form.fields) ? form.fields : []).forEach(field => visit(form, field))
+    })
+    return Array.from(new Set(stripped))
+  }
+
+  const findBlueprintFieldBySourceTarget = (
+    form: NocodeEditorAiAppBlueprintForm,
+    target: { fieldKey?: string; fieldName?: string },
+  ): NocodeEditorAiAppBlueprintField | undefined => {
+    const fieldKey = String(target.fieldKey || '').trim()
+    const fieldName = String(target.fieldName || '').trim()
+    const stack = [...(Array.isArray(form.fields) ? form.fields : [])]
+    while (stack.length) {
+      const field = stack.shift()!
+      if (
+        (fieldKey && isSameToken(field.fieldKey, fieldKey))
+        || (fieldName && isSameToken(field.name, fieldName))
+      ) {
+        return field
+      }
+      if (Array.isArray(field.children) && field.children.length) {
+        stack.push(...field.children)
+      }
+    }
+    return undefined
+  }
+
+  const demoteTextFirstUnresolvedSourceTargets = (
+    blueprint: NocodeEditorAiAppBlueprint,
+    unresolved: NocodeEditorBlueprintUnresolvedSourceTarget[],
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
+  ) => {
+    const demoted: string[] = []
+    unresolved.forEach((item) => {
+      (item.ownerTargets || []).forEach((target) => {
+        const form = blueprint.forms.find(candidate => (
+          (target.formKey && isSameToken(candidate.formKey, target.formKey))
+          || (target.formName && isSameToken(candidate.tableName, target.formName))
+        ))
+        const field = form ? findBlueprintFieldBySourceTarget(form, target) : undefined
+        if (!form || !field || !hasMeaningfulBlueprintSource(field.source)) {
+          return
+        }
+        if (!shouldUseTextForBlueprintField({ blueprint, form, field, planningCarryover })) {
+          return
+        }
+        field.source = undefined
+        demoted.push(`${form.tableName}.${field.name}`)
+      })
+    })
+    return Array.from(new Set(demoted))
+  }
+
+  const completeBlueprintSourceTargetsForStaging = (
+    blueprint: NocodeEditorAiAppBlueprint,
+    planningCarryover?: NocodeEditorBlueprintPlanningCarryover | null,
+  ): BlueprintSourceTargetCompletion => {
+    const buildCompletion = () => completeNocodeEditorBlueprintSourceTargets({
+      forms: blueprint.forms,
+      // 存在性判断用全部真实表（含子表），避免把已有表误判成缺失而重复建表。
+      existingForms: getCurrentTables().map(item => ({
+        tableName: item?.alias,
+        tableId: item?.uid,
+      })),
+    })
+
+    // 先剥掉“取自本表”的脏来源，再按决策落 source：负向剥离 → 正向绑定 → 部分来源补全。
+    const selfSourcedFields = stripSelfReferentialBlueprintSources(blueprint)
+    const demotedFields = stripTextFirstFieldSources(blueprint, planningCarryover)
+    const boundFields = applyPlanningRelationBindings(
+      blueprint,
+      planningCarryover?.relationBindings,
+      {
+        shouldSkipField: (form, field) => shouldUseTextForBlueprintField({
+          blueprint,
+          form,
+          field,
+          planningCarryover,
+        }),
+      },
+    )
+    const completedSourceFields = completePartialBlueprintSources(
+      blueprint,
+      planningCarryover?.relationBindings,
+    )
+    let completion = buildCompletion()
+    if (completion.unresolved.length) {
+      // 只有“用户已明确选文本优先”的字段才降级；没有决策依据的悬空 source 仍交给模型补全，
+      // 避免把用户自由文本里明确要求的关联静默丢掉。
+      demotedFields.push(...demoteTextFirstUnresolvedSourceTargets(
+        blueprint,
+        completion.unresolved,
+        planningCarryover,
+      ))
+      completion = buildCompletion()
+    }
+    if (completion.unresolved.length) {
+      throw Object.assign(new Error(buildBlueprintSourceTargetMissingMessage(completion.unresolved)), {
+        blueprintSourceTargetErrorCode: NOCODE_EDITOR_BLUEPRINT_SOURCE_TARGET_MISSING,
+        blueprintSourceTargetForms: completion.unresolved
+          .map(item => item.formName || item.formKey)
+          .filter(Boolean),
+      })
+    }
+
+    const decisionAssumptions: string[] = []
+    if (selfSourcedFields.length) {
+      decisionAssumptions.push(`已移除指向本表单自身的字段来源：${selfSourcedFields
+        .map(item => `“${item}”`)
+        .join('、')}。`)
+    }
+    if (demotedFields.length) {
+      const uniqueDemotedFields = Array.from(new Set(demotedFields))
+      decisionAssumptions.push(`已按规划阶段的答复，将${uniqueDemotedFields
+        .map(item => `“${item}”`)
+        .join('、')}按文本字段处理。`)
+    }
+    const bindingAssumption = formatRelationBindingAssumption(boundFields)
+    if (bindingAssumption) {
+      decisionAssumptions.push(bindingAssumption)
+    }
+    if (completedSourceFields.length) {
+      decisionAssumptions.push(`已按关联决策补齐来源字段：${completedSourceFields
+        .map(item => `“${item}”`)
+        .join('、')}。`)
+    }
+    if (decisionAssumptions.length) {
+      blueprint.assumptions = Array.from(new Set([
+        ...normalizeStringArray(blueprint.assumptions),
+        ...decisionAssumptions,
+      ]))
+    }
+
+    if (!completion.synthesizedForms.length) {
+      return completion
+    }
+
+    blueprint.forms = completion.forms as NocodeEditorAiAppBlueprint['forms']
+    const assumption = `已按字段关联来源补全关联表：${completion.synthesizedForms
+      .map(form => `“${form.tableName}”（${form.fields.map(field => field.name).join('、')}）`)
+      .join('；')}；可在蓝图中调整。`
+    blueprint.assumptions = Array.from(new Set([
+      ...normalizeStringArray(blueprint.assumptions),
+      assumption,
+    ]))
+    return completion
+  }
+
+  const stripResolvedSourceQuestions = (
+    blueprint: NocodeEditorAiAppBlueprint & { confirmation?: NocodeEditorAiConfirmPayload | null },
+    completion: BlueprintSourceTargetCompletion,
+  ) => {
+    if (!completion.synthesizedForms.length) {
+      return
+    }
+    blueprint.openQuestions = filterNocodeEditorBlueprintResolvedSourceOpenQuestions(
+      blueprint.openQuestions,
+      completion.synthesizedForms,
+    )
+    blueprint.confirmation = downgradeNocodeEditorBlueprintResolvedSourceQuestions(
+      blueprint.confirmation,
+      completion.synthesizedForms,
+      completion.resolvedSourceFields,
+    ) || undefined
   }
 
   const stageAppBlueprint = async (input: Record<string, any>) => {
@@ -5910,6 +7646,8 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     input = normalizedInputResult.input
     const currentUserMessage = String(input.__currentUserMessage || '').trim()
     delete input.__currentUserMessage
+    const currentTurnTraceId = String(input.__currentTurnTraceId || '').trim()
+    delete input.__currentTurnTraceId
     const currentBlueprint = stagedAppBlueprint.value.blueprint
     const updateMode = String(input?.updateMode || '').trim()
     if (updateMode !== 'patch' && updateMode !== 'replace') {
@@ -5926,15 +7664,41 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       throw new Error('updateMode=replace 时不能同时传入显式删除清单')
     }
     if (updateMode === 'patch' && !currentBlueprint) {
-      throw new Error('当前没有可供 patch 的暂存蓝图，新建蓝图请使用 updateMode=replace')
+      throw Object.assign(
+        new Error('当前没有可供 patch 的暂存蓝图，新建蓝图请使用 updateMode=replace'),
+        {
+          blueprintStageErrorCode: 'blueprint_patch_without_staged_blueprint',
+          blueprintRetryUpdateMode: 'replace',
+        },
+      )
     }
     const nextBlueprint = normalizeBlueprint(input, {
       allowEmptyForms: updateMode === 'patch',
+      allowMissingFieldNames: updateMode === 'patch',
+      allowMissingFormTableName: updateMode === 'patch',
     })
-    const nextBlueprintFormula = normalizeBlueprintFormulaSettings(nextBlueprint)
-    const normalizedNextBlueprint = nextBlueprintFormula.blueprint
+    const rawInputBlueprint = (input?.blueprint && typeof input.blueprint === 'object')
+      ? input.blueprint
+      : input
+    const rawInputForms = Array.isArray(rawInputBlueprint?.forms) ? rawInputBlueprint.forms : []
+    if (updateMode === 'patch' && rawInputForms.length && !nextBlueprint.forms.length) {
+      throw new Error(
+        'patch 提交的表单缺少 formKey/tableName 等表单身份信息，无法匹配当前暂存蓝图（表单已被全部忽略）。'
+        + '请先调用 editor_get_staged_app_blueprint（detail="structure"）读取当前暂存的 formKey / tableName 和字段清单，再按真实标识重新提交 patch；'
+        + '或改用 updateMode=replace 提交完整蓝图快照。',
+      )
+    }
+    // 删除清单未命中、部分未命中或歧义都会静默 no-op/半执行；统一解析后显式失败。
+    const deletionPlan = updateMode === 'patch'
+      && currentBlueprint
+      && (deletedFormKeys.length || deletedFields.length)
+      ? resolveBlueprintDeletionPlan(currentBlueprint, deletedFormKeys, deletedFields)
+      : null
+    if (deletionPlan?.issues.length) {
+      throw new Error(formatBlueprintDeletionPlanIssues(deletionPlan, currentBlueprint))
+    }
     const currentBlueprintId = String(currentBlueprint?.id || '').trim()
-    const nextBlueprintId = String(normalizedNextBlueprint.id || '').trim()
+    const nextBlueprintId = String(nextBlueprint.id || '').trim()
     if (
       updateMode === 'patch'
       && currentBlueprintId
@@ -5946,6 +7710,9 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const latestCompletedPlanningConfirmation = (
       input?.latestCompletedPlanningConfirmation as NocodeEditorAiConfirmPayload | null | undefined
     ) || null
+    const latestCompletedBlueprintConfirmation = (
+      input?.latestCompletedBlueprintConfirmation as NocodeEditorAiConfirmPayload | null | undefined
+    ) || null
     const planningContinuation = resolvePlanningContinuationForToolInput(input)
     const sourcePlanningContextKey = resolvePlanningContinuationSourceContextKey({
       latestCompletedPlanningContextKey: latestCompletedPlanningConfirmation?.planningContextKey
@@ -5955,18 +7722,39 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const planningScope = resolveActiveBlueprintPlanningScope(sourcePlanningContextKey)
     const activePlanningOutline = getActivePlanningOutline()
     const activePlanningContextKey = resolveCurrentStagedPlanningContextKey()
-    const hasConfirmedPlanningScope = Boolean(
-      latestCompletedPlanningConfirmation
-      && (
-        !sourcePlanningContextKey
-        || !activePlanningContextKey
-        || sourcePlanningContextKey === activePlanningContextKey
-      )
+    const activePlanningOutlineTurnTraceId = getActivePlanningOutlineTurnTraceId()
+    const planningOutlineStagedInCurrentTurn = Boolean(
+      currentTurnTraceId
+      && activePlanningOutlineTurnTraceId
+      && currentTurnTraceId === activePlanningOutlineTurnTraceId,
     )
+    const plannedFormsForScope = resolveNocodeEditorBlueprintScopePlannedForms({
+      outlineForms: activePlanningOutline?.forms || [],
+      hasCompletedPlanningConfirmation: Boolean(latestCompletedPlanningConfirmation),
+      hasPlanningContinuationAutoContinue: Boolean(
+        planningContinuation?.autoContinueWithoutConfirmation,
+      ),
+      planningOutlineStagedInCurrentTurn,
+      sourcePlanningContextKey,
+      currentPlanningContextKey: activePlanningContextKey,
+    })
+    const hasActivePlanningScope = plannedFormsForScope.length > 0
+    const blueprintWithAlignedForms = hasActivePlanningScope
+      ? {
+        ...nextBlueprint,
+        forms: alignNocodeEditorBlueprintFormIdentities(
+          activePlanningOutline?.forms || [],
+          nextBlueprint.forms,
+        ),
+      }
+      : nextBlueprint
+    const nextBlueprintFormula = normalizeBlueprintFormulaSettings(blueprintWithAlignedForms)
+    const scopedNextBlueprint = nextBlueprintFormula.blueprint
     const scopeValidation = validateNocodeEditorBlueprintReplaceScope({
       updateMode,
-      plannedForms: hasConfirmedPlanningScope ? activePlanningOutline?.forms || [] : [],
-      proposedForms: normalizedNextBlueprint.forms,
+      plannedForms: plannedFormsForScope,
+      proposedForms: scopedNextBlueprint.forms,
+      currentForms: currentBlueprint?.forms || [],
       hasCurrentBlueprint: Boolean(currentBlueprint),
       currentUserMessage,
     })
@@ -5974,37 +7762,45 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       throw Object.assign(new Error(scopeValidation.message), {
         blueprintScopeErrorCode: scopeValidation.code,
         blueprintScopeMissingForms: scopeValidation.missingForms,
+        blueprintScopeUnexpectedForms: scopeValidation.unexpectedForms,
+        blueprintScopePlannedForms: scopeValidation.plannedForms,
       })
     }
     const currentSourcePlanningContextKey = stagedAppBlueprint.value.sourcePlanningContextKey || null
     const shouldCarryBlueprintId = updateMode === 'patch'
       ? Boolean(currentBlueprint)
       : shouldCarryCurrentBlueprintId({
-        nextBlueprint: normalizedNextBlueprint,
+        nextBlueprint: scopedNextBlueprint,
         currentBlueprint,
         currentSourcePlanningContextKey,
         nextSourcePlanningContextKey: sourcePlanningContextKey,
       })
     const blueprintBase = shouldCarryBlueprintId ? currentBlueprint : null
-    const blueprintInput = shouldCarryBlueprintId || normalizedNextBlueprint.id
-      ? normalizedNextBlueprint
+    const blueprintInput = shouldCarryBlueprintId || scopedNextBlueprint.id
+      ? scopedNextBlueprint
       : {
-        ...normalizedNextBlueprint,
+        ...scopedNextBlueprint,
         id: createBlueprintId(),
       }
     const planningCarryover = resolvePlanningCarryoverForToolInput(input)
-    const blueprint = enhanceBlueprint(
-      normalizeSingleFormBlueprintFragments(
-        mergeBlueprintWithCurrent(
-          blueprintInput,
-          blueprintBase,
-          {
-            updateMode,
-            deletedFormKeys,
-            deletedFields,
-          },
-        ),
+    const mergedBlueprint = normalizeSingleFormBlueprintFragments(
+      mergeBlueprintWithCurrent(
+        blueprintInput,
+        blueprintBase,
+        {
+          updateMode,
+          deletedFormKeys,
+          deletedFields,
+          deletionPlan: deletionPlan || undefined,
+        },
       ),
+    )
+    const sourceTargetCompletion = completeBlueprintSourceTargetsForStaging(
+      mergedBlueprint,
+      planningCarryover,
+    )
+    const blueprint = enhanceBlueprint(
+      mergedBlueprint,
       {
         collectFieldClarifications: true,
         planningCarryover,
@@ -6012,15 +7808,39 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     ) as NocodeEditorAiAppBlueprint & {
       confirmation?: NocodeEditorAiConfirmPayload | null
     }
+    stripResolvedSourceQuestions(blueprint, sourceTargetCompletion)
     if (!blueprint.forms.length) {
       throw new Error('蓝图至少需要保留一个表单')
     }
+    const blueprintConfirmationProjection = reconcileBlueprintConfirmationDecisions({
+      confirmation: blueprint.confirmation,
+      openQuestions: blueprint.openQuestions,
+      completedConfirmation: latestCompletedBlueprintConfirmation,
+      summary: blueprint.summary,
+    })
+    blueprint.openQuestions = blueprintConfirmationProjection.openQuestions
+    blueprint.confirmation = blueprintConfirmationProjection.confirmation || undefined
+    // 本回合 patch 显式声明的字段类型优先于已在确认卡里完成的选择；
+    // 冲突时给决定打覆盖标记（保留原答案文本），避免后续回合再按旧答案把字段钉回去。
+    applyBlueprintConfirmationFieldDecisions(blueprint, {
+      rawFieldWidgetTypeMap: collectRawBlueprintFieldWidgetTypeMap({
+        forms: blueprint.forms,
+        rawForms: rawInputForms,
+      }),
+    })
     blueprint.openQuestions = resolveStageBlueprintOpenQuestions({
       currentBlueprint,
-      nextBlueprint: normalizedNextBlueprint,
+      nextBlueprint: scopedNextBlueprint,
       stagedBlueprint: blueprint,
       planningCarryover,
     })
+    // resolveStageBlueprintOpenQuestions 会从本轮模型输入重新并入 openQuestions；
+    // 已自动补全关联表的问题前提已消失，必须在最终投影前再过滤一次。
+    // 公式校验问题不参与过滤，避免把真实的公式错误一并吞掉。
+    blueprint.openQuestions = filterNocodeEditorBlueprintResolvedSourceOpenQuestions(
+      blueprint.openQuestions,
+      sourceTargetCompletion.synthesizedForms,
+    )
     blueprint.openQuestions = Array.from(new Set([
       ...blueprint.openQuestions,
       ...nextBlueprintFormula.issues.map(issue => issue.message),
@@ -6031,7 +7851,42 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       summary: blueprint.summary,
     })
     blueprint.openQuestions = scopedBlueprintConfirmation.openQuestions
-    blueprint.confirmation = scopedBlueprintConfirmation.confirmation || undefined
+    const attachedBlueprintConfirmation = attachBlueprintFieldClarificationQuestionTargets(
+      scopedBlueprintConfirmation.confirmation,
+      blueprint,
+      planningCarryover,
+    )
+    blueprint.confirmation = attachBlueprintFieldKeepAsTextOptions({
+      confirmation: downgradeBlueprintConfirmationResolvedSourceQuestions({
+        confirmation: attachedBlueprintConfirmation,
+        forms: blueprint.forms,
+        resolveFieldSourceDecision: (form, field) => {
+          if (shouldUseTextForBlueprintField({ blueprint, form, field, planningCarryover })) {
+            return {
+              title: `已按规划阶段的答复，将“${field.name}”按文本字段处理，可继续在蓝图里调整。`,
+              reasonCode: PLAN_TEXT_FIRST_SOURCE_REASON,
+            }
+          }
+          const binding = resolvePlanningRelationBindingForField(planningCarryover?.relationBindings, {
+            fieldKey: field.fieldKey,
+            fieldName: field.name,
+          }, {
+            relationFieldNameOnly: true,
+            form,
+          })
+          if (!binding) {
+            return null
+          }
+          return {
+            title: `已按规划阶段的答复，将“${field.name}”关联到“${binding.tableName}”，可继续在蓝图里调整。`,
+            reasonCode: PLAN_RELATION_SOURCE_REASON,
+          }
+        },
+      }) || undefined,
+      relationQuestionTitles: resolveBlueprintFieldClarificationRelationQuestionTitles(blueprint, {
+        planningCarryover,
+      }),
+    }) || undefined
     blueprint.id = String(blueprint.id || (shouldCarryBlueprintId ? currentBlueprint?.id : '') || createBlueprintId()).trim()
       || createBlueprintId()
     blueprint.title = resolveNocodeEditorBlueprintDisplayTitle({
@@ -6043,19 +7898,69 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     if (latestCompletedPlanningConfirmation) {
       persistLatestCompletedPlanningConfirmation(latestCompletedPlanningConfirmation)
     }
+    const configurationChanged = hasBlueprintConfigurationChanged(currentBlueprint, blueprint)
+    const hasExplicitPatchFieldPayload = rawInputForms.some((form: Record<string, unknown>) => (
+      countBlueprintFields(
+        Array.isArray(form?.fields)
+          ? form.fields as NocodeEditorAiAppBlueprintField[]
+          : [],
+      ) > 0
+    ))
+    // 只提交表单身份的空壳 patch 会静默 no-op，并伪装成暂存成功；这里显式失败，让模型带上目标字段重试。
+    if (
+      updateMode === 'patch'
+      && currentBlueprint
+      && !configurationChanged
+      && !hasExplicitPatchFieldPayload
+      && !deletedFormKeys.length
+      && !deletedFields.length
+      && !latestCompletedBlueprintConfirmation
+    ) {
+      throw new Error(
+        'patch 没有产生任何蓝图配置变化：提交的表单里没有 fields，也没有删除或确认结论。'
+        + '修改已有字段必须在对应表单的 fields 中携带目标字段（推荐真实 fieldKey，或唯一 name）以及要变更的属性（例如 widgetType）；'
+        + '请先调用 editor_get_staged_app_blueprint（detail="structure"）读取当前暂存结构，再重新提交 patch。',
+      )
+    }
+    const nextRevision = configurationChanged
+      ? stagedAppBlueprint.value.revision + 1
+      : stagedAppBlueprint.value.revision
+    const nextStagedAt = configurationChanged
+      ? Date.now()
+      : stagedAppBlueprint.value.stagedAt
     stagedAppBlueprint.value = createStagedBlueprintState({
       planningScope,
-      revision: stagedAppBlueprint.value.revision + 1,
-      stagedAt: Date.now(),
+      revision: nextRevision,
+      stagedAt: nextStagedAt,
       blueprint,
       sourcePlanningContextKey,
     })
     options.markAiDraftStatus?.(null)
-    return cloneValue(stagedAppBlueprint.value) as NocodeEditorAiStagedAppBlueprint
+    // 缺口在 enhanceBlueprint 之后计算：此时字段的 widgetType 才是最终可生成类型。
+    const designGaps: NocodeEditorBlueprintDesignGap[] = [
+      ...collectNocodeEditorBlueprintEnumDesignGaps(blueprint.forms),
+      ...collectNocodeEditorBlueprintAutoComputeDesignGaps(blueprint.forms),
+      ...sourceTargetCompletion.synthesizedForms.map(form => ({
+        tableName: form.tableName,
+        reason: 'related-form-needs-design' as const,
+      })),
+    ]
+    return {
+      ...cloneValue(stagedAppBlueprint.value),
+      configurationChanged,
+      versionChanged: configurationChanged,
+      ...(designGaps.length ? { designGaps } : {}),
+    } as NocodeEditorAiStagedAppBlueprint & {
+      configurationChanged: boolean
+      versionChanged: boolean
+      designGaps?: NocodeEditorBlueprintDesignGap[]
+    }
   }
 
   const clearStagedFormPlan = async () => {
     await clearPendingExcelImportHandles()
+    stagedFormPlanTurnTraceId.value = ''
+    stagedAppPlanTurnTraceId.value = ''
     stagedFormPlan.value = {
       revision: stagedFormPlan.value.revision + 1,
       stagedAt: undefined,
@@ -6080,6 +7985,8 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
 
   const clearStagedAppPlan = async () => {
     await clearPendingExcelImportHandles()
+    stagedFormPlanTurnTraceId.value = ''
+    stagedAppPlanTurnTraceId.value = ''
     stagedAppPlan.value = {
       revision: stagedAppPlan.value.revision + 1,
       stagedAt: undefined,
@@ -6599,11 +8506,28 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     }
   }
 
+  const pushBlueprintPersistedFieldEntry = (
+    formResult: NocodeEditorAiBlueprintApplyFormResult,
+    parentFieldNames: string[],
+    fieldName: string,
+  ) => {
+    const name = String(fieldName || '').trim()
+    if (!name) return
+    if (!formResult.persistedFieldEntries) {
+      formResult.persistedFieldEntries = []
+    }
+    formResult.persistedFieldEntries.push({
+      parentFieldNames: parentFieldNames.map(item => String(item || '').trim()).filter(Boolean),
+      fieldName: name,
+    })
+  }
+
   const ensureBlueprintFieldsInContainer = async (
     fields: NocodeEditorAiAppBlueprintField[],
     parentWidgetId: string,
     formResult: NocodeEditorAiBlueprintApplyFormResult,
     formRuntime: NocodeEditorAiFormRuntime,
+    parentFieldNames: string[] = [],
   ) => {
     if (!fields.length) {
       return
@@ -6640,7 +8564,9 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         fields: fieldsToCreate,
       })
       for (const createdField of createResult?.created || []) {
-        formResult.fieldsCreated.push(String(createdField?.name || '').trim())
+        const createdFieldName = String(createdField?.name || '').trim()
+        formResult.fieldsCreated.push(createdFieldName)
+        pushBlueprintPersistedFieldEntry(formResult, parentFieldNames, createdFieldName)
       }
       for (const failedField of createResult?.failed || []) {
         formResult.fieldWarnings.push(
@@ -6658,7 +8584,13 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         continue
       }
       if (children.length) {
-        await ensureBlueprintFieldsInContainer(children, String(widget.uid || ''), formResult, formRuntime)
+        await ensureBlueprintFieldsInContainer(
+          children,
+          String(widget.uid || ''),
+          formResult,
+          formRuntime,
+          [...parentFieldNames, String(widget.name || field.name || '').trim()],
+        )
       }
     }
   }
@@ -6671,6 +8603,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     widgetMap: Map<string, Record<string, any>>,
     formResult: NocodeEditorAiBlueprintApplyFormResult,
     formRuntime: NocodeEditorAiFormRuntime,
+    parentFieldNames: string[] = [],
     options?: {
       deferRelations?: boolean
     },
@@ -6708,9 +8641,12 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         pushBlueprintFieldBinding(formResult, {
           tableId: formResult.tableId,
           fieldKey: String(field.fieldKey || field.name || '').trim(),
+          fieldPath: [parentFieldKey, String(field.fieldKey || field.name || '').trim()].filter(Boolean).join('.'),
           fieldName: field.name,
           widgetId,
           widgetType: String(widget?.type || widget?.widgetType || field.widgetType || '').trim() || undefined,
+          valueType: String(widget?.valueType || widget?.fieldType || '').trim() || undefined,
+          sourceScope: 'blueprint',
           parentFieldKey: parentFieldKey || undefined,
           parentWidgetId: parentWidgetId || undefined,
         })
@@ -6733,6 +8669,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
 
         if (fieldUpdated) {
           formResult.fieldsUpdated.push(field.name)
+          pushBlueprintPersistedFieldEntry(formResult, parentFieldNames, field.name)
         }
 
         const children = getBlueprintFieldChildren(field)
@@ -6745,6 +8682,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
             currentWidgetMap,
             formResult,
             formRuntime,
+            [...parentFieldNames, String(widget?.name || field.name || '').trim()],
             options,
           )
         }
@@ -6773,9 +8711,14 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       const widgetType = String(widget?.type || widget?.widgetType || binding.widgetType || '').trim()
       return {
         ...binding,
+        fieldPath: String(binding.fieldPath || [binding.parentFieldKey, binding.fieldKey].filter(Boolean).join('.') || binding.fieldKey).trim(),
         tableId: formResult.tableId,
         widgetType: widgetType || undefined,
-        token: tokenByTitle.get(binding.fieldName) || binding.widgetId,
+        valueType: String(widget?.valueType || widget?.fieldType || binding.valueType || '').trim() || undefined,
+        sourceScope: binding.sourceScope || 'blueprint',
+        ...(tokenByTitle.get(binding.fieldName)
+          ? { token: tokenByTitle.get(binding.fieldName) }
+          : {}),
         formulaPaths: resolveBlueprintFormulaPaths({
           widgetType,
           formulaPaths: widget?.formulaPaths,
@@ -6798,14 +8741,20 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         && String(item.parentFieldKey || '').trim() === parentFieldKey
       ))
       if (binding && resolveBlueprintSource(blueprint, field)) {
-        await applyFieldSpecialOptions(
-          blueprint,
-          field,
-          binding.widgetId,
-          formResult,
-          formRuntime,
-          { sourceOnly: true },
-        )
+        try {
+          await applyFieldSpecialOptions(
+            blueprint,
+            field,
+            binding.widgetId,
+            formResult,
+            formRuntime,
+            { sourceOnly: true },
+          )
+        } catch (error) {
+          formResult.fieldWarnings.push(
+            `字段「${field.name}」关联设置失败：${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }
       const children = getBlueprintFieldChildren(field)
       if (children.length) {
@@ -6825,9 +8774,22 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     formResult: NocodeEditorAiBlueprintApplyFormResult,
   ): NocodeEditorFormulaApplyResult => {
     const targetResults = formulaApply.targetResults.filter(item => item.tableId === formResult.tableId)
-    const issues = formulaApply.issues.filter(issue => (
-      String(issue.target.formKey || '').trim() === String(formResult.formKey || '').trim()
-    ))
+    const resultFormKey = normalizeRuntimeText(formResult.formKey) || normalizeRuntimeText(formResult.applyTargetKey)
+    const formBindings = formResult.fieldBindings || []
+    const issues = formulaApply.issues.filter(issue => {
+      const issueFormKey = normalizeRuntimeText(issue.target.formKey)
+      if (issueFormKey) return issueFormKey === resultFormKey
+      // 兼容缺少 formKey 的历史预检问题：优先用字段绑定确定归属，避免单表结果错误显示 not_applicable。
+      const issueFieldKey = normalizeRuntimeText(issue.target.fieldKey)
+      const issueFieldName = normalizeRuntimeText(issue.target.fieldName)
+      return formBindings.some(binding => (
+        (issueFieldKey && (
+          normalizeRuntimeText(binding.fieldKey) === issueFieldKey
+          || normalizeRuntimeText(binding.fieldPath) === issueFieldKey
+        ))
+        || (issueFieldName && normalizeRuntimeText(binding.fieldName) === issueFieldName)
+      ))
+    })
     if (!targetResults.length && !issues.length) {
       return {
         status: 'not_applicable',
@@ -6846,6 +8808,58 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     }
   }
 
+  const buildBlueprintFormulaApplyFailureResult = (input: {
+    formulaPlan: NocodeEditorBlueprintFormulaPlan
+    formResults: NocodeEditorAiBlueprintApplyFormResult[]
+    error: unknown
+  }): NocodeEditorFormulaApplyResult => {
+    const message = input.error instanceof Error ? input.error.message : String(input.error)
+    const targetResults: NocodeEditorFormulaTargetResult[] = input.formulaPlan.plan.items
+      .flatMap(item => {
+        const formResult = input.formResults.find(result => (
+          (item.target.formKey && (
+            normalizeRuntimeText(result.formKey) === normalizeRuntimeText(item.target.formKey)
+            || normalizeRuntimeText(result.applyTargetKey) === normalizeRuntimeText(item.target.formKey)
+          ))
+          || (
+            item.target.formName
+            && normalizeRuntimeText(result.tableName) === normalizeRuntimeText(item.target.formName)
+          )
+        ))
+        return item.formulaSettings.map(setting => ({
+          itemKey: item.itemKey,
+          ...(formResult?.tableId ? { tableId: formResult.tableId } : {}),
+          ...(formResult?.tableName ? { tableName: formResult.tableName } : {}),
+          fieldName: item.target.fieldName,
+          formulaPath: setting.formulaPath,
+          formula: setting.formula,
+          status: 'failed' as const,
+          reason: message,
+        }))
+      })
+    if (!targetResults.length) {
+      return {
+        status: 'not_applicable',
+        targetResults: [],
+        issues: [],
+        checkpoint: null,
+      }
+    }
+    return {
+      status: 'failed',
+      targetResults,
+      issues: [{
+        code: 'formula_apply_failed',
+        severity: 'blocking',
+        itemKey: targetResults[0].itemKey,
+        target: { fieldName: targetResults[0].fieldName },
+        message,
+        userActionRequired: false,
+      }],
+      checkpoint: null,
+    }
+  }
+
   const applyStagedAppBlueprint = async (
     applyOptions?: NocodeEditorAiBlueprintApplyOptions,
   ): Promise<NocodeEditorAiBlueprintApplyResult> => {
@@ -6853,14 +8867,17 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     const normalizedStagedBlueprint = stagedAppBlueprint.value.blueprint
       ? normalizeBlueprintFormulaSettings(cloneValue(stagedAppBlueprint.value.blueprint)).blueprint
       : null
-    const blueprint = normalizedStagedBlueprint
-      ? enhanceBlueprint(
-        normalizeSingleFormBlueprintFragments(normalizedStagedBlueprint),
-        {
-          collectFieldClarifications: true,
-          planningCarryover,
-        },
-      )
+    const preparedBlueprint = normalizedStagedBlueprint
+      ? normalizeSingleFormBlueprintFragments(normalizedStagedBlueprint)
+      : null
+    if (preparedBlueprint) {
+      stripSelfReferentialBlueprintSources(preparedBlueprint)
+    }
+    const blueprint = preparedBlueprint
+      ? enhanceBlueprint(preparedBlueprint, {
+        collectFieldClarifications: true,
+        planningCarryover,
+      })
       : null
     if (blueprint) {
       normalizeBlueprintGroupNamesForActivePlanning(blueprint)
@@ -6956,6 +8973,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
           fieldsCreated: [],
           fieldsReused: [],
           fieldsUpdated: [],
+          persistedFieldEntries: [],
           fieldWarnings: [],
           fieldBindings: [],
         })
@@ -6984,6 +9002,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         fieldsCreated: [],
         fieldsReused: [],
         fieldsUpdated: [],
+        persistedFieldEntries: [],
         fieldWarnings: [],
         fieldBindings: [],
       })
@@ -6994,6 +9013,15 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       formResults: results,
     })
     const shouldDeferBlueprintRelations = blueprintFormulaPlan.plan.items.length > 0
+    let persistenceError = ''
+
+    if (targetForms.length) {
+      try {
+        await syncCurrentAiDraft()
+      } catch (error) {
+        persistenceError = error instanceof Error ? error.message : String(error || '')
+      }
+    }
 
     for (let index = 0; index < targetForms.length; index += 1) {
       const form = targetForms[index]
@@ -7022,10 +9050,6 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       } catch (error) {
         formResult.fieldWarnings.push(`表单「${form.tableName}」字段创建失败：${error instanceof Error ? error.message : String(error)}`)
       }
-    }
-
-    if (targetForms.length) {
-      await syncCurrentAiDraft()
     }
 
     for (let index = 0; index < targetForms.length; index += 1) {
@@ -7060,6 +9084,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
           widgetMap,
           formResult,
           formRuntime,
+          [],
           { deferRelations: shouldDeferBlueprintRelations },
         )
       } catch (error) {
@@ -7075,22 +9100,39 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       })
     }
 
-    const formulaRuntimeByWidgetId = new Map<string, NocodeEditorAiFormRuntime>()
     if (blueprintFormulaPlan.plan.items.length) {
       for (let index = 0; index < targetForms.length; index += 1) {
         const form = targetForms[index]
         const formResult = results[index]
         const target = tableMap.get(getNocodeEditorBlueprintFormApplyTargetIdentity(form))
         if (!target) continue
-        const opened = await openForm({ tableId: target.tableId })
-        if (!opened?.ok) continue
-        await nextTick()
-        const formRuntime = await ensureFormRuntime()
-        await enrichBlueprintFormulaBindings(formRuntime, formResult)
-        for (const binding of formResult.fieldBindings || []) {
-          formulaRuntimeByWidgetId.set(binding.widgetId, formRuntime)
+        try {
+          const opened = await openForm({ tableId: target.tableId })
+          if (!opened?.ok) continue
+          await nextTick()
+          const formRuntime = await ensureFormRuntime()
+          await enrichBlueprintFormulaBindings(formRuntime, formResult)
+        } catch (error) {
+          formResult.fieldWarnings.push(
+            `表单「${form.tableName}」公式准备失败：${error instanceof Error ? error.message : String(error)}`,
+          )
         }
       }
+    }
+
+    const ensureFormulaFormRuntime = async (tableId: string) => {
+      const normalizedTableId = normalizeRuntimeText(tableId)
+      if (!normalizedTableId) {
+        throw new Error('公式目标表单缺少 tableId。')
+      }
+      if (normalizeRuntimeText(options.activeFormId.value) !== normalizedTableId) {
+        const opened = await openForm({ tableId: normalizedTableId })
+        if (!opened?.ok) {
+          throw new Error(`打开公式目标表单失败${opened?.reason ? `（${opened.reason}）` : ''}`)
+        }
+        await nextTick()
+      }
+      return await ensureFormRuntime()
     }
 
     const previousBlueprintApplyResult = stagedAppBlueprint.value.applyResult
@@ -7115,28 +9157,42 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       ].join(':'))
       .sort()
       .join('|')
-    let formulaApply = await applyBlueprintFormulaPlan({
-      formulaPlan: blueprintFormulaPlan,
-      formResults: results,
-      getBindings: () => results.flatMap(formResult => formResult.fieldBindings || []),
-      checkpoint: formulaCheckpoint,
-      contextFingerprint: formulaContextFingerprint,
-      getRuntimeFormula: async ({ widgetId, formulaPath }) => {
-        const formRuntime = formulaRuntimeByWidgetId.get(widgetId)
-        const schema = await formRuntime?.getAiWidgetOptionSchema?.({ widgetId })
-        const formulaOption = findSchemaOption(schema, { keys: [formulaPath] })
-        return typeof formulaOption?.currentValue === 'string'
-          ? formulaOption.currentValue
-          : undefined
-      },
-      setAiFieldOptions: async ({ widgetId, changes }) => {
-        const formRuntime = formulaRuntimeByWidgetId.get(widgetId)
-        if (!formRuntime?.setAiFieldOptions) {
-          throw new Error('公式目标字段未找到可写入的表单运行态。')
-        }
-        await formRuntime.setAiFieldOptions({ widgetId, changes })
-      },
-    })
+    let formulaApply: NocodeEditorFormulaApplyResult
+    try {
+      formulaApply = await applyBlueprintFormulaPlan({
+        formulaPlan: blueprintFormulaPlan,
+        formResults: results,
+        getBindings: () => results.flatMap(formResult => formResult.fieldBindings || []),
+        checkpoint: formulaCheckpoint,
+        contextFingerprint: formulaContextFingerprint,
+        getRuntimeFormula: async ({ tableId, widgetId, formulaPath }) => {
+          try {
+            const formRuntime = await ensureFormulaFormRuntime(tableId)
+            const schema = await formRuntime.getAiWidgetOptionSchema?.({ widgetId })
+            const formulaOption = findSchemaOption(schema, { keys: [formulaPath] })
+            return typeof formulaOption?.currentValue === 'string'
+              ? formulaOption.currentValue
+              : undefined
+          } catch {
+            // 回读失败不阻断公式应用，交给写入阶段给出具体目标错误。
+            return undefined
+          }
+        },
+        setAiFieldOptions: async ({ tableId, widgetId, changes }) => {
+          const formRuntime = await ensureFormulaFormRuntime(tableId)
+          if (!formRuntime.setAiFieldOptions) {
+            throw new Error('公式目标字段未找到可写入的表单运行态。')
+          }
+          await formRuntime.setAiFieldOptions({ widgetId, changes })
+        },
+      })
+    } catch (error) {
+      formulaApply = buildBlueprintFormulaApplyFailureResult({
+        formulaPlan: blueprintFormulaPlan,
+        formResults: results,
+        error,
+      })
+    }
     for (const formResult of results) {
       formResult.formulaApply = buildBlueprintFormulaApplyResultForForm(
         formulaApply,
@@ -7150,22 +9206,37 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         const formResult = results[index]
         const target = tableMap.get(getNocodeEditorBlueprintFormApplyTargetIdentity(form))
         if (!target) continue
-        const opened = await openForm({ tableId: target.tableId })
-        if (!opened?.ok) continue
-        await nextTick()
-        const formRuntime = await ensureFormRuntime()
-        await applyDeferredBlueprintRelations(
-          blueprint,
-          form.fields,
-          '',
-          formResult,
-          formRuntime,
-        )
+        try {
+          const opened = await openForm({ tableId: target.tableId })
+          if (!opened?.ok) {
+            formResult.fieldWarnings.push(
+              `表单「${form.tableName}」关联设置失败：打开表单失败${opened?.reason ? `（${opened.reason}）` : ''}`,
+            )
+            continue
+          }
+          await nextTick()
+          const formRuntime = await ensureFormRuntime()
+          await applyDeferredBlueprintRelations(
+            blueprint,
+            form.fields,
+            '',
+            formResult,
+            formRuntime,
+          )
+        } catch (error) {
+          formResult.fieldWarnings.push(
+            `表单「${form.tableName}」关联设置失败：${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }
     }
 
     if (targetForms.length) {
-      await syncCurrentAiDraft()
+      try {
+        await syncCurrentAiDraft()
+      } catch (error) {
+        persistenceError = error instanceof Error ? error.message : String(error || '')
+      }
     }
 
     const summary = {
@@ -7186,7 +9257,106 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         forms: results,
       })
       : null
-    const persistOutcome = await persistAppliedBlueprint()
+    let persistOutcome: BlueprintPersistOutcome = { mode: 'saved' }
+    if (!persistenceError && targetForms.length) {
+      try {
+        persistOutcome = await persistAppliedBlueprint()
+      } catch (error) {
+        persistenceError = error instanceof Error ? error.message : String(error || '')
+      }
+    }
+
+    const readbackWarnings: string[] = []
+    let persistedUnverifiedFieldCount = 0
+    let persistenceVerified = true
+    if (!persistenceError && persistOutcome.mode === 'saved' && targetForms.length) {
+      const readback = await readBlueprintPersistedFieldReport({
+        read: () => readPersistedNocodeFormData(options.nocodeId),
+        expectations: buildBlueprintPersistedFieldExpectations(results),
+      })
+      readbackWarnings.push(...readback.warnings)
+      persistedUnverifiedFieldCount = readback.unverifiedFieldCount
+      if (readback.verified) {
+        if (readback.issues.length) {
+          persistenceError = readback.issues.join('；')
+        }
+      } else {
+        // 读取失败不能判写入失败，但也不能当成已验证：下游需要拦住「已应用」记录
+        persistenceVerified = false
+        readbackWarnings.push(
+          `蓝图已写入编辑器并完成保存，但未能回读校验（原因：${readback.readError || '未知错误'}）。请刷新后确认字段是否完整。`,
+        )
+      }
+    }
+
+    if (persistenceError) {
+      const persistenceIssues: NocodeEditorFormulaPreflightIssue[] = []
+      for (const targetResult of formulaApply.targetResults) {
+        if (targetResult.status !== 'updated') continue
+        targetResult.status = 'failed'
+        targetResult.reason = persistenceError || '蓝图公式保存失败'
+        persistenceIssues.push({
+          code: 'formula_persistence_failed',
+          severity: 'blocking',
+          itemKey: targetResult.itemKey,
+          target: { fieldName: targetResult.fieldName },
+          message: `字段“${targetResult.fieldName}”公式已写入当前编辑态，但保存失败：${persistenceError || '未知错误'}`,
+          userActionRequired: true,
+        })
+      }
+      if (persistenceIssues.length) {
+        formulaApply.issues.push(...persistenceIssues)
+        formulaApply.status = resolveBlueprintFormulaApplyStatus(formulaApply.targetResults)
+        for (const formResult of results) {
+          formResult.formulaApply = buildBlueprintFormulaApplyResultForForm(formulaApply, formResult)
+        }
+      }
+    }
+
+    // 应用数据都读不到时，公式同样无法校验；保持原状态，不把「未验证」报成公式失败
+    if (!persistenceError && persistOutcome.mode === 'saved' && persistenceVerified) {
+      const readbackIssues = [] as NocodeEditorFormulaPreflightIssue[]
+      let persistedFormulaValues = new Map<string, string | undefined>()
+      let readbackError = ''
+      if (formulaApply.targetResults.some(targetResult => (
+        targetResult.status === 'updated' && targetResult.widgetId && targetResult.formulaPath
+      ))) {
+        try {
+          persistedFormulaValues = await readPersistedFormulaValues({
+            nocodeId: options.nocodeId,
+            targets: formulaApply.targetResults,
+          })
+        } catch (error) {
+          readbackError = error instanceof Error ? error.message : String(error)
+        }
+      }
+      for (const targetResult of formulaApply.targetResults) {
+        if (targetResult.status !== 'updated' || !targetResult.widgetId || !targetResult.formulaPath) continue
+        const key = `${normalizeRuntimeText(targetResult.tableId)}::${normalizeRuntimeText(targetResult.widgetId)}::${normalizeRuntimeText(targetResult.formulaPath)}`
+        const actualFormula = persistedFormulaValues.get(key)
+        if (normalizePersistedFormula(actualFormula) !== normalizePersistedFormula(targetResult.formula)) {
+          targetResult.status = 'failed'
+          targetResult.reason = readbackError || '生成后从持久化数据回读的公式与目标公式不一致'
+          readbackIssues.push({
+            code: 'formula_readback_mismatch',
+            severity: 'blocking',
+            itemKey: targetResult.itemKey,
+            target: { fieldName: targetResult.fieldName },
+            message: readbackError
+              ? `字段“${targetResult.fieldName}”保存后无法读取持久化公式：${readbackError}`
+              : `字段“${targetResult.fieldName}”保存后未能从持久化数据回读到预期公式。`,
+            userActionRequired: false,
+          })
+        }
+      }
+      if (readbackIssues.length) {
+        formulaApply.issues.push(...readbackIssues)
+        formulaApply.status = resolveBlueprintFormulaApplyStatus(formulaApply.targetResults)
+        for (const formResult of results) {
+          formResult.formulaApply = buildBlueprintFormulaApplyResultForForm(formulaApply, formResult)
+        }
+      }
+    }
 
     if (persistOutcome.mode === 'draft_only') {
       formulaApply = {
@@ -7226,7 +9396,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         startedAt,
         finishedAt: Date.now(),
         forms: results,
-        warnings: normalizedWarnings,
+        warnings: normalizeFieldWarnings([...normalizedWarnings, ...readbackWarnings]),
         postFormFlowSignals: postFormFlowSignals?.hasEvidence ? postFormFlowSignals : null,
         formulaSummary,
         summary,
@@ -7294,18 +9464,27 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     })
     const result: NocodeEditorAiBlueprintApplyResult = {
       planningScope,
-      ok: true,
+      ok: !persistenceError,
       persistenceMode: 'saved',
+      persistenceVerified,
       draftPersistenceState: null,
+      ...(persistedUnverifiedFieldCount > 0 ? { persistedUnverifiedFieldCount } : {}),
       blueprintId: blueprint.id || stagedAppBlueprint.value.blueprint?.id || '',
       startedAt,
       finishedAt: Date.now(),
       forms: results,
-      warnings: normalizedWarnings,
-      postFormFlowSignals: postFormFlowSignals?.hasEvidence ? postFormFlowSignals : null,
-      postFormFlowRelease: resolveNocodeEditorPostFormFlowRelease(
-        postFormFlowReleaseContext,
-      ),
+      warnings: normalizeFieldWarnings([
+        ...normalizedWarnings,
+        ...readbackWarnings,
+        ...(persistenceError ? [`蓝图已写入编辑器，但未能保存到应用数据：${persistenceError}`] : []),
+      ]),
+      // 未验证时不放行后续流程推荐，避免用户刷新后发现数据不对但推荐已经跑过
+      postFormFlowSignals: persistenceVerified && postFormFlowSignals?.hasEvidence
+        ? postFormFlowSignals
+        : null,
+      postFormFlowRelease: persistenceVerified
+        ? resolveNocodeEditorPostFormFlowRelease(postFormFlowReleaseContext)
+        : null,
       formulaSummary,
       summary,
     }
@@ -7316,13 +9495,15 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     }
 
     options.markAiDraftStatus?.({
-      mode: 'clean',
-      issueCount: 0,
-      summary: '',
+      mode: persistenceError ? 'draft_only' : 'clean',
+      issueCount: persistenceError ? formulaApply.issues.length : 0,
+      summary: persistenceError
+        ? (formulaApply.issues[0]?.message || persistenceError)
+        : '',
       issues: [],
       actionIssues: [],
       updatedAt: Date.now(),
-      dirty: false,
+      dirty: Boolean(persistenceError),
       sourceBlueprintIdentityKey: getStagedBlueprintMarker({
         phase: 'applied_saved',
         applyResult: result,
@@ -7720,10 +9901,33 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       scheme: materializationScheme,
       flowSummary: refreshedFlowSummary,
     })
-    if (personnelPreflight.diagnostics.length) {
-      const firstDiagnostic = personnelPreflight.diagnostics[0]
+    const blockingPersonnelDiagnostics = personnelPreflight.diagnostics.filter(diagnostic => (
+      (diagnostic.severity || 'blocking') === 'blocking'
+    ))
+    if (blockingPersonnelDiagnostics.length) {
+      const schemeRootedDiagnostics = blockingPersonnelDiagnostics.filter(diagnostic => diagnostic.routeToScheme === true)
+      if (schemeRootedDiagnostics.length) {
+        recordFlowBlueprintStageFailure({
+          code: schemeRootedDiagnostics[0]?.code,
+          planningContextKey,
+        })
+        throw new FlowExecutionBlockerError({
+          unifiedIssues: buildUnifiedFlowIssuesFromSchemeRestageDiagnostics({
+            diagnostics: schemeRootedDiagnostics,
+            sourceStage: 'apply',
+            planningContextKey,
+            blockedNextAction: 'editor_apply_staged_flow',
+          }),
+          blockedNextAction: 'editor_apply_staged_flow',
+        })
+      }
+      const firstDiagnostic = blockingPersonnelDiagnostics[0]
       const isApprovalOwnerDiagnostic = String(firstDiagnostic?.code || '')
         .startsWith('blueprint_approval_owner_')
+      recordFlowBlueprintStageFailure({
+        code: firstDiagnostic?.code,
+        planningContextKey,
+      })
       throw new FlowExecutionBlockerError({
         issueId: isApprovalOwnerDiagnostic
           ? 'flow-blueprint-approval-owner-reference-inconsistent'
@@ -7735,11 +9939,13 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
           ? '流程蓝图内部的审批人字段引用与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。'
           : '流程蓝图内部的人员来源与已收敛流程方案不一致，请基于当前方案重新生成流程蓝图。',
         code: firstDiagnostic?.code,
+        diagnostics: blockingPersonnelDiagnostics,
       })
     }
     const groundingDiagnostics = validateFlowPlanGrounding({
       plan: materializationFlowPlan,
       summary: refreshedFlowSummary,
+      allowConfirmedSequentialWrites: isFlowReplanSequentialWriteConfirmed(materializationScheme),
     })
     if (groundingDiagnostics.length) {
       throw new FlowGroundingConfirmationError({
@@ -7777,6 +9983,63 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       : null
     if (!flowPlan) {
       throw new Error('当前没有可按蓝图生成表单流程的流程蓝图')
+    }
+    // E2：已存蓝图必须携带可验证的来源方案版本，且与当前方案 revision 一致，否则历史蓝图不得被应用。
+    const appliedFromBlueprint = !stagedFlowPlan.value.flowPlan && Boolean(stagedFlowBlueprint.value.blueprint)
+    if (appliedFromBlueprint) {
+      const blueprintSourceRevision = Number(stagedFlowBlueprint.value.sourceSchemeRevision || 0)
+      const appliedSchemeRevision = Number(stagedFlowScheme.value.revision || 0)
+      const sourceUnverifiable = blueprintSourceRevision <= 0 || appliedSchemeRevision <= 0
+      if (sourceUnverifiable || blueprintSourceRevision !== appliedSchemeRevision) {
+        throw new FlowExecutionBlockerError({
+          issueId: sourceUnverifiable
+            ? 'flow-blueprint-source-scheme-revision-unverifiable'
+            : 'flow-blueprint-source-scheme-revision-mismatch',
+          sourceStage: 'apply',
+          planningContextKey: resolveCurrentFlowPlanningContextKey(
+            stagedFlowScheme.value.scheme?.confirmation?.planningContextKey,
+          ),
+          blockedNextAction: 'editor_stage_flow_blueprint',
+          userMessage: sourceUnverifiable
+            ? '已存流程蓝图未携带来源方案版本，无法验证是否与当前方案一致，不能应用；请基于当前流程方案重新生成流程蓝图（历史蓝图仅供查看）。'
+            : '流程方案已更新，已存流程蓝图基于旧方案版本，不能应用；请基于当前流程方案重新生成流程蓝图。',
+          code: sourceUnverifiable
+            ? 'flow_blueprint_source_revision_unverifiable'
+            : 'flow_blueprint_source_revision_mismatch',
+        })
+      }
+    }
+    const currentScheme = stagedFlowScheme.value.scheme
+    const readiness = resolveFlowBlueprintReadiness(currentScheme)
+    if (!readiness.canGenerateDraft) {
+      const issue = readiness.blockingIssues.find(item => (
+        item.stage === 'blueprint' || item.code === 'flow_dependency_unresolved'
+      ))!
+      if (issue.code === 'flow_scheme_not_ready_for_blueprint') {
+        throw new FlowExecutionBlockerError({
+          blockedNextAction: 'editor_apply_staged_flow',
+          unifiedIssues: buildUnifiedFlowIssuesFromFlowSchemeNotReady({
+            planningContextKey: resolveCurrentFlowPlanningContextKey(flowPlan.confirmation?.planningContextKey),
+            blockedNextAction: 'editor_apply_staged_flow',
+            userMessage: issue.message,
+          }),
+        })
+      }
+      throw new FlowExecutionBlockerError({
+        issueId: issue.issueId,
+        sourceStage: 'apply',
+        planningContextKey: resolveCurrentFlowPlanningContextKey(flowPlan.confirmation?.planningContextKey),
+        blockedNextAction: 'editor_apply_staged_flow',
+        userMessage: issue.message,
+        code: issue.code,
+        diagnostics: [{
+          code: issue.code,
+          message: issue.message,
+          dependencyId: issue.dependencyId,
+          deferredConfigItemId: issue.deferredConfigItemId,
+          decisionKey: issue.decisionKey,
+        }],
+      })
     }
     const pendingConfirmationQuestions = resolveNocodeEditorFlowPlanPendingConfirmationQuestionTitles(flowPlan)
     if (
@@ -7876,7 +10139,7 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
       )
         ? refreshedDraft.draftPersistenceState
         : null
-      const blueprintApplyResult = stagedAppBlueprint.value.applyResult
+      const blueprintApplyResult = stagedAppBlueprint.value.applyResult as NocodeEditorAiBlueprintApplyResult | null
       const flowApplyReleaseContext = buildNocodeEditorPostFormFlowReleaseContext({
         planningScope: 'form',
         persistenceMode: refreshedDraftPersistenceState ? 'draft_only' : 'saved',
@@ -7963,9 +10226,22 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
         }
       }
 
+      const aiDeferredConfigItems: NocodeProcessAiDeferredConfigItem[] = (
+        stagedFlowScheme.value.scheme?.deferredConfigItems || []
+      ).flatMap(item => (
+        item.requirementLevel === 'required' && item.id
+          ? [{
+              id: item.id,
+              summary: item.summary,
+              nodeKey: item.nodeKey,
+              settingPath: item.settingPath,
+            }]
+          : []
+      ))
       const draftResult = await syncCurrentAiDraft({
         persistToApp: true,
         skipProcessValidation: true,
+        aiDeferredConfigItems,
       })
       if (draftResult.ok === false || draftResult.persistedToSession === false) {
         throw new Error(draftResult.error || '已按蓝图生成表单流程，但同步当前表单状态失败')
@@ -7978,6 +10254,30 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
           deriveDependencies: false,
           deriveDeferredConfigItems: true,
         })
+        const hasRemainingFlowIssues = draftResult.flowIssueState?.mode === 'flow_issue'
+          || draftResult.hasBlockingIssues === true
+        const allDependenciesReady = (reconciledScheme.dependencies || []).every(dependency => (
+          dependency.resolutionStatus === 'resolved'
+          && dependency.materializationStatus === 'existing'
+        ))
+        const hasRequiredDeferredConfig = (reconciledScheme.deferredConfigItems || []).some(item => (
+          item.requirementLevel === 'required'
+        ))
+        const canCompleteDependencies = !hasRemainingFlowIssues
+          && allDependenciesReady
+          && !hasRequiredDeferredConfig
+        reconciledScheme.dependencies = reconciledScheme.dependencies?.map(dependency => ({
+          ...dependency,
+          lifecycleStatus: dependency.resolutionStatus !== 'resolved'
+            ? 'pending' as const
+            : dependency.materializationStatus === 'planned'
+              ? 'planned' as const
+              : canCompleteDependencies ? 'completed' as const : 'resolved' as const,
+        }))
+        reconciledScheme.deferredConfigItems = reconciledScheme.deferredConfigItems?.map(item => ({
+          ...item,
+          lifecycleStatus: 'pending' as const,
+        }))
         const routingState = buildFlowSchemeRoutingState({
           scheme: reconciledScheme,
           planningContextKey: reconciledScheme.confirmation?.planningContextKey,
@@ -8019,6 +10319,13 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
           branchCount: Number(applied.summary?.branchCount || 0),
         },
         warnings: normalizeFieldWarnings(warnings),
+        appliedSettings: Array.isArray(applied.appliedSettings)
+          ? applied.appliedSettings
+          : [],
+        riskAlerts: Array.isArray(applied.riskAlerts)
+          ? applied.riskAlerts
+          : [],
+        deferredConfigItems: stagedFlowScheme.value.scheme?.deferredConfigItems || [],
         flowIssueState: draftResult.flowIssueState || applied.flowIssueState || null,
       }
       const runtimeFlowUnifiedIssues = buildUnifiedFlowIssuesFromFlowIssueState({
@@ -8387,5 +10694,6 @@ const normalizeFormulaExecutorItemsForComparison = (value: unknown) => (
     locateDraftIssue,
     locateFlowIssue,
     executeTool,
+    getFlowBlueprintStageFailureState: () => flowBlueprintStageFailureState.value,
   }
 }

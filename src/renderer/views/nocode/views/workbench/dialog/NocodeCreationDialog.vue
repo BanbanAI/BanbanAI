@@ -383,6 +383,7 @@ const handleBuilderSubmit = async () => {
   if (!canSubmitBuilder()) {
     return;
   }
+  builderChatInputRef.value?.blurTextarea();
 
   const modelSelection = effectiveModelOption.value
     ? {

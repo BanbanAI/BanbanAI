@@ -20,6 +20,8 @@ const createEmptySettings = (): AiSettings => ({
   enabled: true,
   autoTaskEnabled: false,
   allowModelSelection: false,
+  workbenchDefaultOutputTokens: null,
+  editorDefaultOutputTokens: null,
   defaultSelections: {
     fast: null,
     balanced: null,
@@ -148,8 +150,10 @@ export const useAiConfigStore = defineStore('aiConfig', () => {
   const saveConfig = async (nextConfig: AiSettings) => {
     const current = config.value || await loadConfig()
     const globalPatch: Partial<AiSettings> = {}
-    for (const key of ['enabled', 'autoTaskEnabled', 'allowModelSelection', 'defaultSelections', 'featureFlags', 'migrations'] as const) {
-      if (JSON.stringify(current?.[key]) !== JSON.stringify(nextConfig[key])) globalPatch[key] = nextConfig[key] as any
+    for (const key of ['enabled', 'autoTaskEnabled', 'allowModelSelection', 'workbenchDefaultOutputTokens', 'editorDefaultOutputTokens', 'defaultSelections', 'featureFlags', 'migrations'] as const) {
+      if (JSON.stringify(current?.[key]) !== JSON.stringify(nextConfig[key])) {
+        Object.assign(globalPatch, { [key]: nextConfig[key] })
+      }
     }
     let saved = current
     if (Object.keys(globalPatch).length) saved = await updateGlobalConfig(globalPatch)

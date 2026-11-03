@@ -118,6 +118,11 @@ const STRONG_FLOW_BEHAVIOR_PATTERNS = [
 
 const FLOW_SEMANTIC_PATTERNS = [
   /审批流程|审批节点|流程节点|approval\s*(?:flow|process|workflow)/i,
+  // A routing/condition decision changes the process topology or the next
+  // action. The subject may be an amount, a type, a risk level, or any other
+  // business fact, so the classifier intentionally does not enumerate fields.
+  /(?:分流|分支|分段|分级|路径|路线|层级|条件|规则|下一步|后续动作|后续处理)[\s\S]{0,24}(?:审批|审核|办理|流程)|(?:审批|审核|办理|流程)[\s\S]{0,24}(?:分流|分支|分段|分级|路径|路线|层级|条件|规则|下一步|后续动作|后续处理)/i,
+  /(?:按|根据|依据|如果|当|满足|超过|低于|不满足)[\s\S]{0,40}(?:审批|审核|办理|流程)/i,
   /(?:审批人|办理人|抄送人)[\s\S]{0,20}(?:选择|使用|表单字段)/i,
   /(?:选择|使用|表单字段)[\s\S]{0,20}(?:审批人|办理人|抄送人)/i,
   /(?:审批人|办理人|抄送人)[\s\S]{0,20}(?:固定人员|固定成员|角色|部门负责人|直属主管|提交人上级)/i,

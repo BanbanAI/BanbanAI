@@ -98,8 +98,10 @@
                         :mode="workbench.mode"
                         :flow-artifact-blocks="flowArtifactBlocks"
                         :applying-id="applyingId"
+                        :action-locked="actionLocked"
                         :history-entries="historyEntries"
                         :allow-review-actions="allowReviewActions"
+                        :historical="historical"
                         :response-drafts="resolveConfirmationResponseDrafts(activeFormCard?.item)"
                         :active-input-question-ids="resolveActiveConfirmationInputQuestionIds(activeFormCard?.item)"
                         :inline-note-question-ids="resolveInlineConfirmationNoteQuestionIds(activeFormCard?.item)"
@@ -167,8 +169,10 @@
                   :mode="workbench.mode"
                   :flow-artifact-blocks="flowArtifactBlocks"
                   :applying-id="applyingId"
+                  :action-locked="actionLocked"
                   :history-entries="historyEntries"
                   :allow-review-actions="allowReviewActions"
+                  :historical="historical"
                   :response-drafts="resolveConfirmationResponseDrafts(activeFormCard?.item)"
                   :active-input-question-ids="resolveActiveConfirmationInputQuestionIds(activeFormCard?.item)"
                   :inline-note-question-ids="resolveInlineConfirmationNoteQuestionIds(activeFormCard?.item)"
@@ -247,6 +251,10 @@ import type {
   NocodeEditorAiStageBlueprintDisplayItem,
 } from '../types'
 import type { NocodeEditorAiConfirmationResponseDraftMap } from './confirmationInteraction'
+import {
+  countBlueprintCardPendingQuestions,
+  resolveUniquePendingBlueprintCardKey,
+} from './blueprintCardPendingQuestions'
 import NocodeEditorAiBlueprintWorkbenchFormPanel from './NocodeEditorAiBlueprintWorkbenchFormPanel.vue'
 import NocodeEditorAiBlueprintWorkbenchGroupSummaryPanel from './NocodeEditorAiBlueprintWorkbenchGroupSummaryPanel.vue'
 import NocodeEditorAiBlueprintWorkbenchHeader from './NocodeEditorAiBlueprintWorkbenchHeader.vue'
@@ -255,7 +263,11 @@ import NocodeEditorAiBlueprintWorkbenchOverviewPanel from './NocodeEditorAiBluep
 import NocodeEditorAiBlueprintWorkbenchRail from './NocodeEditorAiBlueprintWorkbenchRail.vue'
 import NocodeEditorAiBlueprintWorkbenchTabs from './NocodeEditorAiBlueprintWorkbenchTabs.vue'
 
-type BlueprintWorkbenchTabOption = { key: string; label: string }
+type BlueprintWorkbenchTabOption = {
+  key: string
+  label: string
+  pendingCount?: number
+}
 
 const OVERVIEW_TAB_KEY = 'overview'
 const FORM_TAB_PREFIX = 'form:'
@@ -271,7 +283,10 @@ const resolvePreferredCardKey = (cards: BlueprintWorkbenchCard[], preferredCardK
 )
 const resolveDefaultActiveTabKey = (cards: BlueprintWorkbenchCard[], preferredCardKey = '') => {
   if (cards.length > 1) {
-    return OVERVIEW_TAB_KEY
+    const uniquePendingCardKey = resolveUniquePendingBlueprintCardKey(cards)
+    return uniquePendingCardKey
+      ? buildFormTabKey(uniquePendingCardKey)
+      : OVERVIEW_TAB_KEY
   }
 
   const nextCardKey = resolvePreferredCardKey(cards, preferredCardKey)
@@ -341,6 +356,10 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  historical: {
+    type: Boolean,
+    default: false,
+  },
   appName: {
     type: String,
     default: '',
@@ -356,6 +375,10 @@ const props = defineProps({
   applyingId: {
     type: String,
     default: '',
+  },
+  actionLocked: {
+    type: Boolean,
+    default: false,
   },
   getConfirmationResponseDrafts: {
     type: Function as PropType<(item: NocodeEditorAiStageBlueprintDisplayItem) => NocodeEditorAiConfirmationResponseDraftMap>,
@@ -537,7 +560,7 @@ const headerActions = computed(() => (
       return {
         ...action,
         loading: isBatchApplying.value && pendingBatchActionIntent.value === 'all',
-        disabled: Boolean(action.disabled || props.applyingId),
+        disabled: Boolean(action.disabled || props.applyingId || props.actionLocked),
       }
     })
 ))
@@ -706,18 +729,26 @@ const activeGroupApplyDisabled = computed(() => (
 const hasSingleCardGroup = computed(() => activeCards.value.length <= 1)
 const hasOverviewTab = computed(() => activeCards.value.length > 1)
 
-const workbenchTabs = computed<BlueprintWorkbenchTabOption[]>(() => (
-  (hasOverviewTab.value
+const workbenchTabs = computed<BlueprintWorkbenchTabOption[]>(() => {
+  const formTabs = activeCards.value.map(card => ({
+    key: buildFormTabKey(card.key),
+    label: card.title,
+    pendingCount: countBlueprintCardPendingQuestions(card),
+  }))
+  const overviewPendingCount = formTabs.reduce(
+    (total, tab) => total + (tab.pendingCount || 0),
+    0,
+  )
+
+  return (hasOverviewTab.value
     ? [{
       key: OVERVIEW_TAB_KEY,
       label: i18next.t('nocodeEditorAiBlueprintShelf.overview'),
+      pendingCount: overviewPendingCount,
     }]
     : []
-  ).concat(activeCards.value.map(card => ({
-    key: buildFormTabKey(card.key),
-    label: card.title,
-  })))
-))
+  ).concat(formTabs)
+})
 
 const showWorkbenchTabs = computed(() => workbenchTabs.value.length > 1)
 const showOverviewPanel = computed(() => hasOverviewTab.value && activeTabKey.value === OVERVIEW_TAB_KEY)
@@ -862,7 +893,7 @@ const handleSelectGroup = (groupKey: string) => {
 }
 
 const handleApplyGroup = () => {
-  if (!props.allowReviewActions || !activeGroupPendingItems.value.length || props.applyingId) {
+  if (!props.allowReviewActions || !activeGroupPendingItems.value.length || props.applyingId || props.actionLocked) {
     return
   }
 
@@ -919,7 +950,7 @@ const handleHeaderAction = (actionKey: BlueprintWorkbenchHeaderActionKey) => {
   }
 
   if (actionKey === 'apply-pending-batch') {
-    if (pendingItemsForBatch.value.length && !props.applyingId) {
+    if (pendingItemsForBatch.value.length && !props.applyingId && !props.actionLocked) {
       pendingBatchActionIntent.value = 'all'
       emit('apply-pending-batch', {
         items: pendingItemsForBatch.value,

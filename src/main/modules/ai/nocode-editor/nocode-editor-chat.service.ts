@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common'
 import { unique } from '@common/utils/unique'
 import { AiNocodeEditorConversationEntity } from '../entities'
 import { AiAgentLogService } from '../logging/agent-log.service'
-import { AiOpenAiService } from '../openai/ai-openai.service'
+import {
+  AiOpenAiService,
+  NOCODE_EDITOR_FLOW_ROUND_FIRST_EVENT_TIMEOUT_MS,
+  NOCODE_EDITOR_FLOW_ROUND_TOTAL_TIMEOUT_MS,
+  NOCODE_EDITOR_PROVIDER_RETRY_TOTAL_TIMEOUT_MS,
+} from '../openai/ai-openai.service'
 import { AiAttachmentService } from '../thread/ai-attachment.service'
 import {
   AI_READ_ATTACHMENT_TOOL_NAME,
@@ -34,20 +39,17 @@ import { AiNocodeEditorConversationService } from './nocode-editor-conversation.
 import { nocodeEditorToolDefinitions } from './nocode-editor-tool-definitions'
 import { AiNocodeEditorPromptService } from './nocode-editor-prompt.service'
 import { normalizeNocodeEditorAiMessageHistory } from '@common/utils/nocodeEditorAiMessageHistory'
+import { isNocodeEditorStructuredConfirmationReplyMessage } from '@common/utils/nocodeEditorTaskContextRequest'
 import { normalizeNocodeEditorArtifactBlocks } from '@common/utils/nocodeEditorArtifactBlocks'
 import {
   normalizeNocodeEditorFlowScheme,
-  normalizeNocodeEditorFlowSchemeReviewResult,
+  isNocodeEditorFlowSchemeReviewResultText,
+  parseNocodeEditorFlowSchemeReviewResultText,
 } from '@common/utils/nocodeEditorFlowScheme'
-import {
-  isSamePlanningConfirmationContext,
-} from '@common/utils/nocodeEditorPlanningConfirmationIdentity'
-import {
-  normalizeFlowIssueRoutingResult,
-} from '@common/utils/nocodeEditorFlowIssueRouter'
 import {
   DEFAULT_FLOW_BLUEPRINT_PREFLIGHT_REMINDER_BUDGET,
   createFlowBlueprintPreflightState,
+  resolveFlowBlueprintPreflightAllowedToolNames,
   updateFlowBlueprintPreflightProgress,
   type FlowBlueprintPreflightState,
 } from '@common/utils/nocodeEditorFlowBlueprintPreflight'
@@ -71,14 +73,37 @@ import {
   resolveUnsupportedBlueprintAutoRepairDecision,
 } from './nocode-editor-blueprint-auto-repair.util'
 import {
+  applyFlowBlueprintFailureToPreflightState,
+  buildFlowBlueprintPreflightActionGuidance,
+  buildRestoredFlowBlueprintPreflightPrompt,
   projectFlowBlueprintPreflightActions,
   restoreFlowBlueprintPreflightStateFromHistory,
   resolveFlowBlueprintPreflightStopDecision,
   resolveFlowBlueprintPreflightToolDecision,
 } from './nocode-editor-flow-blueprint-preflight.util'
 import {
+  getLatestFlowSchemeWaitingResult,
+  hasPendingFlowSchemeConvergence,
+  isFlowSchemePrerequisiteMissingResult,
+  resolveFlowIssueRoutingFromResult,
+} from './nocode-editor-flow-scheme-waiting.util'
+import { hasUnverifiedBlueprintUpdateClaim } from './nocode-editor-blueprint-update-claim.util'
+import {
+  projectNocodeEditorStageActions,
+  resolveNocodeEditorToolStageFromNames,
+  type NocodeEditorToolStage,
+} from './nocode-editor-stage-actions.util'
+import {
+  buildNocodeEditorToolUnavailableRetryMessage,
+  hasNocodeEditorUnresolvedToolProtocolSignal,
+  resolveNocodeEditorDroppedToolCallName,
+  resolveNocodeEditorDroppedToolCalls,
+  resolveNocodeEditorInvalidToolCallName,
+  resolveNocodeEditorLostToolIntentRetry,
+} from './nocode-editor-lost-tool-intent-retry.util'
+import {
   normalizeNocodeEditorStreamError,
-  shouldRetryNocodeEditorFirstEventTimeout,
+  resolveNocodeEditorProviderRoundRetryDecision,
 } from './nocode-editor-stream-error'
 import {
   buildNocodeEditorMergedFormulaResultAssistantMessage,
@@ -106,6 +131,32 @@ import {
   type NocodeEditorPendingFlowIntent,
 } from '@common/utils/nocodeEditorPendingFlowIntent'
 import {
+  buildBlueprintDesignGapStopLossMessage,
+  buildFlowSchemeRestageAfterConfirmationContract,
+  createNocodeEditorToolFailureTracker,
+  isExplicitNocodeEditorFlowPlanningIntent,
+  isNocodeEditorBlueprintExpectedAfterPlanningConfirmation,
+  readNocodeEditorBlueprintDesignGaps,
+  resolveRepeatedBlueprintScopeError,
+  resolveRepeatedFlowSchemeError,
+  resolveNocodeEditorStageOutputContract,
+  shouldDeferNocodeEditorFlowSchemeContractForCreationPipeline,
+  shouldPreferNocodeEditorLostToolIntentRepair,
+  type NocodeEditorBlueprintDesignGapOutput,
+  type NocodeEditorToolFailureEscalation,
+} from './nocode-editor-stage-output-contract'
+import {
+  buildFlowSchemeStopLossMessage,
+  buildFlowSchemeStopLossQuestions,
+  buildFlowSchemeTextSalvageRetryMessage,
+  extractFlowSchemeFromAssistantText,
+  FLOW_SCHEME_DECISION_CONTRACT_ISSUE_IDS,
+  type FlowSchemeStopLossQuestion,
+} from './nocode-editor-flow-scheme-repair.util'
+import {
+  NOCODE_EDITOR_FLOW_SCHEME_STALE_REPLY_ISSUE_PREFIX,
+} from '@common/utils/nocodeEditorFlowSchemeStaleReply'
+import {
   normalizeNocodeEditorPostFormFlowFollowUp,
   type NocodeEditorPostFormFlowFollowUp,
 } from '@common/utils/nocodeEditorPostFormFlowFollowUp'
@@ -115,7 +166,16 @@ import {
 } from '@common/utils/nocodeEditorPostFormFlowRelease'
 import {
   applyNocodeEditorToolResultVisibilityMetadata,
+  discardDeferredNocodeEditorFailedStageSummariesOnAbort,
   isCompletedNocodeEditorAppPlanResult,
+  isSuccessfulNocodeEditorAppBlueprintApplyResult,
+  isSuccessfulNocodeEditorBlueprintStageResult,
+  isSuccessfulNocodeEditorFlowApplyResult,
+  isSuccessfulNocodeEditorFlowBlueprintStageResult,
+  markDeferredNocodeEditorFailedStageSummaries,
+  refreshDeferredNocodeEditorFailedStageSummary,
+  resolveDeferredNocodeEditorFailedStageSummary,
+  type DeferredNocodeEditorFailedStageSummary,
 } from './nocode-editor-tool-result-visibility'
 import type { NocodeEditorContinuityHint } from './nocode-editor-task-context.util'
 import {
@@ -126,8 +186,11 @@ import {
   getLatestPendingPlanningResult,
   getLatestPlanningConvergenceLateQuestions,
   markPlanningConvergenceLateQuestionsOnRoundResults,
+  resolveBlueprintScopeRecoveryPlanningGuard,
   resolvePlanningConvergenceTaskSummary,
+  resolvePlanningContinuationToolGuard,
   resolvePlanningScopeToolGuard,
+  resolveRepeatedFormPlanRestageDecision,
   shouldBlockBlueprintApplyForPlanningConvergence,
   shouldStopAfterCompletedPlanningRound,
   shouldStopAfterPendingAppPlanRound,
@@ -152,6 +215,7 @@ import {
 import { resolveNocodeEditorUnsupportedBlueprintProtocolState } from '@common/utils/nocodeEditorUnsupportedBlueprintProtocol'
 import { normalizeNocodeEditorBlueprintToolInput } from '@common/utils/nocodeEditorBlueprintInput'
 import {
+  estimateProviderRequestBodyBytes,
   projectNocodeEditorProviderMessagesForContext,
   projectNocodeEditorTaskSummaryForProvider,
 } from './nocode-editor-provider-context-projection.util'
@@ -163,7 +227,16 @@ import {
   nocodeEditorFlowNodeExamples,
 } from './nocode-editor-flow-node-examples'
 import type { NocodeEditorFlowPlanNodeType } from '@common/utils/nocodeEditorFlowPlan'
+import {
+  buildFlowSchemeConfirmationContextFromRequest,
+  buildTrustedFlowSchemeClientToolInput,
+  type NocodeEditorFlowSchemeConfirmationRejection,
+} from '@common/utils/nocodeEditorFlowConfirmationTrust'
 import { normalizeNocodeEditorFlowInternalContinuation } from '@common/utils/nocodeEditorFlowInternalContinuation'
+import {
+  projectModelActionableFlowDecisionDiagnostics,
+  type FlowDecisionDiagnostic,
+} from '@common/utils/nocodeEditorFlowDecisionGraph'
 
 type StreamChatOptions = {
   accountId: string
@@ -206,11 +279,54 @@ const sanitizeInternalContinuationRequestMetadata = (
   return sanitized
 }
 
+// 规划和蓝图确认结论随用户消息 requestMetadata 回传；兼容平铺和嵌套两种存放方式。
+const resolveIncomingConfirmationDecisions = (value: unknown) => {
+  if (!isRecord(value)) {
+    return null
+  }
+  const nestedRequestMetadata = isRecord(value.requestMetadata) ? value.requestMetadata : {}
+  const metadata = Object.keys(nestedRequestMetadata).length ? nestedRequestMetadata : value
+  const stage = String(
+    metadata.confirmationStage
+    || (
+      metadata.blueprintConfirmationStage === 'blueprint'
+      || metadata.blueprintConfirmationDecisions
+      || value.blueprintConfirmationDecisions
+        ? 'blueprint'
+        : ''
+    ),
+  ).trim()
+  if (
+    stage !== 'app-plan'
+    && stage !== 'form-plan'
+    && stage !== 'flow-scheme'
+    && stage !== 'blueprint'
+  ) {
+    return null
+  }
+  return {
+    stage,
+    planningContextKey: metadata.planningContextKey,
+    schemeRevision: metadata.flowSchemeRevision,
+    decisions: stage === 'blueprint'
+      ? metadata.blueprintConfirmationDecisions || value.blueprintConfirmationDecisions
+      : stage === 'flow-scheme'
+        ? metadata.flowConfirmationDecisions || value.flowConfirmationDecisions
+        : metadata.planningConfirmationDecisions,
+  }
+}
+
 const toErrorMessage = (error: unknown) => (
   error instanceof Error ? error.message : String(error)
 )
 
 const normalizeText = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim()
+
+const isUnsupportedRequiredToolChoiceError = (error: unknown) => {
+  const message = toErrorMessage(error).toLowerCase()
+  return message.includes('tool_choice')
+    || message.includes('does not support being set to required')
+}
 
 const FLOW_BLUEPRINT_OWNER_DIAGNOSTIC_PATH = (
   /^triggerBranches\[\d+\]\.nodes\[\d+\](?:\.branches\[\d+\]\.nodes\[\d+\])*\.options\.(?:approver|transactor|notifier|reporter)$/
@@ -231,58 +347,67 @@ const MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS: Readonly<Record<string, RegExp>
   flow_notify_recipients_unsupported: (
     /^triggerBranches\[\d+\]\.nodes\[\d+\](?:\.branches\[\d+\]\.nodes\[\d+\])*\.options\.recipients$/
   ),
+  flow_branch_branches_in_options_unsupported: (
+    /^triggerBranches\[\d+\]\.nodes\[\d+\](?:\.branches\[\d+\]\.nodes\[\d+\])*\.options\.branches$/
+  ),
 }
 
-export const buildFlowSchemeConfirmationContextForClientToolCall = (input: {
-  latestTaskSummary?: Record<string, unknown> | null
-  activeFormId?: unknown
-  activeFormName?: unknown
-  continuationPlanningContextKey?: unknown
-}) => {
-  const summary = input.latestTaskSummary || null
-  const planningContextKey = normalizeText(summary?.flowConfirmationContextKey)
-  const continuationPlanningContextKey = normalizeText(input.continuationPlanningContextKey)
-  const confirmationTargetFormId = normalizeText(summary?.flowConfirmationTargetFormId)
-  const activeFormId = normalizeText(input.activeFormId)
-  if (
-    !planningContextKey
-    || !continuationPlanningContextKey
-    || !confirmationTargetFormId
-    || !activeFormId
-    || confirmationTargetFormId !== activeFormId
-    || !isSamePlanningConfirmationContext(
-      planningContextKey,
-      continuationPlanningContextKey,
-    )
-  ) {
-    return null
-  }
+type ModelVisibleFlowBlueprintRepair =
+  | { code: string; path: string }
+  | { code: string; issues: Record<string, unknown>[] }
 
-  const flowConfirmationDecisions = Array.isArray(summary?.flowConfirmationDecisions)
-    ? summary.flowConfirmationDecisions.filter((item) => {
-      if (!isRecord(item)) {
-        return false
-      }
-      return isSamePlanningConfirmationContext(
-        normalizeText(item.planningContextKey),
-        planningContextKey,
-      )
-    })
-    : []
-  if (!flowConfirmationDecisions.length) {
-    return null
-  }
-
-  return {
-    planningContextKey,
-    continuationPlanningContextKey,
-    targetFormId: confirmationTargetFormId,
-    targetFormName: normalizeText(summary?.flowConfirmationTargetFormName)
-      || normalizeText(input.activeFormName)
-      || undefined,
-    flowConfirmationDecisions,
-  }
+type ModelVisibleBlueprintStageRetry = {
+  updateMode: 'replace'
+  reason: 'no_staged_blueprint'
+  instruction: string
 }
+
+const BLUEPRINT_PATCH_WITHOUT_STAGED_BLUEPRINT_ERROR_CODE = 'blueprint_patch_without_staged_blueprint'
+
+const BLUEPRINT_PATCH_WITHOUT_STAGED_BLUEPRINT_RETRY_INSTRUCTION =
+  '宿主当前没有暂存蓝图，patch 无法执行。请立即用同一份蓝图内容重新调用 editor_stage_app_blueprint，并把 updateMode 改为 replace；不要询问用户，不要重新规划，不要删减表单或字段。'
+
+const FLOW_BLUEPRINT_PERSONNEL_ISSUE_IDS = new Set([
+  'flow-blueprint-personnel-reference-inconsistent',
+  'flow-blueprint-approval-owner-reference-inconsistent',
+  'flow-scheme-ambiguous-personnel-step',
+])
+
+const FLOW_SCHEME_REFERENCE_ISSUE_IDS = new Set([
+  'flow_confirmed_step_removed',
+  'flow_personnel_step_reference_missing',
+  'flow_dependency_scope_reference_missing',
+])
+
+const MODEL_VISIBLE_REFERENCE_DIAGNOSTIC_FIELDS = [
+  'code',
+  'message',
+  'path',
+  'questionId',
+  'questionTitle',
+  'decisionKey',
+  'stepKey',
+  'stepTitle',
+  'candidateStepKeys',
+] as const
+
+const MODEL_VISIBLE_PERSONNEL_DIAGNOSTIC_FIELDS = [
+  'code',
+  'message',
+  'nodeKey',
+  'nodeName',
+  'expectedSourceType',
+  'actualSourceType',
+  'expectedFieldId',
+  'expectedFieldName',
+  'actualFieldId',
+  'actualFieldName',
+  'expectedStepKeys',
+  'actualNodeKeys',
+  'mainPathStepKey',
+  'branchStepKeys',
+  'branchKeys',
+] as const
 
 const buildPostBlueprintFlowContinuationSystemMessage = (intent: NocodeEditorPendingFlowIntent) => [
   '当前表单和字段已经生成完成。',
@@ -400,9 +525,7 @@ const includesAnyFlowApplyKeyword = (text: string, keywords: string[]) => (
   keywords.some(keyword => text.includes(normalizeFlowApplyIntentText(keyword)))
 )
 
-const isStructuredFlowConfirmationReply = (value: unknown) => (
-  String(value || '').trim().startsWith('我补充确认这几项')
-)
+const isStructuredFlowConfirmationReply = isNocodeEditorStructuredConfirmationReplyMessage
 
 const isFlowDefaultContinueReply = (value: unknown) => (
   isDefaultContinueReplyMessage(String(value || '').trim())
@@ -480,68 +603,6 @@ const hasSuccessfulFlowStageWithoutPendingQuestions = (results: AiActionResult[]
   })
 )
 
-const hasPendingFlowSchemeConvergence = (
-  scheme?: ReturnType<typeof normalizeNocodeEditorFlowScheme> | null,
-) => (
-  scheme?.convergence?.businessStatus === 'pending'
-  || scheme?.convergence?.dependencyStatus === 'pending'
-)
-
-const resolveFlowIssueRoutingFromResult = (result: AiActionResult) => {
-  const output = isRecord(result.output) ? result.output : null
-  return normalizeFlowIssueRoutingResult(result.metadata?.flowIssueRouting)
-    || normalizeFlowIssueRoutingResult(output?.flowIssueRouting)
-}
-
-// 只需判断是否存在等待确认的 flow-scheme 结果，如果是则返回该轮结果，否则返回 null
-const getLatestFlowSchemeWaitingResult = (results: AiActionResult[]) => {
-  for (let index = results.length - 1; index >= 0; index -= 1) {
-    const result = results[index]
-    const routing = resolveFlowIssueRoutingFromResult(result)
-    if (routing) {
-      if (routing.outcome === 'return_to_flow_scheme') {
-        return result
-      }
-      if (
-        routing.outcome === 'execution_blocker'
-        || routing.outcome === 'system_error'
-        || routing.outcome === 'auto_continue'
-      ) {
-        return null
-      }
-    }
-
-    const toolName = normalizeText(result?.name)
-    if (!result?.ok || toolName !== 'editor_plan_flow_scheme') {
-      continue
-    }
-
-    const scheme = normalizeNocodeEditorFlowScheme(
-      isRecord(result.output) ? result.output.scheme : null,
-    )
-    const confirmationQuestions = Array.isArray(scheme?.confirmation?.questions)
-      ? scheme.confirmation.questions.filter(Boolean)
-      : []
-    const openQuestions = Array.isArray(scheme?.openQuestions)
-      ? scheme.openQuestions.filter(Boolean)
-      : []
-    const planningStatus = normalizeText(isRecord(result.output) ? result.output.planningStatus : '')
-
-    if (
-      hasPendingFlowSchemeConvergence(scheme)
-      || planningStatus === 'needs_confirmation'
-      || openQuestions.length > 0
-      || confirmationQuestions.some(question => !question.confirmed)
-    ) {
-      return result
-    }
-
-    return null
-  }
-
-  return null
-}
-
 const hasSuccessfulFlowSchemeReadyForReview = (results: AiActionResult[]) => (
   (results || []).some((result) => {
     if (!result?.ok || String(result?.name || '').trim() !== 'editor_plan_flow_scheme') {
@@ -587,6 +648,22 @@ const buildFlowSchemeReviewContinuationSystemMessage = () => [
 ].join('\n')
 
 const stringifyFlowSchemeReviewResult = (value: unknown) => JSON.stringify(value, null, 2)
+
+const FLOW_SCHEME_REVIEW_PAYLOAD_START_PATTERN = /^(?:```json\s*)?\{/i
+
+// 普通轮里模型可能复述内部复核协议体：先按住流式正文，确认不是复核结果再补发。
+const resolveFlowSchemeReviewPayloadStreamState = (
+  value: unknown,
+): 'none' | 'pending' | 'confirmed' => {
+  const trimmed = String(value || '').trimStart()
+  if (!FLOW_SCHEME_REVIEW_PAYLOAD_START_PATTERN.test(trimmed)) {
+    return 'none'
+  }
+  if (isNocodeEditorFlowSchemeReviewResultText(trimmed)) {
+    return 'confirmed'
+  }
+  return /\}\s*```?\s*$/.test(trimmed) ? 'none' : 'pending'
+}
 
 const shouldBlockAgentFlowApply = (options: {
   latestUserMessage?: unknown
@@ -850,41 +927,7 @@ export class AiNocodeEditorChatService {
   }
 
   private parseFlowSchemeReviewResult(value: unknown) {
-    const rawText = String(value || '').trim()
-    if (!rawText) {
-      return null
-    }
-
-    const candidates = [
-      rawText,
-      rawText
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim(),
-    ]
-    const firstBraceIndex = rawText.indexOf('{')
-    const lastBraceIndex = rawText.lastIndexOf('}')
-    if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
-      candidates.push(rawText.slice(firstBraceIndex, lastBraceIndex + 1).trim())
-    }
-
-    for (const candidate of candidates) {
-      if (!candidate) {
-        continue
-      }
-      try {
-        const parsed = JSON.parse(candidate)
-        const normalized = normalizeNocodeEditorFlowSchemeReviewResult(parsed)
-        if (normalized) {
-          return normalized
-        }
-      } catch {
-        continue
-      }
-    }
-
-    return null
+    return parseNocodeEditorFlowSchemeReviewResultText(value)
   }
 
   async streamChat(options: StreamChatOptions) {
@@ -893,6 +936,7 @@ export class AiNocodeEditorChatService {
     let conversation: AiNocodeEditorConversationEntity | null = null
     let userMessagePersisted = false
     let releaseInternalContinuationLock: (() => void) | null = null
+    const deferredFailedStageSummaries = new Map<string, DeferredNocodeEditorFailedStageSummary>()
     try {
       await this.usageService.assertCanChat(options.accountId)
 
@@ -1083,11 +1127,14 @@ export class AiNocodeEditorChatService {
         userMessage: taskBoundaryUserMessage,
         updatedAt: Date.now(),
         validateFormulaPlanContext: true,
+        confirmationDecisions: resolveIncomingConfirmationDecisions(
+          requestWithScene.metadata,
+        ),
         taskId: String(requestWithScene.metadata?.taskId || '').trim(),
         taskScopeKey: String(
           requestWithScene.metadata?.taskScopeKey
-          || requestWithScene.scenePayload?.taskScopeKey
-          || requestWithScene.scenePayload?.scopeKey
+          || (requestWithScene.scenePayload as Record<string, unknown> | undefined)?.taskScopeKey
+          || (requestWithScene.scenePayload as Record<string, unknown> | undefined)?.scopeKey
           || '',
         ).trim(),
         activeFormId: String(requestWithScene.scenePayload?.activeFormId || '').trim(),
@@ -1157,7 +1204,11 @@ export class AiNocodeEditorChatService {
           nocodeEditorToolDefinitions,
           accessibleHistoricalAttachments.length > 0,
         )
-      const restoredFlowBlueprintPreflightState = actionDefinitions.length
+      // 宿主没有暂存方案时，preflight 的“直接出蓝图”指令只会把模型推回同一个阻塞，
+      // 以渲染端上报的 hasStagedFlowScheme 为准，直接放弃恢复。
+      // 缺省按 true 处理：旧渲染端不传该字段时保持现有行为。
+      const hasStagedFlowScheme = requestWithScene.scenePayload?.hasStagedFlowScheme !== false
+      const restoredFlowBlueprintPreflightState = actionDefinitions.length && hasStagedFlowScheme
         ? restoreFlowBlueprintPreflightStateFromHistory({
           messages: chronologicalHistory,
           userMessage: [userFacingMessageContent, providerPromptMessageContent]
@@ -1165,6 +1216,7 @@ export class AiNocodeEditorChatService {
             .join('\n'),
           latestTaskSummary: effectiveLatestTaskSummary,
           now: Date.now(),
+          isInternalContinuation: Boolean(internalContinuation),
         })
         : null
       const systemPrompt = this.promptService.buildSystemPrompt({
@@ -1175,8 +1227,15 @@ export class AiNocodeEditorChatService {
       const pendingFlowIntent = normalizeNocodeEditorPendingFlowIntent(
         (effectiveLatestTaskSummary as UnknownRecord | null)?.pendingFlowIntent,
       )
+      // 当前轮阶段的判定以本轮请求的作用域为准，持久任务摘要只在请求没有给出作用域时兜底；
+      // 否则旧任务会把新请求压回旧 scope，阶段输出契约不会启用。
+      const requestPlanningScope = resolveNocodeEditorPlanningScope(
+        userFacingMessageContent,
+      ).scope
       const planningScope = normalizeNocodeEditorPlanningScopeValue(
-        (effectiveLatestTaskSummary as UnknownRecord | null)?.planningScope,
+        requestPlanningScope !== 'unknown'
+          ? requestPlanningScope
+          : (effectiveLatestTaskSummary as UnknownRecord | null)?.planningScope,
       )
       const canInjectPostFormFlow = isNocodeEditorPostFormFlowEnabledForScope(
         planningScope,
@@ -1238,13 +1297,7 @@ export class AiNocodeEditorChatService {
         restoredFlowBlueprintPreflightState
           ? {
             role: AiMessageRole.DEVELOPER,
-            content: [
-              '上一次生成在 blueprint_preflight 阶段中断，已从持久化工具历史恢复预检进度。',
-              restoredFlowBlueprintPreflightState.nodeExampleFetchCount > 0
-                ? '流程节点示例已经读取完成，不要重复读取。'
-                : '已有预检证据可以复用，不要回到流程方案规划。',
-              '请基于已确认并已保存的流程方案直接调用 editor_stage_flow_blueprint，不要重复提问或重复提交确认。',
-            ].join('\n'),
+            content: buildRestoredFlowBlueprintPreflightPrompt(restoredFlowBlueprintPreflightState),
             metadata: {
               scene: 'nocode-editor',
               flowBlueprintPreflightRestored: true,
@@ -1265,25 +1318,61 @@ export class AiNocodeEditorChatService {
       let latestRoundAssistantText = ''
       let usage = this.normalizeUsage()
       let finishReason = 'stop'
+      let sameCauseFailureEscalation: NocodeEditorToolFailureEscalation | null = null
+      const toolFailureTracker = createNocodeEditorToolFailureTracker()
+      // 轮内已成功的方案 revision：后续 plan 调用注入它，避免同轮内把自己判成旧版卡。
+      const inTurnFlowSchemeRevision = { value: 0 }
+      // 蓝图范围错误出现后，本轮不再允许用“重新规划”迁就蓝图。
+      const inTurnBlueprintScopeRecovery: {
+        scopeErrorSeen: boolean
+        plannedForms: Array<{ formKey?: string; tableName?: string }>
+      } = {
+        scopeErrorSeen: false,
+        plannedForms: [],
+      }
       const actionResults: AiActionResult[] = []
       const successfulMutationSignatures = new Set<string>()
       const maxActionRounds = this.normalizeActionRounds(requestWithScene.maxActionRounds)
+      let flowSchemeStopLossQuestions: FlowSchemeStopLossQuestion[] = []
       let visibleToolResultSummaryMessageCount = 0
       const visibleToolResultSummaryContents: string[] = []
       const deferredToolResultSummaries: DeferredNocodeEditorToolResultSummary[] = []
       let lastRoundHadToolCalls = false
+      let activeToolStage: NocodeEditorToolStage | null = null
       let lastRoundResponseMetadata: Record<string, unknown> | null = null
+      const emittedRoundNarrations: string[] = []
       let toolIntentRetryCount = 0
       let formulaToolIntentRetryCount = 0
+      let flowSchemeTextSalvageCount = 0
       const formulaStageGate = { ready: false }
       const attachmentReadBudget: AiAttachmentReadBudget = { totalTextLength: 0 }
       let flowSchemeReviewContinuationRetryCount = 0
       let expectingFlowSchemeReviewResult = false
       let flowSchemeReviewResultRepairRetryCount = 0
+      const incomingConfirmation = resolveIncomingConfirmationDecisions(
+        userMessage?.metadata,
+      )
+      const incomingConfirmationStage = incomingConfirmation?.stage
+      const isFlowSchemeConfirmationReply = incomingConfirmationStage === 'flow-scheme'
+      const shouldRestageFlowSchemeAfterConfirmation = isFlowSchemeConfirmationReply
+        && hasStagedFlowScheme
+      let missingFlowSchemeContractRetryCount = 0
+      let flowSchemeRestageRetryCount = 0
+      let missingFormPlanContractRetryCount = 0
+      let blueprintDesignGapRetryCount = 0
+      let planningBlueprintContractRetryCount = 0
+      let blueprintDesignGapStopLoss: {
+        gaps: NocodeEditorBlueprintDesignGapOutput[]
+        planningContextKey?: string
+      } | null = null
+      let formPlanRestageReminderCount = 0
+      let unfulfilledStageOutputContractId = ''
       let unsupportedBlueprintRepairAttempts = 0
       let flowBlueprintPreflightState: FlowBlueprintPreflightState | null = (
         restoredFlowBlueprintPreflightState
       )
+      let flowBlueprintRepairRetryCount = 0
+      let preflightToolChoiceDisabled = false
       const maxSupportedActionRounds = maxActionRounds + MAX_UNSUPPORTED_BLUEPRINT_REPAIR_ATTEMPTS
 
       this.emit(options.emit, {
@@ -1314,17 +1403,38 @@ export class AiNocodeEditorChatService {
         let roundVisibleText = ''
         let roundContainsUnsupportedBlueprintProtocol = false
         let roundVisibleForwardedLength = 0
+        let roundReviewPayloadHeld = false
+        let duplicateNarrationCandidate = false
+        let suppressDuplicateRoundNarration = false
+        let suppressFlowSchemeConfirmationToolNarration = false
         let roundFinishReason = 'stop'
         let roundResponseMetadata: Record<string, unknown> | null = null
+        const roundToolStage: NocodeEditorToolStage | null = (
+          flowBlueprintPreflightState || isFlowSchemeReviewRound || isFlowSchemeConfirmationReply
+            ? 'flow'
+            : activeToolStage
+        )
         const roundActionDefinitions = projectFlowBlueprintPreflightActions(
-          actionDefinitions,
+          projectNocodeEditorStageActions(actionDefinitions, roundToolStage),
           flowBlueprintPreflightState,
         )
-        const roundSystemPrompt = roundActionDefinitions === actionDefinitions
+        const roundStageTotalTimeoutMs = roundToolStage === 'flow'
+          ? NOCODE_EDITOR_FLOW_ROUND_TOTAL_TIMEOUT_MS
+          : 0
+        const shouldForcePreflightToolChoice = Boolean(
+          flowBlueprintPreflightState
+          && !isFlowSchemeReviewRound
+          && roundActionDefinitions.length > 0,
+        )
+        // 流程轮即使工具集恰好没变，也要按阶段重建 prompt（表单生命周期规则不再下发）。
+        const reuseSystemPrompt = roundActionDefinitions === actionDefinitions
+          && roundToolStage !== 'flow'
+        const roundSystemPrompt = reuseSystemPrompt
           ? systemPrompt
           : this.promptService.buildSystemPrompt({
             request: requestWithEffectiveFlowSummary,
             actions: roundActionDefinitions,
+            stage: roundToolStage,
           })
         const roundContext = roundActionDefinitions === actionDefinitions
           ? context
@@ -1333,9 +1443,12 @@ export class AiNocodeEditorChatService {
             requestWithEffectiveFlowSummary,
             roundActionDefinitions,
           )
-        const providerRoundProjection = projectNocodeEditorProviderMessagesForContext(turnMessages)
-        const providerRoundMessages = providerRoundProjection.messages
-        let firstEventRetryCount = 0
+        let providerRoundProjection = projectNocodeEditorProviderMessagesForContext(turnMessages)
+        let providerRoundMessages = providerRoundProjection.messages
+        const assistantTextAtRoundStart = assistantText
+        let roundRetryCount = 0
+        // 只有 total 超时的压缩重试才收紧超时，普通首事件重试仍用默认 total 时长。
+        let roundRetryTotalTimeoutMs = 0
         while (true) {
           try {
             for await (const chunk of this.openAiService.streamTurn({
@@ -1348,13 +1461,24 @@ export class AiNocodeEditorChatService {
               promptVersion,
               systemPrompt: roundSystemPrompt,
               messages: providerRoundMessages,
-              actions: roundActionDefinitions,
+              actions: isFlowSchemeReviewRound ? [] : roundActionDefinitions,
               actionResults: [],
               context: roundContext,
               metadata: {
                 scene: 'nocode-editor',
                 round: round + 1,
                 traceId,
+                ...(shouldForcePreflightToolChoice && !preflightToolChoiceDisabled
+                  ? { toolChoice: 'required' }
+                  : {}),
+                ...(roundRetryTotalTimeoutMs > 0
+                  ? { providerTotalTimeoutMs: roundRetryTotalTimeoutMs }
+                  : roundStageTotalTimeoutMs > 0
+                    ? { providerTotalTimeoutMs: roundStageTotalTimeoutMs }
+                    : {}),
+                ...(roundToolStage === 'flow'
+                  ? { providerFirstEventTimeoutMs: NOCODE_EDITOR_FLOW_ROUND_FIRST_EVENT_TIMEOUT_MS }
+                  : {}),
                 providerDiagnostics: {
                   scene: 'nocode-editor',
                   contextProjection: {
@@ -1376,9 +1500,25 @@ export class AiNocodeEditorChatService {
                 emit: options.emit,
                 onDelta: (text) => {
                   roundRawText += text
-                  if (isFlowSchemeReviewRound) {
+                  if (isFlowSchemeReviewRound || isFlowSchemeConfirmationReply) {
                     roundVisibleText = roundRawText
                     return null
+                  }
+                  const reviewPayloadStreamState = resolveFlowSchemeReviewPayloadStreamState(roundRawText)
+                  if (reviewPayloadStreamState === 'confirmed') {
+                    // 普通轮原样吐出复核协议体：正文照旧记录，但不对用户流式展示，最终由业务兜底文案替换。
+                    roundReviewPayloadHeld = true
+                    roundVisibleText = roundRawText
+                    return null
+                  }
+                  if (reviewPayloadStreamState === 'pending') {
+                    roundReviewPayloadHeld = true
+                    return null
+                  }
+                  if (roundReviewPayloadHeld) {
+                    // 之前按住的内容确认不是复核结果，从头补发。
+                    roundReviewPayloadHeld = false
+                    roundVisibleForwardedLength = 0
                   }
                   const unsupportedProtocolState = resolveNocodeEditorUnsupportedBlueprintProtocolState(roundRawText)
                   roundContainsUnsupportedBlueprintProtocol = unsupportedProtocolState.containsUnsupportedProtocol
@@ -1388,6 +1528,20 @@ export class AiNocodeEditorChatService {
                   }
 
                   roundVisibleText = roundRawText
+                  const normalizedRoundPrefix = sanitizeNocodeEditorAssistantText(
+                    roundVisibleText.trim(),
+                  )
+                  if (
+                    normalizedRoundPrefix
+                    && emittedRoundNarrations.some(narration => narration.startsWith(normalizedRoundPrefix))
+                  ) {
+                    duplicateNarrationCandidate = true
+                    return null
+                  }
+                  if (duplicateNarrationCandidate) {
+                    duplicateNarrationCandidate = false
+                    roundVisibleForwardedLength = 0
+                  }
                   const visibleTailBufferLength = this.getUnsupportedBlueprintVisibleTailBufferLength(
                     roundVisibleText,
                   )
@@ -1416,13 +1570,44 @@ export class AiNocodeEditorChatService {
                 },
               })
             }
+            const roundToolStageFromCalls = resolveNocodeEditorToolStageFromNames(
+              pendingCalls.map(call => call.name),
+            )
+            if (roundToolStageFromCalls) {
+              activeToolStage = roundToolStageFromCalls
+            }
             break
           } catch (error) {
-            const shouldRetryFirstEventTimeout = shouldRetryNocodeEditorFirstEventTimeout({
+            const promptChars = roundSystemPrompt.length + providerRoundMessages.reduce(
+              (total, message) => total + String(message.content || '').length,
+              0,
+            )
+            const promptBytes = estimateProviderRequestBodyBytes({
+              model,
+              systemPrompt: roundSystemPrompt,
+              actions: roundActionDefinitions,
+              messages: providerRoundMessages,
+              stream: true,
+            })
+            const compactedProviderRoundProjection = projectNocodeEditorProviderMessagesForContext(
+              turnMessages,
+              { projectionMode: 'minimal' },
+            )
+            const compactedPromptBytes = estimateProviderRequestBodyBytes({
+              model,
+              systemPrompt: roundSystemPrompt,
+              actions: roundActionDefinitions,
+              messages: compactedProviderRoundProjection.messages,
+              stream: true,
+            })
+            const compactionEffective = compactedPromptBytes < promptBytes
+            const retryDecision = resolveNocodeEditorProviderRoundRetryDecision({
               error,
-              retryCount: firstEventRetryCount,
+              retryCount: roundRetryCount,
               hasRoundOutput: Boolean(roundRawText || pendingCalls.length || roundResponseMetadata),
+              hasRoundToolCall: pendingCalls.length > 0,
               aborted: options.signal?.aborted === true,
+              compactionEffective,
             })
             await this.agentLogService.logError(conversation.id, {
               stage: 'nocode_editor_provider_round',
@@ -1432,19 +1617,104 @@ export class AiNocodeEditorChatService {
               error: error instanceof Error ? error.message : String(error),
               timeoutPhase: error instanceof AiProviderStreamTimeoutError ? error.phase : undefined,
               timeoutMs: error instanceof AiProviderStreamTimeoutError ? error.timeoutMs : undefined,
-              firstEventRetryCount,
-              retrying: shouldRetryFirstEventTimeout,
+              roundRetryCount,
+              retrying: retryDecision.retry,
+              retryReason: retryDecision.reason,
+              forceCompact: retryDecision.forceCompact,
+              compactionEffective,
+              promptChars,
+              promptBytes,
+              compactedPromptBytes: retryDecision.forceCompact ? compactedPromptBytes : undefined,
+              compressiblePromptBytes: providerRoundProjection.estimatedBytes,
+              compactedCompressiblePromptBytes: retryDecision.forceCompact
+                ? compactedProviderRoundProjection?.estimatedBytes
+                : undefined,
+              inputTokens: usage.inputTokens,
+              toolFailureSignatures: toolFailureTracker.snapshot(),
             })
-            if (!shouldRetryFirstEventTimeout) {
+            if (
+              shouldForcePreflightToolChoice
+              && !preflightToolChoiceDisabled
+              && !roundRawText
+              && !pendingCalls.length
+              && isUnsupportedRequiredToolChoiceError(error)
+            ) {
+              preflightToolChoiceDisabled = true
+              // 记住该模型的限制，后续回合直接走 auto，不再每轮先吃一次 400。
+              this.openAiService.markRequiredToolChoiceRejected({ providerId, modelId, model })
+              continue
+            }
+            if (!retryDecision.retry) {
               throw error
             }
-            firstEventRetryCount += 1
+            roundRetryCount += 1
+            // total 超时的重试一律收紧到 90s；压缩是否有效不影响这一点。
+            roundRetryTotalTimeoutMs = error instanceof AiProviderStreamTimeoutError
+              && error.phase === 'total'
+              ? NOCODE_EDITOR_PROVIDER_RETRY_TOTAL_TIMEOUT_MS
+              : 0
+            this.emit(options.emit, {
+              conversationId: conversation.id,
+              event: AiStreamEventType.STATUS,
+              metadata: {
+                scene: 'nocode-editor',
+                traceId,
+                statusPhase: 'provider_retry',
+                retryReason: retryDecision.reason,
+                retryCount: roundRetryCount,
+                timeoutPhase: error instanceof AiProviderStreamTimeoutError ? error.phase : undefined,
+                compactionEffective,
+                promptBytes,
+                compactedPromptBytes: retryDecision.forceCompact ? compactedPromptBytes : undefined,
+              },
+            })
+            if (retryDecision.forceCompact) {
+              if (retryDecision.reason === 'total_timeout_compact' && compactedProviderRoundProjection) {
+                providerRoundProjection = compactedProviderRoundProjection
+                providerRoundMessages = providerRoundProjection.messages
+              }
+              assistantText = assistantTextAtRoundStart
+              roundRawText = ''
+              roundVisibleText = ''
+              roundContainsUnsupportedBlueprintProtocol = false
+              roundVisibleForwardedLength = 0
+              duplicateNarrationCandidate = false
+              suppressDuplicateRoundNarration = false
+              suppressFlowSchemeConfirmationToolNarration = false
+              roundFinishReason = 'stop'
+              roundResponseMetadata = null
+            }
+          }
+        }
+
+        latestRoundAssistantText = roundVisibleText.trim()
+        suppressFlowSchemeConfirmationToolNarration = Boolean(
+          isFlowSchemeConfirmationReply
+          && pendingCalls.some(call => String(call.name || '').trim() === 'editor_plan_flow_scheme'),
+        )
+        const normalizedRoundNarration = sanitizeNocodeEditorAssistantText(
+          latestRoundAssistantText,
+        )
+        if (normalizedRoundNarration && pendingCalls.length > 0) {
+          const existingNarration = emittedRoundNarrations.find(narration => (
+            narration === normalizedRoundNarration
+          ))
+          if (existingNarration && duplicateNarrationCandidate) {
+            suppressDuplicateRoundNarration = true
+            roundVisibleForwardedLength = roundVisibleText.length
+          } else if (!existingNarration) {
+            emittedRoundNarrations.push(normalizedRoundNarration)
           }
         }
 
         if (
           !isFlowSchemeReviewRound
+          && !roundReviewPayloadHeld
           && !roundContainsUnsupportedBlueprintProtocol
+          && !suppressDuplicateRoundNarration
+          && !suppressFlowSchemeConfirmationToolNarration
+          // 确认回填轮只通过工具结果卡片推进；正文里的“已暂存/暂无待确认项”没有工具落实，不透出。
+          && !shouldRestageFlowSchemeAfterConfirmation
           && roundVisibleForwardedLength < roundVisibleText.length
         ) {
           const pendingVisibleTail = roundVisibleText.slice(roundVisibleForwardedLength)
@@ -1462,8 +1732,6 @@ export class AiNocodeEditorChatService {
             })
           }
         }
-
-        latestRoundAssistantText = roundVisibleText.trim()
 
         finishReason = roundFinishReason || finishReason
         if (isFlowSchemeReviewRound) {
@@ -1523,6 +1791,8 @@ export class AiNocodeEditorChatService {
           }
 
           flowSchemeReviewResultRepairRetryCount = 0
+          // 复核正文是内部协议：即使复核轮恰好是这个回合的最后一轮，也不能落库成用户可见回复。
+          latestRoundAssistantText = ''
           if (reviewResult.failed) {
             turnMessages.push({
               role: AiMessageRole.DEVELOPER,
@@ -1559,7 +1829,23 @@ export class AiNocodeEditorChatService {
           const readyFlowConfirmation = isRecord(readyFlowScheme?.confirmation)
             ? readyFlowScheme.confirmation
             : null
-          flowBlueprintPreflightState = createFlowBlueprintPreflightState({
+          const readyFlowTarget = isRecord(readyFlowScheme?.target)
+            ? readyFlowScheme.target
+            : null
+          const targetFormId = normalizeText(readyFlowTarget?.formId)
+          const hasMatchingSummaryEvidence = actionResults.some((result) => {
+            if (!result?.ok || normalizeText(result?.name) !== 'editor_get_flow_summary') {
+              return false
+            }
+            const output = isRecord(result.output) ? result.output : null
+            const forms = isRecord(output?.forms) ? output.forms : null
+            const currentForm = isRecord(forms?.currentForm) ? forms.currentForm : null
+            return Boolean(
+              targetFormId
+              && normalizeText(currentForm?.tableId) === targetFormId,
+            )
+          })
+          let nextPreflightState = createFlowBlueprintPreflightState({
             planningContextKey: normalizeText(
               readyFlowOutput?.planningContextKey
               || readyFlowConfirmation?.planningContextKey,
@@ -1568,6 +1854,13 @@ export class AiNocodeEditorChatService {
             now: Date.now(),
             phase: 'summary',
           })
+          if (hasMatchingSummaryEvidence) {
+            nextPreflightState = updateFlowBlueprintPreflightProgress(nextPreflightState, {
+              toolName: 'editor_get_flow_summary',
+              now: Date.now(),
+            })
+          }
+          flowBlueprintPreflightState = nextPreflightState
           turnMessages.push({
             role: AiMessageRole.DEVELOPER,
             content: [
@@ -1577,7 +1870,7 @@ export class AiNocodeEditorChatService {
               '```',
               '这一轮不要回到 editor_plan_flow_scheme，不要再提问，也不要直接调用 editor_apply_staged_flow。',
               '如果已有可复用的 flow summary 证据，不要重复读取；如果某类节点示例已经在本轮拿到，也不要重复 editor_get_flow_node_examples。',
-              '这一轮只允许三类动作：按需补一次 editor_get_flow_summary、按需补一次 editor_get_flow_node_examples、最终调用 editor_stage_flow_blueprint。',
+              buildFlowBlueprintPreflightActionGuidance(flowBlueprintPreflightState),
               '补读后必须继续 editor_stage_flow_blueprint，不要停在普通思考正文。',
               '请直接调用 editor_stage_flow_blueprint，基于当前已暂存的流程方案输出最终流程蓝图。蓝图应在完整覆盖业务语义和关键节点配置的前提下，尽量减少节点数量、分支数量和重复链路；能提到外层复用的公共节点，不要在各分支内重复展开。条件分支能由其他分支兜底覆盖时，不要额外新建分支；不要生成分支内无节点的空分支，若某个条件分支没有实际后续处理节点，应直接去除该分支。不要为了简化结构而省略任何节点的关键语义配置；已经决定生成的节点，应尽量按节点示例补齐关键 options 字段，不要只写骨架。',
             ].join('\n'),
@@ -1597,6 +1890,7 @@ export class AiNocodeEditorChatService {
           responseMetadata: roundResponseMetadata,
           latestRoundAssistantText,
           actionResults,
+          confirmationStage: incomingConfirmationStage,
         })
         const hasPendingBlueprintToolCall = pendingCalls.some(call => (
           String(call?.name || '').trim() === 'editor_stage_app_blueprint'
@@ -1636,6 +1930,43 @@ export class AiNocodeEditorChatService {
 
         if (!pendingCalls.length) {
           const hasRetryRoundAvailable = round < maxLoopRounds - 1
+          // 正文里已经写完整方案时，先把方案原样要回来：整份丢弃会让模型重新规划，产出往往更差。
+          const expectsFlowSchemePlan = (
+            isExplicitNocodeEditorFlowPlanningIntent(latestUserMessageContent)
+            || Boolean(
+              pendingFlowIntent
+              && pendingFlowIntent.status !== 'completed'
+              && isExplicitNocodeEditorFlowPlanningIntent(pendingFlowIntent.sourceUserMessage),
+            )
+          )
+          if (
+            expectsFlowSchemePlan
+            && roundToolStage === 'flow'
+            && !flowBlueprintPreflightState
+            && !isFlowSchemeReviewRound
+            && !isFlowSchemeConfirmationReply
+            && hasRetryRoundAvailable
+            && !flowSchemeTextSalvageCount
+            && !actionResults.some(result => (
+              result?.ok === true
+              && String(result?.name || '').trim() === 'editor_plan_flow_scheme'
+            ))
+          ) {
+            const salvaged = extractFlowSchemeFromAssistantText(roundVisibleText)
+            if (salvaged) {
+              flowSchemeTextSalvageCount += 1
+              turnMessages.push({
+                role: AiMessageRole.SYSTEM,
+                content: buildFlowSchemeTextSalvageRetryMessage(salvaged.scheme),
+                metadata: {
+                  round: round + 1,
+                  scene: 'nocode-editor',
+                  flowSchemeTextSalvage: true,
+                },
+              })
+              continue
+            }
+          }
           if (flowBlueprintPreflightState) {
             const hasPreflightReminderBudget = (
               Number(flowBlueprintPreflightState.reminderCount || 0)
@@ -1646,18 +1977,32 @@ export class AiNocodeEditorChatService {
                 ...flowBlueprintPreflightState,
                 reminderCount: Number(flowBlueprintPreflightState.reminderCount || 0) + 1,
               }
+              const availableToolNames = (
+                resolveFlowBlueprintPreflightAllowedToolNames(flowBlueprintPreflightState) || []
+              )
+              const droppedUnknownToolNames = resolveNocodeEditorDroppedToolCalls(roundResponseMetadata)
+                .filter(item => item.reason === 'unknown_tool')
+                .map(item => item.name)
               turnMessages.push({
                 role: AiMessageRole.SYSTEM,
-                content: [
-                  '当前仍处于 blueprint_preflight，不要停在普通思考正文。',
-                  '这一轮只允许按需补 editor_get_flow_summary、按需补 editor_get_flow_node_examples，或继续 editor_stage_flow_blueprint。',
-                  '如果当前证据已经足够，请直接调用 editor_stage_flow_blueprint。',
-                ].join('\n'),
+                content: droppedUnknownToolNames.length
+                  ? buildNocodeEditorToolUnavailableRetryMessage({
+                    droppedToolNames: droppedUnknownToolNames,
+                    availableToolNames,
+                  })
+                  : [
+                    '当前仍处于 blueprint_preflight，不要停在普通思考正文。',
+                    buildFlowBlueprintPreflightActionGuidance(flowBlueprintPreflightState),
+                    '如果当前证据已经足够，请直接调用 editor_stage_flow_blueprint。',
+                  ].join('\n'),
                 metadata: {
                   round: round + 1,
                   scene: 'nocode-editor',
                   flowBlueprintPreflight: flowBlueprintPreflightState,
                   flowBlueprintPreflightReminder: true,
+                  ...(droppedUnknownToolNames.length
+                    ? { flowBlueprintPreflightUnavailableTool: true }
+                    : {}),
                 },
               })
               continue
@@ -1665,6 +2010,327 @@ export class AiNocodeEditorChatService {
 
             finishReason = 'blueprint_preflight_no_progress'
             latestRoundAssistantText = global.i18next.t('nocodeEditorChatService.flowBlueprintPreparationStopped')
+            lastRoundHadToolCalls = false
+            break
+          }
+
+          const preferLostToolIntentRepair = shouldPreferNocodeEditorLostToolIntentRepair({
+            lostToolIntent,
+            toolIntentRetryCount,
+            hasRetryRoundAvailable,
+          })
+
+          const formPlanOutputContract = resolveNocodeEditorStageOutputContract({
+            contract: {
+              id: 'form-plan-after-relation-context',
+              applicable: planningScope === 'form'
+                && !String((effectiveLatestTaskSummary as UnknownRecord | null)?.planningSummary || '').trim()
+                && !String((effectiveLatestTaskSummary as UnknownRecord | null)?.currentBlueprintTitle || '').trim()
+                && !String((requestWithScene.scenePayload as Record<string, unknown> | undefined)?.stagedPlanningSummary || '').trim()
+                && !String((requestWithScene.scenePayload as Record<string, unknown> | undefined)?.stagedBlueprintSummary || '').trim(),
+              prerequisiteToolNames: ['editor_get_relation_context'],
+              satisfyingOutputToolNames: ['editor_stage_single_form_plan'],
+              retryLimit: 1,
+              validateOutcome: (result) => {
+                const output = isRecord(result.output) ? result.output : null
+                const outline = isRecord(output?.outline) ? output.outline : null
+                const forms = Array.isArray(outline?.forms) ? outline.forms : []
+                return Boolean(
+                  Number(output?.revision || 0) > 0
+                  && forms.some(form => isRecord(form) && String(form.tableName || '').trim()),
+                )
+              },
+            },
+            results: actionResults,
+            retryCount: missingFormPlanContractRetryCount,
+            hasRetryRoundAvailable,
+          })
+          if (!preferLostToolIntentRepair && formPlanOutputContract.kind === 'retry' && hasRetryRoundAvailable) {
+            missingFormPlanContractRetryCount = formPlanOutputContract.retryCount
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '当前是完整单表单规划阶段，关系上下文读取已经完成，但上一轮没有形成结构化表单规划。',
+                '请调用 editor_stage_single_form_plan，把表单目标、字段范围、关系来源和仍需确认的表单问题写入 outline。',
+                '审批触发、流程路径、审批人或办理人、流程后续动作只保留 flowIntent，不要写入表单规划的 openQuestions 或 confirmation.questions。',
+                '不要只输出准备性正文，也不要停在关系上下文读取结果之后。',
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                stageOutputContract: formPlanOutputContract.contractId,
+                stageOutputContractRetry: formPlanOutputContract.retryCount,
+              },
+            })
+            continue
+          }
+          if (!preferLostToolIntentRepair && (formPlanOutputContract.kind === 'exhausted' || formPlanOutputContract.kind === 'retry')) {
+            unfulfilledStageOutputContractId = 'form-plan-after-relation-context'
+            finishReason = 'stage_output_contract_unfulfilled'
+            latestRoundAssistantText = global.i18next.t(
+              'nocodeEditorChatService.formPlanStructureFailed',
+            )
+            lastRoundHadToolCalls = false
+            break
+          }
+
+          const latestBlueprintStageResult = [...actionResults]
+            .reverse()
+            .find(result => result?.ok === true && result.name === 'editor_stage_app_blueprint')
+          const blueprintDesignGaps = readNocodeEditorBlueprintDesignGaps(
+            latestBlueprintStageResult?.output,
+          )
+          const blueprintDesignGapContract = resolveNocodeEditorStageOutputContract({
+            contract: {
+              id: 'blueprint-design-completeness',
+              applicable: Boolean(latestBlueprintStageResult),
+              prerequisiteToolNames: [],
+              satisfyingOutputToolNames: ['editor_stage_app_blueprint'],
+              retryLimit: 1,
+              validateOutcome: result => (
+                readNocodeEditorBlueprintDesignGaps(result.output).length === 0
+              ),
+            },
+            results: actionResults,
+            retryCount: blueprintDesignGapRetryCount,
+            hasRetryRoundAvailable,
+          })
+          if (
+            !preferLostToolIntentRepair
+            && blueprintDesignGapContract.kind === 'retry'
+            && hasRetryRoundAvailable
+            && blueprintDesignGaps.length
+          ) {
+            blueprintDesignGapRetryCount = blueprintDesignGapContract.retryCount
+            const hasRelatedFormGap = blueprintDesignGaps.some(
+              gap => gap.reason === 'related-form-needs-design',
+            )
+            const hasEnumGap = blueprintDesignGaps.some(
+              gap => gap.reason === 'enum-options-missing',
+            )
+            const hasAutoComputeGap = blueprintDesignGaps.some(
+              gap => gap.reason === 'auto-compute-formula-missing',
+            )
+            const designGapRepairSteps = [
+              hasRelatedFormGap
+                ? '关联表要像主表一样规划业务字段（名称/编号、说明、状态等），不能只保留被 source 引用的显示字段；'
+                : '',
+              hasEnumGap
+                ? '枚举类字段必须给出 enumOptions；行业通用口径按业务常识给 3～6 个常用选项（例如费用类型：差旅费、招待费、办公用品、其他），只有确实属于组织内部口径时才留空，并在 description 标注“生成后补充选项”。'
+                : '',
+              hasAutoComputeGap
+                ? '实时计算字段必须带上 formulaSettings（formulaPath=compute-formula）和可执行的 formula，字段引用写成 [[field:fieldKey,字段标题]]，子表字段写成叶子路径如 SUM([[field:items.amount,金额]])；如果这个字段暂时不需要自动计算，就把 widgetType 改成手工录入组件（金额、数字或文本输入），不要让 autoCompute 字段空着公式。'
+                : '',
+            ].filter(Boolean)
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '当前暂存蓝图还有未规划完整的业务内容：',
+                ...blueprintDesignGaps.map(gap => (
+                  gap.reason === 'related-form-needs-design'
+                    ? `- 关联表“${gap.tableName}”只有被引用字段，尚未规划业务字段`
+                    : gap.reason === 'auto-compute-formula-missing'
+                      ? `- 表单“${gap.tableName}”的字段“${gap.fieldName}”是实时计算组件，但没有计算公式`
+                      : `- 表单“${gap.tableName}”的字段“${gap.fieldName}”是 ${gap.widgetType || '枚举'}，但没有 enumOptions`
+                )),
+                '请在同一轮继续调用 editor_stage_app_blueprint（updateMode=patch）补齐后再结束：',
+                ...designGapRepairSteps.map((step, index) => `${index + 1}. ${step}`),
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                stageOutputContract: blueprintDesignGapContract.contractId,
+                stageOutputContractRetry: blueprintDesignGapContract.retryCount,
+              },
+            })
+            continue
+          }
+          if (
+            !preferLostToolIntentRepair
+            && blueprintDesignGapContract.kind === 'exhausted'
+            && blueprintDesignGaps.length
+          ) {
+            unfulfilledStageOutputContractId = 'blueprint-design-completeness'
+            finishReason = 'stage_output_contract_unfulfilled'
+            latestRoundAssistantText = buildBlueprintDesignGapStopLossMessage(blueprintDesignGaps)
+            blueprintDesignGapStopLoss = {
+              gaps: blueprintDesignGaps,
+              planningContextKey: normalizeText(lastRoundResponseMetadata?.planningContextKey)
+                || undefined,
+            }
+            lastRoundHadToolCalls = false
+            break
+          }
+
+          const planningBlueprintOutputContract = resolveNocodeEditorStageOutputContract({
+            contract: {
+              id: 'blueprint-after-planning-confirmation',
+              applicable: isNocodeEditorBlueprintExpectedAfterPlanningConfirmation({
+                confirmationStage: incomingConfirmationStage,
+                planningConfirmationStatus: (effectiveLatestTaskSummary as UnknownRecord | null)
+                  ?.planningConfirmationStatus,
+                results: actionResults,
+              }),
+              prerequisiteToolNames: [],
+              satisfyingOutputToolNames: ['editor_stage_app_blueprint'],
+              retryLimit: 1,
+            },
+            results: actionResults,
+            retryCount: planningBlueprintContractRetryCount,
+            hasRetryRoundAvailable,
+          })
+          if (
+            !preferLostToolIntentRepair
+            && planningBlueprintOutputContract.kind === 'retry'
+            && hasRetryRoundAvailable
+          ) {
+            planningBlueprintContractRetryCount = planningBlueprintOutputContract.retryCount
+            const hasStagedBlueprint = Boolean(requestWithScene.scenePayload?.hasStagedBlueprint)
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: hasStagedBlueprint
+                ? '用户刚刚确认了表单规划，但上一轮没有调用 editor_stage_app_blueprint，蓝图并没有更新。请基于当前暂存蓝图和已确认的规划调用 editor_stage_app_blueprint(updateMode=patch) 写回；不要在可见回复里声称蓝图卡片已经生成。'
+                : '用户刚刚确认了表单规划，但上一轮没有调用 editor_stage_app_blueprint，蓝图并没有生成。请基于已确认的规划直接调用 editor_stage_app_blueprint(updateMode=replace) 提交完整蓝图快照；不要在可见回复里声称蓝图卡片已经生成。',
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                stageOutputContract: planningBlueprintOutputContract.contractId,
+                stageOutputContractRetry: planningBlueprintOutputContract.retryCount,
+              },
+            })
+            continue
+          }
+          if (
+            !preferLostToolIntentRepair
+            && planningBlueprintOutputContract.kind === 'exhausted'
+          ) {
+            unfulfilledStageOutputContractId = 'blueprint-after-planning-confirmation'
+            finishReason = 'stage_output_contract_unfulfilled'
+            latestRoundAssistantText = global.i18next.t(
+              'nocodeEditorChatService.blueprintAfterPlanOutputMissing',
+            )
+            lastRoundHadToolCalls = false
+            break
+          }
+
+          const flowSchemeContractDeferredForCreationPipeline = shouldDeferNocodeEditorFlowSchemeContractForCreationPipeline({
+            hasPlanningSummary: Boolean(
+              String((effectiveLatestTaskSummary as UnknownRecord | null)?.planningSummary || '').trim()
+              || String((requestWithScene.scenePayload as Record<string, unknown> | undefined)?.stagedPlanningSummary || '').trim(),
+            ),
+            hasBlueprintEvidence: Boolean(
+              String((effectiveLatestTaskSummary as UnknownRecord | null)?.currentBlueprintTitle || '').trim()
+              || String((requestWithScene.scenePayload as Record<string, unknown> | undefined)?.stagedBlueprintSummary || '').trim(),
+            ),
+            hasOpenForm: Boolean(
+              String(requestWithScene.scenePayload?.activeFormId || '').trim()
+              || String(requestWithScene.scenePayload?.activeFormName || '').trim(),
+            ),
+          })
+          const flowSchemeOutputContract = resolveNocodeEditorStageOutputContract({
+            contract: {
+              id: 'flow-scheme-after-summary',
+              applicable: !flowSchemeContractDeferredForCreationPipeline
+                && (
+                  isExplicitNocodeEditorFlowPlanningIntent(latestUserMessageContent)
+                  || Boolean(
+                    pendingFlowIntent
+                    && pendingFlowIntent.status !== 'completed'
+                    && isExplicitNocodeEditorFlowPlanningIntent(pendingFlowIntent.sourceUserMessage),
+                  )
+                ),
+              prerequisiteToolNames: ['editor_get_flow_summary'],
+              satisfyingOutputToolNames: ['editor_plan_flow_scheme'],
+              retryLimit: 1,
+              validateOutcome: (result) => {
+                const output = isRecord(result.output) ? result.output : null
+                const scheme = isRecord(output?.scheme) ? output.scheme : null
+                return Boolean(
+                  Number(output?.revision || 0) > 0
+                  && String(scheme?.title || '').trim()
+                  && Array.isArray(scheme?.openQuestions)
+                  && isRecord(scheme.confirmation),
+                )
+              },
+            },
+            results: actionResults,
+            retryCount: missingFlowSchemeContractRetryCount,
+            hasRetryRoundAvailable,
+          })
+          if (!preferLostToolIntentRepair && flowSchemeOutputContract.kind === 'retry' && hasRetryRoundAvailable) {
+            missingFlowSchemeContractRetryCount = flowSchemeOutputContract.retryCount
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '当前阶段要求产生结构化流程方案，但上一轮尚未产生有效方案。',
+                '只有在目标表单已经存在时，才先读取目标表单流程摘要，再根据摘要调用 editor_plan_flow_scheme。',
+                '如果当前还在创建表单阶段、目标表单还不存在，不要发起流程规划，也不要去读流程摘要。',
+                '把缺失信息写入方案的 openQuestions 和 confirmation.questions，不要只在普通聊天正文中提问或解释。',
+                '不要跳过流程方案工具直接结束。',
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                stageOutputContract: flowSchemeOutputContract.contractId,
+                stageOutputContractRetry: flowSchemeOutputContract.retryCount,
+              },
+            })
+            continue
+          }
+          if (!preferLostToolIntentRepair && (flowSchemeOutputContract.kind === 'exhausted' || flowSchemeOutputContract.kind === 'retry')) {
+            unfulfilledStageOutputContractId = 'flow-scheme-after-summary'
+            finishReason = 'stage_output_contract_unfulfilled'
+            latestRoundAssistantText = global.i18next.t(
+              'nocodeEditorChatService.flowSchemeOutputMissing',
+            )
+            lastRoundHadToolCalls = false
+            break
+          }
+
+          // 确认答案只会回填到任务摘要，暂存方案本身不会自动吸收；只回一句“已暂存”不算完成。
+          const previousFlowSchemeRevision = Number(
+            (effectiveLatestTaskSummary as UnknownRecord | null)?.flowConfirmationSchemeRevision
+              || incomingConfirmation?.schemeRevision
+              || 0,
+          )
+          const flowSchemeRestageContract = resolveNocodeEditorStageOutputContract({
+            contract: buildFlowSchemeRestageAfterConfirmationContract({
+              confirmationStage: incomingConfirmationStage,
+              hasStagedFlowScheme,
+              previousSchemeRevision: previousFlowSchemeRevision,
+            }),
+            results: actionResults,
+            retryCount: flowSchemeRestageRetryCount,
+            hasRetryRoundAvailable,
+          })
+          if (
+            !preferLostToolIntentRepair
+            && flowSchemeRestageContract.kind === 'retry'
+            && hasRetryRoundAvailable
+          ) {
+            flowSchemeRestageRetryCount = flowSchemeRestageContract.retryCount
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '用户刚刚回答了流程方案确认题，但这一轮还没有重新暂存流程方案，方案本身没有吸收本轮确认结论。',
+                '请基于当前流程方案和本轮已确认结论调用 editor_plan_flow_scheme 输出新版方案；如果仍有下游待确认问题，把它们写入新版方案的 openQuestions 与 confirmation.questions。',
+                '不要在正文里声称方案已暂存或已无待确认项；没有成功调用工具就不算完成。',
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                stageOutputContract: flowSchemeRestageContract.contractId,
+                stageOutputContractRetry: flowSchemeRestageContract.retryCount,
+              },
+            })
+            continue
+          }
+          if (!preferLostToolIntentRepair && flowSchemeRestageContract.kind === 'exhausted') {
+            unfulfilledStageOutputContractId = 'flow-scheme-after-confirmation'
+            finishReason = 'stage_output_contract_unfulfilled'
+            latestRoundAssistantText = global.i18next.t(
+              'nocodeEditorChatService.flowSchemeOutputMissing',
+            )
             lastRoundHadToolCalls = false
             break
           }
@@ -1700,13 +2366,22 @@ export class AiNocodeEditorChatService {
 
           if (lostToolIntent && toolIntentRetryCount < 1 && hasRetryRoundAvailable) {
             toolIntentRetryCount += 1
+            const lostToolIntentRetry = resolveNocodeEditorLostToolIntentRetry({
+              unverifiedBlueprintUpdateClaim: hasUnverifiedBlueprintUpdateClaim(latestRoundAssistantText, actionResults),
+              hasStagedBlueprint: requestWithScene.scenePayload?.hasStagedBlueprint,
+              invalidToolCallCount: Number(roundResponseMetadata?.invalidToolCallCount || 0),
+              toolCallRepairAttempted: roundResponseMetadata?.toolCallRepairAttempted === true,
+              invalidToolCallName: resolveNocodeEditorInvalidToolCallName(roundResponseMetadata),
+              droppedToolCalls: resolveNocodeEditorDroppedToolCalls(roundResponseMetadata),
+            })
             turnMessages.push({
               role: AiMessageRole.SYSTEM,
-              content: '上一轮没有形成有效的可执行结果，可能是工具调用损坏，也可能是模型空响应。请重新输出同一意图的有效工具调用或明确答复，不要只重复准备性文案，也不要返回空内容。',
+              content: lostToolIntentRetry.message,
               metadata: {
                 round: round + 1,
                 scene: 'nocode-editor',
                 toolIntentLostRetry: true,
+                toolIntentLostReason: lostToolIntentRetry.reason,
               },
             })
             continue
@@ -1714,7 +2389,9 @@ export class AiNocodeEditorChatService {
 
           lastRoundHadToolCalls = false
           if (lostToolIntent) {
-            finishReason = 'tool_intent_lost_after_invalid_tool_call'
+            finishReason = hasUnverifiedBlueprintUpdateClaim(latestRoundAssistantText, actionResults)
+              ? 'blueprint_update_unverified'
+              : 'tool_intent_lost_after_invalid_tool_call'
           }
           break
         }
@@ -1743,6 +2420,9 @@ export class AiNocodeEditorChatService {
           options.signal,
           formulaStageGate,
           attachmentReadBudget,
+          inTurnFlowSchemeRevision,
+          flowBlueprintPreflightState,
+          inTurnBlueprintScopeRecovery,
         )
         const roundResults = roundExecution.results
         const shouldRestartFlowSchemeReviewAfterPreflight = Boolean(
@@ -1765,6 +2445,7 @@ export class AiNocodeEditorChatService {
         })
         this.markDeferredIntermediateAppPlanSummaries(roundResults)
         applyNocodeEditorToolResultVisibilityMetadata(roundResults)
+        markDeferredNocodeEditorFailedStageSummaries(roundResults, deferredFailedStageSummaries)
         this.emitToolResultStreamMetadata({
           results: filterNocodeEditorToolResultsPendingStreamEmit(
             roundResults,
@@ -1780,11 +2461,17 @@ export class AiNocodeEditorChatService {
           traceId,
           round: round + 1,
           turnMessages,
+          deferredFailedStageSummaries,
         })
         visibleToolResultSummaryMessageCount += toolResultSummaryAppendResult.visibleCount
         visibleToolResultSummaryContents.push(...toolResultSummaryAppendResult.visibleContents)
         deferredToolResultSummaries.push(...toolResultSummaryAppendResult.deferredSummaries)
-        if (roundVisibleText.trim() && !toolResultSummaryAppendResult.count) {
+        if (
+          roundVisibleText.trim()
+          && !suppressDuplicateRoundNarration
+          && !suppressFlowSchemeConfirmationToolNarration
+          && !toolResultSummaryAppendResult.count
+        ) {
           turnMessages.push({
             role: AiMessageRole.ASSISTANT,
             content: roundVisibleText.trim(),
@@ -1838,6 +2525,83 @@ export class AiNocodeEditorChatService {
           })
         }
 
+        if (flowBlueprintPreflightState && !madeFlowBlueprintPreflightProgressThisRound) {
+          const failedFlowBlueprintResult = [...roundResults].reverse().find(result => (
+            result?.ok === false
+            && normalizeText(result?.name) === 'editor_stage_flow_blueprint'
+          ))
+          flowBlueprintPreflightState = applyFlowBlueprintFailureToPreflightState(
+            flowBlueprintPreflightState,
+            failedFlowBlueprintResult as Record<string, unknown> | undefined,
+          )
+        }
+
+        // 宿主没有暂存方案导致的蓝图被拒：本轮转为模型可见的纠偏指令，同轮补生成方案。
+        if (roundResults.some(isFlowSchemePrerequisiteMissingResult)) {
+          // preflight 会把可用工具收敛到 editor_stage_flow_blueprint，必须先撤销才能补规划。
+          flowBlueprintPreflightState = null
+          activeToolStage = 'flow'
+          const hasSuccessfulPlanThisRound = roundResults.some(result => (
+            result?.ok === true
+            && normalizeText(result?.name) === 'editor_plan_flow_scheme'
+          ))
+          if (!hasSuccessfulPlanThisRound) {
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '本轮暂存流程蓝图被宿主拒绝：当前宿主没有可用的暂存流程方案。这不是用户作答缺失，也不需要向用户提问。',
+                '请立即在当前轮调用 editor_plan_flow_scheme，基于本轮已有的流程意图重新生成流程方案。',
+                '在方案生成并确认之前，不要再调用 editor_stage_flow_blueprint 或 editor_apply_staged_flow。',
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                flowSchemePrerequisiteRecovery: true,
+              },
+            })
+          }
+        }
+
+        // 路由类失败（等待用户重新确认流程方案）优先收口：重试暂存必然失败，
+        // 不能被 preflight 无进展或提醒分支吞掉本轮的等待确认态。
+        if (getLatestFlowSchemeWaitingResult(roundResults)) {
+          finishReason = 'flow_scheme_waiting_for_confirmation'
+          break
+        }
+
+        // 工具结果已经给出可执行的修复线索（repair）时，先给模型一轮自修机会：
+        // 否则 preflight 预算可能已经用在空转轮上，模型从没看到失败原因就被收口。
+        if (flowBlueprintPreflightState && round + 1 < maxLoopRounds) {
+          const repairableBlueprintFailure = [...roundResults].reverse().find((result) => {
+            if (
+              result?.ok !== false
+              || normalizeText(result?.name) !== 'editor_stage_flow_blueprint'
+            ) {
+              return false
+            }
+            const repair = this.resolveModelVisibleFlowBlueprintRepair(result)
+            // 人员来源类失败已经由 P3 收口，这里只给入参契约（带 path）自修机会。
+            return Boolean(repair && 'path' in repair)
+          })
+          if (repairableBlueprintFailure && flowBlueprintRepairRetryCount < 1) {
+            flowBlueprintRepairRetryCount += 1
+            turnMessages.push({
+              role: AiMessageRole.SYSTEM,
+              content: [
+                '本轮流程蓝图暂存未通过，工具结果已经给出具体的失败原因和 repair 线索。',
+                '请立即按 repair 修正蓝图（包括字段位置、节点 key 和人员来源），修正后重新调用 editor_stage_flow_blueprint。',
+                '不要向用户提问，不要重新规划流程方案，也不要重复读取已完成的流程摘要或节点示例。',
+              ].join('\n'),
+              metadata: {
+                round: round + 1,
+                scene: 'nocode-editor',
+                flowBlueprintRepairRetry: true,
+              },
+            })
+            continue
+          }
+        }
+
         const hasSuccessfulFlowBlueprintResult = roundResults.some(result => (
           result?.ok
           && normalizeText(result?.name) === 'editor_stage_flow_blueprint'
@@ -1865,8 +2629,63 @@ export class AiNocodeEditorChatService {
         }
 
         if (preflightStopDecision.kind === 'finish') {
+          const roundHasUserActionStageFailure = roundResults.some(result => (
+            result?.ok === false
+            && normalizeText(result?.name) === 'editor_stage_flow_blueprint'
+            && result?.metadata?.flowBlueprintStageUserActionRequired === true
+          ))
           finishReason = 'blueprint_preflight_no_progress'
-          latestRoundAssistantText = preflightStopDecision.assistantMessage
+          // 失败卡已经写明接下来要做什么，再补一句“请重新继续”只是重复。
+          latestRoundAssistantText = roundHasUserActionStageFailure
+            ? ''
+            : preflightStopDecision.assistantMessage
+          lastRoundHadToolCalls = false
+          break
+        }
+
+        const repeatedFlowSchemeError = resolveRepeatedFlowSchemeError(actionResults)
+        if (repeatedFlowSchemeError) {
+          const resolvedFlowDecisions = Array.isArray(effectiveLatestTaskSummary?.flowConfirmationDecisions)
+            ? effectiveLatestTaskSummary.flowConfirmationDecisions
+            : []
+          const askedQuestionCounts: Record<string, number> = {}
+          for (const historyMessage of chronologicalHistory) {
+            const priorFactStopLoss = isRecord(historyMessage?.metadata?.flowSchemeFactStopLoss)
+              ? historyMessage.metadata.flowSchemeFactStopLoss
+              : null
+            const priorQuestions = Array.isArray(priorFactStopLoss?.questions)
+              ? priorFactStopLoss.questions
+              : []
+            for (const priorQuestion of priorQuestions) {
+              if (!isRecord(priorQuestion)) continue
+              const title = normalizeText(priorQuestion.title)
+              if (title) askedQuestionCounts[title] = (askedQuestionCounts[title] || 0) + 1
+            }
+          }
+          flowSchemeStopLossQuestions = buildFlowSchemeStopLossQuestions(actionResults, {
+            answeredDecisionKeys: resolvedFlowDecisions
+              .map(decision => normalizeText(decision?.decisionKey))
+              .filter(Boolean),
+            answeredQuestionTitles: resolvedFlowDecisions
+              .map(decision => normalizeText(decision?.questionTitle))
+              .filter(Boolean),
+            askedQuestionCounts,
+          })
+          finishReason = flowSchemeStopLossQuestions.length
+            ? 'flow_scheme_fact_stop_loss'
+            : 'flow_scheme_repeated_error_stop_loss'
+          latestRoundAssistantText = flowSchemeStopLossQuestions.length
+            ? buildFlowSchemeStopLossMessage(flowSchemeStopLossQuestions)
+            // 出不了题时也要用业务话术：tool result 的 error 是给模型看的纠偏指令，不能当用户正文。
+            : global.i18next.t('nocodeEditorChatService.flowSchemeStopLossNeedsUserInput')
+          lastRoundHadToolCalls = false
+          break
+        }
+
+        const repeatedBlueprintScopeError = resolveRepeatedBlueprintScopeError(actionResults)
+        if (repeatedBlueprintScopeError) {
+          finishReason = 'blueprint_scope_repeated_error_stop_loss'
+          latestRoundAssistantText = repeatedBlueprintScopeError
           lastRoundHadToolCalls = false
           break
         }
@@ -1894,8 +2713,37 @@ export class AiNocodeEditorChatService {
           break
         }
 
-        if (getLatestFlowSchemeWaitingResult(roundResults)) {
-          finishReason = 'flow_scheme_waiting_for_confirmation'
+        const repeatedFormPlanRestageDecision = resolveRepeatedFormPlanRestageDecision({
+          results: actionResults,
+          roundResults,
+          reminderCount: formPlanRestageReminderCount,
+        })
+        if (repeatedFormPlanRestageDecision.kind === 'remind') {
+          formPlanRestageReminderCount += 1
+          turnMessages.push({
+            role: AiMessageRole.SYSTEM,
+            content: repeatedFormPlanRestageDecision.systemMessage,
+            metadata: {
+              round: round + 1,
+              scene: 'nocode-editor',
+              formPlanRestageReminder: true,
+            },
+          })
+          continue
+        }
+        if (repeatedFormPlanRestageDecision.kind === 'stop') {
+          finishReason = repeatedFormPlanRestageDecision.finishReason
+          latestRoundAssistantText = repeatedFormPlanRestageDecision.assistantMessage
+          lastRoundHadToolCalls = false
+          break
+        }
+
+        const toolFailureEscalation = toolFailureTracker.observe(roundResults, round)
+        if (toolFailureEscalation) {
+          sameCauseFailureEscalation = toolFailureEscalation
+          finishReason = 'same_cause_failure_stop_loss'
+          latestRoundAssistantText = toolFailureEscalation.message
+          lastRoundHadToolCalls = false
           break
         }
 
@@ -1983,6 +2831,14 @@ export class AiNocodeEditorChatService {
       })
       visibleToolResultSummaryMessageCount += materializedDeferredSummaryResult.visibleCount
       visibleToolResultSummaryContents.push(...materializedDeferredSummaryResult.visibleContents)
+      const materializedFailedSummaryResult = await this.materializeDeferredFailedStageSummaries({
+        summaries: deferredFailedStageSummaries,
+        conversation,
+        traceId,
+        emit: options.emit,
+      })
+      visibleToolResultSummaryMessageCount += materializedFailedSummaryResult.visibleCount
+      visibleToolResultSummaryContents.push(...materializedFailedSummaryResult.visibleContents)
 
       const rawFinalAssistantText = this.buildToolLoopFinalAssistantText({
         latestRoundAssistantText,
@@ -2015,6 +2871,8 @@ export class AiNocodeEditorChatService {
         || shouldSuppressFormulaResultNarration
         || (visibleToolResultSummaryMessageCount > 0 && !hasExplicitFinalAssistantText)
         || shouldSuppressDuplicateToolResultNarration
+        // 确认回填轮的正文没有工具落实，收尾时也不能从 latestRoundAssistantText 回填。
+        || shouldRestageFlowSchemeAfterConfirmation
       ) {
         finalAssistantText = ''
       }
@@ -2039,6 +2897,35 @@ export class AiNocodeEditorChatService {
       if (lostToolIntentFallback) {
         finalAssistantText = lostToolIntentFallback.assistantText
       }
+      if (finishReason === 'blueprint_update_unverified') {
+        finalAssistantText = global.i18next.t('nocodeEditorChatService.blueprintUpdateNotApplied')
+      }
+      if (finishReason === 'flow_scheme_repeated_error_stop_loss') {
+        finalAssistantText = latestRoundAssistantText
+      }
+      if (finishReason === 'flow_scheme_fact_stop_loss') {
+        finalAssistantText = latestRoundAssistantText
+      }
+      if (finishReason === 'blueprint_scope_repeated_error_stop_loss') {
+        finalAssistantText = latestRoundAssistantText
+      }
+      if (finishReason === 'same_cause_failure_stop_loss') {
+        finalAssistantText = latestRoundAssistantText
+      }
+      if (finishReason === 'form_plan_restage_stop_loss') {
+        finalAssistantText = latestRoundAssistantText
+      }
+      if (finishReason === 'stage_output_contract_unfulfilled') {
+        finalAssistantText = unfulfilledStageOutputContractId === 'blueprint-design-completeness'
+          ? latestRoundAssistantText
+          : global.i18next.t(
+            unfulfilledStageOutputContractId === 'form-plan-after-relation-context'
+              ? 'nocodeEditorChatService.formPlanStructureFailed'
+              : unfulfilledStageOutputContractId === 'blueprint-after-planning-confirmation'
+                ? 'nocodeEditorChatService.blueprintAfterPlanOutputMissing'
+                : 'nocodeEditorChatService.flowSchemeOutputMissing',
+          )
+      }
       if (unsupportedBlueprintAutoRepairFailed) {
         finalAssistantText = getNocodeEditorUnsupportedBlueprintProtocolRepairFailedMessage()
       }
@@ -2046,7 +2933,17 @@ export class AiNocodeEditorChatService {
         finalAssistantText = clientRenderedFlowApplyContent
       }
 
-      if (!assistantText.trim() || unsupportedBlueprintAutoRepairFailed) {
+      if (
+        !assistantText.trim()
+        || unsupportedBlueprintAutoRepairFailed
+        || finishReason === 'blueprint_update_unverified'
+        || finishReason === 'stage_output_contract_unfulfilled'
+        || finishReason === 'flow_scheme_repeated_error_stop_loss'
+        || finishReason === 'flow_scheme_fact_stop_loss'
+        || finishReason === 'blueprint_scope_repeated_error_stop_loss'
+        || finishReason === 'same_cause_failure_stop_loss'
+        || finishReason === 'form_plan_restage_stop_loss'
+      ) {
         this.emit(options.emit, {
           conversationId: conversation.id,
           event: AiStreamEventType.DELTA,
@@ -2076,6 +2973,7 @@ export class AiNocodeEditorChatService {
           : this.collectAssistantBlocks(actionResults)
       const assistantBlocks = (
         finishReason === 'tool_intent_lost_after_invalid_tool_call'
+        || finishReason === 'blueprint_update_unverified'
         || unsupportedBlueprintAutoRepairFailed
       )
         ? []
@@ -2086,6 +2984,16 @@ export class AiNocodeEditorChatService {
       const finalAssistantBlocks = clientRenderedFlowApplyMetadata?.blocks && Array.isArray(clientRenderedFlowApplyMetadata.blocks)
         ? clientRenderedFlowApplyMetadata.blocks
         : assistantBlocks
+      const stageOutputContractActive = Boolean(
+        missingFlowSchemeContractRetryCount
+        || missingFormPlanContractRetryCount
+        || planningBlueprintContractRetryCount
+        || finishReason === 'stage_output_contract_unfulfilled'
+        || actionResults.some(result => (
+          result?.ok === true
+          && ['editor_plan_flow_scheme', 'editor_stage_single_form_plan'].includes(String(result?.name || '').trim())
+        )),
+      )
       const taskSummary = buildNocodeEditorTaskSummary({
         latestTaskSummary: effectiveLatestTaskSummary,
         userMessage: taskBoundaryUserMessage,
@@ -2132,6 +3040,17 @@ export class AiNocodeEditorChatService {
               : undefined,
             toolIntentLostToolName: lostToolIntentFallback?.metadata.toolIntentLostToolName || undefined,
             toolIntentRetryCount: toolIntentRetryCount || undefined,
+            sameCauseFailureStopLoss: sameCauseFailureEscalation
+              ? {
+                toolName: sameCauseFailureEscalation.toolName,
+                code: sameCauseFailureEscalation.code,
+                planningContextKey: sameCauseFailureEscalation.planningContextKey,
+                count: sameCauseFailureEscalation.count,
+                firstRound: sameCauseFailureEscalation.firstRound,
+                lastRound: sameCauseFailureEscalation.lastRound,
+                signature: sameCauseFailureEscalation.signature,
+              }
+              : undefined,
             unsupportedBlueprintAutoRepairAttempts: unsupportedBlueprintRepairAttempts || undefined,
             unsupportedBlueprintAutoRepairFailed: (
               unsupportedBlueprintRepairAttempts > 0
@@ -2140,6 +3059,20 @@ export class AiNocodeEditorChatService {
               ? unsupportedBlueprintAutoRepairFailed
               : undefined,
             blocks: finalAssistantBlocks.length ? finalAssistantBlocks : undefined,
+            flowSchemeFactStopLoss: (
+              finishReason === 'flow_scheme_fact_stop_loss'
+              && flowSchemeStopLossQuestions.length
+            )
+              ? {
+                // provider 原始响应不带方案身份，用任务摘要里的当前方案上下文兜底。
+                planningContextKey: normalizeText(lastRoundResponseMetadata?.planningContextKey)
+                  || normalizeText(effectiveLatestTaskSummary?.flowConfirmationContextKey)
+                  || undefined,
+                questions: flowSchemeStopLossQuestions,
+              }
+              : undefined,
+            blueprintDesignGapStopLoss: blueprintDesignGapStopLoss || undefined,
+            stageOutputContractActive: stageOutputContractActive || undefined,
             appBuilderPlanningInvalid: planningPresentation.invalid || undefined,
             appBuilderPlanningInvalidReason: planningPresentation.invalidReason || undefined,
             appBuilderPlanningSummary: shouldPersistPlanningMetadata ? (planningPresentation.compactSummary || undefined) : undefined,
@@ -2192,28 +3125,52 @@ export class AiNocodeEditorChatService {
         event: AiStreamEventType.DONE,
         usage,
         finishReason,
-        metadata: buildNocodeEditorDoneStreamMetadata({
-          assistantMessageId: assistantMessage?.id || '',
-          traceId,
-          actionCount: actionResults.length,
-          finalContent: finalAssistantText,
-          actionResults,
-          unsupportedBlueprintAutoRepairAttempts: unsupportedBlueprintRepairAttempts,
-          unsupportedBlueprintAutoRepairFailed,
-          continuityHints,
-          blocks: assistantBlocks,
-          appBuilderPlanningSummary: shouldPersistPlanningMetadata ? (planningPresentation.compactSummary || '') : '',
-          appBuilderPlanningArtifacts: shouldPersistPlanningMetadata ? (planningPresentation.plan?.artifacts || []) : [],
-          appBuilderPlanningOutline: shouldPersistPlanningMetadata ? (planningPresentation.plan?.outline || undefined) : undefined,
-        }),
+        metadata: {
+          ...buildNocodeEditorDoneStreamMetadata({
+            assistantMessageId: assistantMessage?.id || '',
+            traceId,
+            actionCount: actionResults.length,
+            finalContent: finalAssistantText,
+            actionResults,
+            unsupportedBlueprintAutoRepairAttempts: unsupportedBlueprintRepairAttempts,
+            unsupportedBlueprintAutoRepairFailed,
+            continuityHints,
+            blocks: assistantBlocks,
+            appBuilderPlanningSummary: shouldPersistPlanningMetadata ? (planningPresentation.compactSummary || '') : '',
+            appBuilderPlanningArtifacts: shouldPersistPlanningMetadata ? (planningPresentation.plan?.artifacts || []) : [],
+            appBuilderPlanningOutline: shouldPersistPlanningMetadata ? (planningPresentation.plan?.outline || undefined) : undefined,
+          }),
+          stageOutputContractActive: stageOutputContractActive || undefined,
+        },
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (options.signal?.aborted) {
+        discardDeferredNocodeEditorFailedStageSummariesOnAbort(
+          options.signal,
+          deferredFailedStageSummaries,
+        )
         if (conversationId) {
           this.clientToolBridge.rejectConversation(conversationId, 'AI request aborted')
         }
         throw error
+      }
+      if (conversation && deferredFailedStageSummaries.size) {
+        try {
+          await this.materializeDeferredFailedStageSummaries({
+            summaries: deferredFailedStageSummaries,
+            conversation,
+            traceId,
+            emit: options.emit,
+          })
+        } catch (flushError) {
+          if (conversationId) {
+            await this.agentLogService.logError(conversationId, {
+              stage: 'nocode_editor_deferred_failed_stage_flush',
+              error: flushError instanceof Error ? flushError.message : String(flushError),
+            })
+          }
+        }
       }
       const normalizedError = normalizeNocodeEditorStreamError({
         error,
@@ -2446,6 +3403,12 @@ export class AiNocodeEditorChatService {
     signal?: AbortSignal,
     formulaStageGate?: { ready: boolean },
     attachmentReadBudget: AiAttachmentReadBudget = { totalTextLength: 0 },
+    inTurnFlowSchemeRevision?: { value: number },
+    flowBlueprintPreflightState?: FlowBlueprintPreflightState | null,
+    inTurnBlueprintScopeRecovery?: {
+      scopeErrorSeen: boolean
+      plannedForms: Array<{ formKey?: string; tableName?: string }>
+    } | null,
   ) {
     const results: AiActionResult[] = []
     const streamEmittedCallIds = new Set<string>()
@@ -2460,9 +3423,14 @@ export class AiNocodeEditorChatService {
       .filter(item => item.role === AiMessageRole.USER)
       .map(item => item.content)
     const latestScenePayload = latestUserMessage?.metadata?.scenePayload || {}
-    const latestRequestMetadata = isRecord(latestUserMessage?.metadata?.requestMetadata)
-      ? latestUserMessage.metadata.requestMetadata
+    const latestUserMetadata = isRecord(latestUserMessage?.metadata)
+      ? latestUserMessage.metadata
       : {}
+    const latestRequestMetadata = isRecord(latestUserMetadata.requestMetadata)
+      ? latestUserMetadata.requestMetadata
+      : latestUserMetadata
+    const planningConfirmationStage = String(latestRequestMetadata.confirmationStage || '').trim()
+    const planningConfirmationContextKey = String(latestRequestMetadata.planningContextKey || '').trim()
     const hasFlowPatchInBatch = (calls || []).some(call => (
       String(call?.name || '').trim() === 'editor_patch_flow'
     ))
@@ -2526,9 +3494,54 @@ export class AiNocodeEditorChatService {
         streamEmittedCallIds.add(result.callId)
         continue
       }
+      const blueprintScopeRecoveryGuard = resolveBlueprintScopeRecoveryPlanningGuard({
+        toolName,
+        scopeErrorSeen: inTurnBlueprintScopeRecovery?.scopeErrorSeen === true,
+        plannedForms: inTurnBlueprintScopeRecovery?.plannedForms,
+      })
+      if (blueprintScopeRecoveryGuard.blocked) {
+        const blockedResult = this.attachActionResultRound([{
+          callId: call.id,
+          name: call.name,
+          kind: call.kind,
+          ok: false,
+          error: blueprintScopeRecoveryGuard.message,
+          metadata: {
+            executor: 'server-guard',
+            scene: 'nocode-editor',
+            round,
+            input: call.input,
+            guardCode: 'blueprint_scope_recovery_guard',
+            requiredToolName: blueprintScopeRecoveryGuard.expectedToolName,
+            blockedByBlueprintScopeRecovery: true,
+            suppressPersistedSummary: true,
+            suppressSummaryContent: true,
+            suppressStreamBlocks: true,
+          },
+        }], round)[0]
+        results.push(blockedResult)
+        remainingAssistantText = await this.finalizeEarlyToolResult({
+          call,
+          result: blockedResult,
+          conversation,
+          traceId,
+          round,
+          turnMessages,
+          emit,
+          remainingAssistantText,
+        })
+        streamEmittedCallIds.add(blockedResult.callId)
+        continue
+      }
       const planningScopeToolGuard = resolvePlanningScopeToolGuard({
         planningScope: latestScenePayload?.planningScope,
         toolName,
+        toolInput: call.input,
+        planningCompleted: String(
+          latestTaskSummary?.planningConfirmationStatus || '',
+        ).trim() === 'completed',
+        completedFormName: latestTaskSummary?.activeFormName,
+        userMessage: latestUserMessage?.content,
       })
       if (planningScopeToolGuard.blocked) {
         const blockedResult = this.attachActionResultRound([{
@@ -2536,14 +3549,60 @@ export class AiNocodeEditorChatService {
           name: call.name,
           kind: call.kind,
           ok: false,
-          error: '当前需求的规划范围是单表单（form），不能调用 editor_stage_app_plan。请保留原需求中的 flowIntent 并重试正确的单表单规划工具；不要把新建应用容器理解为应用级规划。',
+          error: planningScopeToolGuard.message,
           metadata: {
             executor: 'server-guard',
             scene: 'nocode-editor',
             round,
             input: call.input,
+            guardCode: planningScopeToolGuard.code,
             planningScope: planningScopeToolGuard.planningScope,
+            requiredToolName: planningScopeToolGuard.expectedToolName,
+            planningCompleted: planningScopeToolGuard.planningCompleted || undefined,
             blockedByPlanningScope: true,
+            suppressPersistedSummary: true,
+            suppressSummaryContent: true,
+            suppressStreamBlocks: true,
+          },
+        }], round)[0]
+        results.push(blockedResult)
+        remainingAssistantText = await this.finalizeEarlyToolResult({
+          call,
+          result: blockedResult,
+          conversation,
+          traceId,
+          round,
+          turnMessages,
+          emit,
+          remainingAssistantText,
+        })
+        streamEmittedCallIds.add(blockedResult.callId)
+        continue
+      }
+      const planningContinuationToolGuard = resolvePlanningContinuationToolGuard({
+        toolName,
+        userMessage: latestUserMessage?.content,
+        confirmationStage: planningConfirmationStage,
+        planningContextKey: planningConfirmationContextKey,
+        taskSummary: latestTaskSummary,
+      })
+      if (planningContinuationToolGuard.blocked) {
+        const blockedResult = this.attachActionResultRound([{
+          callId: call.id,
+          name: call.name,
+          kind: call.kind,
+          ok: false,
+          error: '当前规划确认已经完成，不能重新开启同一轮规划；请直接调用 editor_stage_app_blueprint 继续生成蓝图。只有用户明确要求重新规划时，才可以再次调用规划工具。',
+          metadata: {
+            executor: 'server-guard',
+            scene: 'nocode-editor',
+            round,
+            input: call.input,
+            blockedByCompletedPlanningContinuation: true,
+            blockedPlanningKind: planningContinuationToolGuard.planningKind,
+            requiredToolName: planningContinuationToolGuard.expectedToolName,
+            planningConfirmationStage,
+            planningConfirmationContextKey: planningConfirmationContextKey || undefined,
             suppressPersistedSummary: true,
             suppressSummaryContent: true,
             suppressStreamBlocks: true,
@@ -2623,9 +3682,9 @@ export class AiNocodeEditorChatService {
             ? '同一轮只能暂存一次公式计划。'
             : formulaBatchAction === 'block_duplicate_executor'
               ? '当前批次已经调用过 editor_set_field_formulas，请在下一轮基于执行结果继续。'
-            : formulaBatchAction === 'block_gate_mutation'
-              ? '公式计划已就绪，请先调用 editor_set_field_formulas 完成唯一公式写入。'
-            : '公式计划已进入预检执行链路，本轮不要调用字段新增、替换或设置工具。',
+              : formulaBatchAction === 'block_gate_mutation'
+                ? '公式计划已就绪，请先调用 editor_set_field_formulas 完成唯一公式写入。'
+                : '公式计划已进入预检执行链路，本轮不要调用字段新增、替换或设置工具。',
           metadata: {
             executor: 'server-guard',
             scene: 'nocode-editor',
@@ -2693,6 +3752,7 @@ export class AiNocodeEditorChatService {
       const preflightToolDecision = resolveFlowBlueprintPreflightToolDecision({
         active: flowBlueprintPreflightActive,
         toolName: String(call.name || '').trim(),
+        state: flowBlueprintPreflightState,
       })
       if (preflightToolDecision.kind === 'block') {
         const blockedResult = this.attachActionResultRound([{
@@ -3255,14 +4315,43 @@ export class AiNocodeEditorChatService {
       }
 
       const callMetadata = isRecord((call as any).metadata) ? (call as any).metadata : {}
-      const flowSchemeConfirmationContext = String(call.name || '').trim() === 'editor_plan_flow_scheme'
-        ? buildFlowSchemeConfirmationContextForClientToolCall({
+      const flowSchemeInput = isRecord(call.input?.scheme) ? call.input.scheme : call.input
+      const flowSchemeTarget = isRecord(flowSchemeInput?.target) ? flowSchemeInput.target : null
+      const isFlowSchemeToolCall = String(call.name || '').trim() === 'editor_plan_flow_scheme'
+      const flowSchemeConfirmationTrust = isFlowSchemeToolCall
+        ? buildFlowSchemeConfirmationContextFromRequest({
           latestTaskSummary,
+          requestedFormId: flowSchemeTarget?.formId,
           activeFormId: latestScenePayload?.activeFormId,
           activeFormName: latestScenePayload?.activeFormName,
-          continuationPlanningContextKey: latestRequestMetadata.flowPlanningContextKey,
+          requestMetadata: latestRequestMetadata,
         })
         : null
+      const flowSchemeConfirmationContext = flowSchemeConfirmationTrust?.context || null
+      const flowSchemeConfirmationRejection = flowSchemeConfirmationTrust?.rejection || null
+      if (flowSchemeConfirmationRejection) {
+        await this.logFlowSchemeConfirmationTrustRejection({
+          conversationId: conversation.id,
+          callId: String(call.id || ''),
+          rejection: flowSchemeConfirmationRejection,
+          latestTaskSummary,
+          latestRequestMetadata,
+          requestedFormId: flowSchemeTarget?.formId,
+          activeFormId: latestScenePayload?.activeFormId,
+        })
+      }
+      const inTurnFlowSchemeRevisionValue = Number(inTurnFlowSchemeRevision?.value || 0)
+      const flowSchemeReplyVersionForCall = inTurnFlowSchemeRevisionValue > 0
+        ? inTurnFlowSchemeRevisionValue
+        : latestRequestMetadata.flowSchemeRevision
+      const toolInput = isFlowSchemeToolCall
+        ? buildTrustedFlowSchemeClientToolInput({
+          toolInput: call.input,
+          confirmationContext: flowSchemeConfirmationContext,
+          rejection: flowSchemeConfirmationRejection,
+          replyVersion: flowSchemeReplyVersionForCall,
+        })
+        : call.input
       const flowBlueprintPreflightPhase = (
         (flowBlueprintPreflightActive
           ? this.resolveFlowBlueprintPreflightPhaseForToolCall(String(call.name || '').trim())
@@ -3278,7 +4367,7 @@ export class AiNocodeEditorChatService {
           actionId: call.id,
           actionName: call.name,
           kind: call.kind,
-          input: call.input,
+          input: toolInput,
           reason: call.reason,
           toolName: call.name,
           callId: call.id,
@@ -3286,6 +4375,13 @@ export class AiNocodeEditorChatService {
           ...callMetadata,
           ...(flowSchemeConfirmationContext
             ? { flowSchemeConfirmationContext }
+            : {}),
+          ...(flowSchemeConfirmationRejection
+            ? { flowConfirmationRejection: flowSchemeConfirmationRejection }
+            : {}),
+          ...(String(call.name || '').trim() === 'editor_plan_flow_scheme'
+            && Number(flowSchemeReplyVersionForCall || 0) > 0
+            ? { flowSchemeReplyVersion: Number(flowSchemeReplyVersionForCall) }
             : {}),
           ...(flowBlueprintPreflightPhase
             ? { flowBlueprintPreflightPhase }
@@ -3325,6 +4421,29 @@ export class AiNocodeEditorChatService {
           ...(isRecord((call as any).metadata) ? (call as any).metadata : {}),
           ...(toolResult.metadata || {}),
         },
+      }
+      if (inTurnBlueprintScopeRecovery) {
+        if (!result.ok && String(result.metadata?.blueprintScopeErrorCode || '').trim()) {
+          // 范围错误的唯一可行修正是复用规划身份重交蓝图，本轮不再接受重新规划。
+          inTurnBlueprintScopeRecovery.scopeErrorSeen = true
+          const plannedForms = Array.isArray(result.metadata?.blueprintScopePlannedForms)
+            ? result.metadata.blueprintScopePlannedForms
+              .filter(item => isRecord(item))
+              .map(item => ({
+                formKey: String(item.formKey || '').trim() || undefined,
+                tableName: String(item.tableName || '').trim() || undefined,
+              }))
+            : []
+          if (plannedForms.length) {
+            inTurnBlueprintScopeRecovery.plannedForms = plannedForms
+          }
+        } else if (
+          result.ok === true
+          && String(result.name || '').trim() === 'editor_stage_app_blueprint'
+        ) {
+          inTurnBlueprintScopeRecovery.scopeErrorSeen = false
+          inTurnBlueprintScopeRecovery.plannedForms = []
+        }
       }
       if (!result.ok) {
         result.metadata = {
@@ -3423,6 +4542,14 @@ export class AiNocodeEditorChatService {
               consumedBy: 'ai_apply_success',
             },
           }
+        }
+      }
+
+      if (result.ok && result.name === 'editor_plan_flow_scheme' && inTurnFlowSchemeRevision) {
+        const flowSchemeOutput = isRecord(result.output) ? result.output : null
+        const updatedFlowSchemeRevision = Number(flowSchemeOutput?.revision || 0)
+        if (updatedFlowSchemeRevision > 0) {
+          inTurnFlowSchemeRevision.value = updatedFlowSchemeRevision
         }
       }
 
@@ -3623,6 +4750,7 @@ export class AiNocodeEditorChatService {
     traceId: string
     round: number
     turnMessages: AiProviderMessage[]
+    deferredFailedStageSummaries: Map<string, DeferredNocodeEditorFailedStageSummary>
   }) {
     type PersistedToolResultSummaryEntry = {
       sourceResult: AiActionResult
@@ -3676,6 +4804,31 @@ export class AiNocodeEditorChatService {
         continuityHints: toolResultContinuityHints,
       })
       if (!summary) {
+        if (result?.metadata?.deferredFailedStageSummary) {
+          const pending = resolveDeferredNocodeEditorFailedStageSummary(
+            result,
+            options.deferredFailedStageSummaries,
+          )
+          if (pending) {
+            const stage = resolveNocodeEditorToolResultSummaryStage(result)
+            options.turnMessages.push({
+              role: AiMessageRole.ASSISTANT,
+              content: pending.content,
+              metadata: {
+                ...pending.metadata,
+                round: options.round,
+                scene: 'nocode-editor',
+                traceId: options.traceId,
+                actionId: result.callId,
+                kind: result.kind,
+                summaryStage: stage,
+                hiddenFromTimeline: true,
+                deferredFailedStageSummary: true,
+              },
+            })
+            count += 1
+          }
+        }
         continue
       }
 
@@ -3704,6 +4857,28 @@ export class AiNocodeEditorChatService {
         ...(entry.actionIds.length > 1 ? { actionIds: entry.actionIds } : {}),
         kind: result.kind,
         summaryStage: summary.metadata?.summaryStage || resolveNocodeEditorToolResultSummaryStage(result),
+      }
+
+      if (result?.metadata?.deferredFailedStageSummary) {
+        const deferredMetadata = {
+          ...metadata,
+          hiddenFromTimeline: true,
+          deferredFailedStageSummary: true,
+        }
+        options.turnMessages.push({
+          role: AiMessageRole.ASSISTANT,
+          content: summary.content,
+          metadata: deferredMetadata,
+        })
+        const pending = resolveDeferredNocodeEditorFailedStageSummary(
+          result,
+          options.deferredFailedStageSummaries,
+        )
+        if (pending) {
+          refreshDeferredNocodeEditorFailedStageSummary(pending, summary.content, metadata)
+        }
+        count += 1
+        continue
       }
 
       if (result?.metadata?.deferredIntermediateSummary) {
@@ -3788,6 +4963,7 @@ export class AiNocodeEditorChatService {
         suppressSummaryContent: true,
         suppressStreamBlocks: true,
         suppressedIntermediateSummary: true,
+        flowSchemeReviewPending: true,
       }
     }
   }
@@ -3848,6 +5024,83 @@ export class AiNocodeEditorChatService {
       visibleCount,
       visibleContents,
     }
+  }
+
+  private async materializeDeferredFailedStageSummaries(options: {
+    summaries: Map<string, DeferredNocodeEditorFailedStageSummary>
+    conversation: Pick<AiNocodeEditorConversationEntity, 'id' | 'ownerAccountId' | 'nocodeId' | 'title'>
+    traceId: string
+    emit: StreamChatOptions['emit']
+  }) {
+    let visibleCount = 0
+    const visibleContents: string[] = []
+
+    for (const [stage, summary] of options.summaries) {
+      if (!summary.content) {
+        continue
+      }
+
+      const metadata = {
+        ...summary.metadata,
+        round: summary.result.metadata?.round,
+        scene: 'nocode-editor',
+        traceId: options.traceId,
+        actionId: summary.result.callId,
+        kind: summary.result.kind,
+        summaryStage: stage,
+      } as Record<string, unknown>
+      for (const key of [
+        'hiddenFromTimeline',
+        'deferredFailedStageSummary',
+        'suppressPersistedSummary',
+        'suppressSummaryContent',
+        'suppressStreamBlocks',
+        'suppressedIntermediateSummary',
+        'summarySuppressionReason',
+      ]) {
+        delete metadata[key]
+      }
+
+      await this.conversationService.appendMessage(options.conversation, {
+        role: AiMessageRole.ASSISTANT,
+        traceId: options.traceId,
+        content: summary.content,
+        metadata,
+      })
+      options.summaries.delete(stage)
+      visibleCount += 1
+      visibleContents.push(summary.content)
+
+      const visibleResult: AiActionResult = {
+        ...summary.result,
+        metadata: { ...(summary.result.metadata || {}) },
+      }
+      for (const key of [
+        'deferredFailedStageSummary',
+        'suppressPersistedSummary',
+        'suppressSummaryContent',
+        'suppressStreamBlocks',
+        'suppressedIntermediateSummary',
+        'summarySuppressionReason',
+      ]) {
+        delete visibleResult.metadata?.[key]
+      }
+      try {
+        this.emitToolResultStreamMetadata({
+          results: [visibleResult],
+          conversationId: options.conversation.id,
+          traceId: options.traceId,
+          emit: options.emit,
+        })
+      } catch (error) {
+        await this.agentLogService.logError(options.conversation.id, {
+          stage: 'nocode_editor_deferred_failed_stage_emit',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    return { visibleCount, visibleContents }
   }
 
   private isEquivalentAssistantNarration(left: string, right: string) {
@@ -3916,6 +5169,19 @@ export class AiNocodeEditorChatService {
       return
     }
 
+    if (chunk.type === AiStreamEventType.STATUS) {
+      this.emit(emit, {
+        conversationId,
+        event: AiStreamEventType.STATUS,
+        metadata: {
+          scene: 'nocode-editor',
+          traceId,
+          statusPhase: chunk.statusPhase,
+        },
+      })
+      return
+    }
+
     if (chunk.type === AiStreamEventType.ERROR) {
       throw new Error(chunk.error)
     }
@@ -3934,6 +5200,7 @@ export class AiNocodeEditorChatService {
       ? options.responseMetadata?.invalidToolCalls
       : []
     const toolName = String(invalidToolCalls[0]?.name || invalidToolCalls[0]?.function?.name || '').trim()
+      || resolveNocodeEditorDroppedToolCallName(options.responseMetadata)
 
     const assistantText = (() => {
       if (toolName === 'editor_stage_single_form_plan') {
@@ -3975,6 +5242,7 @@ export class AiNocodeEditorChatService {
     responseMetadata?: Record<string, unknown> | null
     latestRoundAssistantText?: string
     actionResults?: AiActionResult[]
+    confirmationStage?: string
   }) {
     if (Array.isArray(options.pendingCalls) && options.pendingCalls.length > 0) {
       return false
@@ -3985,8 +5253,25 @@ export class AiNocodeEditorChatService {
       String(options.latestRoundAssistantText || '').trim(),
     )
     const invalidToolCallCount = Number(options.responseMetadata?.invalidToolCallCount || 0)
+    const droppedToolCallCount = Number(options.responseMetadata?.droppedToolCallCount || 0)
+    const unrecognizedToolCallCount = Number(options.responseMetadata?.unrecognizedToolCallCount || 0)
     const toolCallRepairAttempted = options.responseMetadata?.toolCallRepairAttempted === true
     const hasVisibleText = Boolean(latestRoundAssistantText)
+    if (options.confirmationStage === 'blueprint') {
+      const hasBlueprintMutationResult = (options.actionResults || []).some(result => (
+        result?.ok === true
+        && (
+          String(result.name || '').trim() === 'editor_stage_app_blueprint'
+          || String(result.name || '').trim() === 'editor_apply_staged_app_blueprint'
+        )
+      ))
+      if (!hasBlueprintMutationResult) {
+        return true
+      }
+    }
+    if (hasUnverifiedBlueprintUpdateClaim(latestRoundAssistantText, options.actionResults || [])) {
+      return true
+    }
     const hasMeaningfulResolvedResult = (options.actionResults || []).some((result) => {
       if (!result?.ok) {
         return false
@@ -3995,8 +5280,14 @@ export class AiNocodeEditorChatService {
       return MUTATING_EDITOR_TOOL_NAMES.has(toolName) || !isNocodeEditorHiddenTimelineTool(toolName)
     })
 
-    if (finishReason === 'tool_calls') {
-      return invalidToolCallCount > 0 || toolCallRepairAttempted || !hasVisibleText
+    // 提供方声称产生了工具调用，但没有任何调用进入执行队列；即使伴随可见正文，
+    // 这一轮也不是完整答复，必须按丢失工具意图修复。
+    if (hasNocodeEditorUnresolvedToolProtocolSignal({
+      finishReason,
+      droppedToolCallCount,
+      unrecognizedToolCallCount,
+    })) {
+      return true
     }
 
     if (hasVisibleText) {
@@ -4090,10 +5381,7 @@ export class AiNocodeEditorChatService {
       return false
     }
 
-    const hasSuccessfulBlueprintStage = results.some(result => (
-      result?.ok
-      && String(result?.name || '').trim() === 'editor_stage_app_blueprint'
-    ))
+    const hasSuccessfulBlueprintStage = results.some(isSuccessfulNocodeEditorBlueprintStageResult)
     if (!hasSuccessfulBlueprintStage) {
       return false
     }
@@ -4110,10 +5398,7 @@ export class AiNocodeEditorChatService {
       return false
     }
 
-    const hasSuccessfulFlowStage = results.some(result => (
-      result?.ok
-      && String(result?.name || '').trim() === 'editor_stage_flow_blueprint'
-    ))
+    const hasSuccessfulFlowStage = results.some(isSuccessfulNocodeEditorFlowBlueprintStageResult)
     if (!hasSuccessfulFlowStage) {
       return false
     }
@@ -4145,18 +5430,12 @@ export class AiNocodeEditorChatService {
 
   private shouldStopAfterBlueprintApplyRound(results: AiActionResult[]) {
     return Array.isArray(results)
-      && results.some(result => (
-        result?.ok
-        && String(result?.name || '').trim() === 'editor_apply_staged_app_blueprint'
-      ))
+      && results.some(isSuccessfulNocodeEditorAppBlueprintApplyResult)
   }
 
   private shouldStopAfterFlowApplyRound(results: AiActionResult[]) {
     return Array.isArray(results)
-      && results.some(result => (
-        result?.ok
-        && String(result?.name || '').trim() === 'editor_apply_staged_flow'
-      ))
+      && results.some(isSuccessfulNocodeEditorFlowApplyResult)
   }
 
   private buildMutationDuplicateSignature(name: string, input: Record<string, unknown>) {
@@ -4246,6 +5525,7 @@ export class AiNocodeEditorChatService {
 
   private buildToolMessageContent(result: AiActionResult) {
     const repair = this.resolveModelVisibleFlowBlueprintRepair(result)
+    const retry = this.resolveModelVisibleBlueprintStageRetry(result)
     return JSON.stringify({
       callId: result.callId,
       name: result.name,
@@ -4254,41 +5534,250 @@ export class AiNocodeEditorChatService {
       output: result.output,
       error: result.error,
       ...(repair ? { repair } : {}),
+      ...(retry ? { retry } : {}),
     })
   }
 
-  private resolveModelVisibleFlowBlueprintRepair(result: AiActionResult) {
+  private resolveModelVisibleBlueprintStageRetry(
+    result: Pick<AiActionResult, 'name' | 'ok' | 'metadata'>,
+  ): ModelVisibleBlueprintStageRetry | undefined {
+    if (result.ok || String(result.name || '').trim() !== 'editor_stage_app_blueprint') {
+      return undefined
+    }
+    const stageErrorCode = String(result.metadata?.blueprintStageErrorCode || '').trim()
+    const retryUpdateMode = String(result.metadata?.blueprintRetryUpdateMode || '').trim()
     if (
-      result.ok
-      || String(result.name || '').trim() !== 'editor_stage_flow_blueprint'
+      stageErrorCode !== BLUEPRINT_PATCH_WITHOUT_STAGED_BLUEPRINT_ERROR_CODE
+      || retryUpdateMode !== 'replace'
     ) {
+      return undefined
+    }
+    return {
+      updateMode: 'replace',
+      reason: 'no_staged_blueprint',
+      instruction: BLUEPRINT_PATCH_WITHOUT_STAGED_BLUEPRINT_RETRY_INSTRUCTION,
+    }
+  }
+
+  private resolveModelVisibleFlowBlueprintRepair(
+    result: AiActionResult,
+  ): ModelVisibleFlowBlueprintRepair | undefined {
+    const toolName = String(result.name || '').trim()
+    if (result.ok) {
       return undefined
     }
     const issues = Array.isArray(result.metadata?.flowUnifiedIssues)
       ? result.metadata.flowUnifiedIssues
       : []
+    if (toolName === 'editor_plan_flow_scheme') {
+      return this.resolveModelVisibleFlowSchemeStaleReplyRepair(result)
+        || this.resolveModelVisibleFlowSchemeContractRepair(issues)
+        || this.resolveModelVisibleFlowSchemeReferenceRepair(issues)
+    }
+    if (
+      toolName !== 'editor_stage_flow_blueprint'
+      && toolName !== 'editor_apply_staged_flow'
+    ) {
+      return undefined
+    }
     const issue = issues.find(item => (
       isRecord(item)
       && String(item.issueId || '').trim() === 'flow-blueprint-contract-invalid'
     ))
-    if (!isRecord(issue)) {
+    if (isRecord(issue)) {
+      const diagnostic = Array.isArray(issue.diagnostics)
+        ? issue.diagnostics.find(isRecord)
+        : undefined
+      if (diagnostic) {
+        const code = String(diagnostic.code || '').trim()
+        const path = String(diagnostic.path || '').trim()
+        if (
+          Object.hasOwn(MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS, code)
+          && MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS[code] instanceof RegExp
+          && MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS[code].test(path)
+        ) {
+          return { code, path }
+        }
+      }
+    }
+
+    return this.resolveModelVisibleFlowBlueprintPersonnelRepair(issues)
+  }
+
+  // 过期卡答复的失败要回传 revision 与不可愈合的决策键，避免模型看不到出路而原样重发。
+  private resolveModelVisibleFlowSchemeStaleReplyRepair(
+    result: AiActionResult,
+  ): ModelVisibleFlowBlueprintRepair | undefined {
+    const issues = Array.isArray(result.metadata?.flowUnifiedIssues)
+      ? result.metadata.flowUnifiedIssues
+      : []
+    const staleIssue = issues.find(item => (
+      isRecord(item)
+      && String(item.issueId || '').trim().startsWith(NOCODE_EDITOR_FLOW_SCHEME_STALE_REPLY_ISSUE_PREFIX)
+    ))
+    if (!isRecord(staleIssue)) {
       return undefined
     }
-    const diagnostic = Array.isArray(issue.diagnostics)
-      ? issue.diagnostics.find(isRecord)
+    const diagnostic = Array.isArray(staleIssue.diagnostics)
+      ? staleIssue.diagnostics.find(isRecord)
       : undefined
-    if (!diagnostic) {
+    return {
+      code: 'flow_scheme_answer_version_stale',
+      issues: [{
+        code: 'flow_scheme_answer_version_stale',
+        message: String(diagnostic?.message || staleIssue.userMessage || '').trim(),
+        answerRevision: diagnostic?.answerRevision,
+        currentRevision: diagnostic?.currentRevision,
+        decisionKeys: diagnostic?.decisionKeys,
+        pendingQuestionCount: diagnostic?.pendingQuestionCount,
+      }],
+    }
+  }
+
+  // 决策契约失败要把出错的决策键/依赖键/事实键回传给模型，避免只有一句笼统文案导致盲目重发。
+  private resolveModelVisibleFlowSchemeContractRepair(
+    issues: unknown[],
+  ): ModelVisibleFlowBlueprintRepair | undefined {
+    const contractIssue = issues.find(item => (
+      isRecord(item)
+      && FLOW_SCHEME_DECISION_CONTRACT_ISSUE_IDS.has(String(item.issueId || '').trim())
+    ))
+    if (!isRecord(contractIssue)) {
       return undefined
     }
-    const code = String(diagnostic.code || '').trim()
-    const path = String(diagnostic.path || '').trim()
-    if (!Object.hasOwn(MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS, code)) {
+    const repairIssues = projectModelActionableFlowDecisionDiagnostics(
+      Array.isArray(contractIssue.diagnostics)
+        ? contractIssue.diagnostics as FlowDecisionDiagnostic[]
+        : [],
+    )
+    if (!repairIssues.length) {
       return undefined
     }
-    const allowedPath = MODEL_VISIBLE_FLOW_BLUEPRINT_REPAIR_PATHS[code]
-    return allowedPath instanceof RegExp && allowedPath.test(path)
-      ? { code, path }
-      : undefined
+    return {
+      code: String(repairIssues[0].code || 'flow_decision_contract_invalid'),
+      issues: repairIssues,
+    }
+  }
+
+  // 引用类失败要把题目标、步骤和候选步骤回传给模型：只有一句“步骤已删除”时模型无法自行修复。
+  private resolveModelVisibleFlowSchemeReferenceRepair(
+    issues: unknown[],
+  ): ModelVisibleFlowBlueprintRepair | undefined {
+    const referenceIssue = issues.find(item => (
+      isRecord(item)
+      && FLOW_SCHEME_REFERENCE_ISSUE_IDS.has(String(item.issueId || '').trim())
+    ))
+    if (!isRecord(referenceIssue)) {
+      return undefined
+    }
+    const repairIssues = (Array.isArray(referenceIssue.diagnostics) ? referenceIssue.diagnostics : [])
+      .filter(isRecord)
+      .map((diagnostic) => {
+        const picked: Record<string, unknown> = {}
+        MODEL_VISIBLE_REFERENCE_DIAGNOSTIC_FIELDS.forEach((field) => {
+          const rawValue = diagnostic[field]
+          const value = Array.isArray(rawValue)
+            ? rawValue.map(item => String(item || '').trim()).filter(Boolean).join('、')
+            : String(rawValue || '').trim()
+          if (value) {
+            picked[field] = value
+          }
+        })
+        return picked
+      })
+      .filter(item => Boolean(item.code))
+      .slice(0, 8)
+    if (!repairIssues.length) {
+      return undefined
+    }
+    return {
+      code: String(repairIssues[0].code || ''),
+      issues: repairIssues,
+    }
+  }
+
+  // 人员来源类失败要把具体节点和期望/实际来源回传给模型，避免只有一句笼统文案导致反复重试。
+  private resolveModelVisibleFlowBlueprintPersonnelRepair(
+    issues: unknown[],
+  ): ModelVisibleFlowBlueprintRepair | undefined {
+    const personnelIssue = issues.find(item => (
+      isRecord(item)
+      && FLOW_BLUEPRINT_PERSONNEL_ISSUE_IDS.has(String(item.issueId || '').trim())
+    ))
+    if (!isRecord(personnelIssue)) {
+      return undefined
+    }
+    const repairIssues = (Array.isArray(personnelIssue.diagnostics) ? personnelIssue.diagnostics : [])
+      .filter(isRecord)
+      .map((diagnostic) => {
+        const picked: Record<string, unknown> = {}
+        MODEL_VISIBLE_PERSONNEL_DIAGNOSTIC_FIELDS.forEach((field) => {
+          const rawValue = diagnostic[field]
+          const value = Array.isArray(rawValue)
+            ? rawValue.map(item => String(item || '').trim()).filter(Boolean).join('、')
+            : String(rawValue || '').trim()
+          if (value) {
+            picked[field] = value
+          }
+        })
+        return picked
+      })
+      .filter(item => Boolean(item.code))
+      .slice(0, 8)
+    if (!repairIssues.length) {
+      return undefined
+    }
+    return {
+      code: String(repairIssues[0].code || ''),
+      issues: repairIssues,
+    }
+  }
+
+  // 只记录脱敏字段：不写入用户自由文本、人员隐私或完整模型提示。
+  private async logFlowSchemeConfirmationTrustRejection(input: {
+    conversationId: string
+    callId: string
+    rejection: NocodeEditorFlowSchemeConfirmationRejection
+    latestTaskSummary?: Record<string, unknown> | null
+    latestRequestMetadata: Record<string, unknown>
+    requestedFormId: unknown
+    activeFormId: unknown
+  }) {
+    const rejectionMetadata = input.latestRequestMetadata
+    const decisionKeys = Array.isArray(rejectionMetadata.flowConfirmationDecisions)
+      ? rejectionMetadata.flowConfirmationDecisions
+        .filter(isRecord)
+        .map(item => normalizeText(item.decisionKey) || normalizeText(item.questionId))
+        .filter(Boolean)
+      : []
+    await this.agentLogService.log(
+      input.conversationId,
+      `流程方案确认上下文未建立：${input.rejection.code}`,
+      JSON.stringify({
+        confirmationStage: input.rejection.confirmationStage,
+        rejectReason: input.rejection.code,
+        callId: input.callId,
+        trustedContextAttached: false,
+        ...(input.rejection.missingFields ? { missingFields: input.rejection.missingFields } : {}),
+        ...(input.rejection.expected !== undefined
+          ? { expected: input.rejection.expected, actual: input.rejection.actual }
+          : {}),
+        ...(input.rejection.replyRevision !== undefined
+          ? {
+            replyRevision: input.rejection.replyRevision,
+            currentRevision: input.rejection.currentRevision,
+          }
+          : {}),
+        decisionKeys,
+        targetFormId: normalizeText(input.requestedFormId) || normalizeText(input.activeFormId),
+        requestPlanningContextKey: normalizeText(
+          rejectionMetadata.planningContextKey || rejectionMetadata.flowPlanningContextKey,
+        ),
+        summaryPlanningContextKey: normalizeText(input.latestTaskSummary?.flowConfirmationContextKey),
+        replySchemeRevision: Number(rejectionMetadata.flowSchemeRevision || 0) || 0,
+        summarySchemeRevision: Number(input.latestTaskSummary?.flowConfirmationSchemeRevision || 0) || 0,
+      }),
+    )
   }
 
   private buildModelToolExchangeMessages(
@@ -4316,6 +5805,7 @@ export class AiNocodeEditorChatService {
       metadata: result.metadata || undefined,
     }
     const repair = this.resolveModelVisibleFlowBlueprintRepair(result)
+    const retry = this.resolveModelVisibleBlueprintStageRetry(result)
 
     return [
       {
@@ -4331,7 +5821,7 @@ export class AiNocodeEditorChatService {
       },
       {
         role: AiMessageRole.TOOL,
-        content: this.stringifyModelToolExchangeResult(exchangeResult, repair),
+        content: this.stringifyModelToolExchangeResult(exchangeResult, repair, retry),
         toolCallId: call.id,
         metadata: {
           scene: 'nocode-editor',
@@ -4346,13 +5836,15 @@ export class AiNocodeEditorChatService {
 
   private stringifyModelToolExchangeResult(
     result: AiModelToolExchangeResult,
-    repair?: { code: string; path: string },
+    repair?: ModelVisibleFlowBlueprintRepair,
+    retry?: ModelVisibleBlueprintStageRetry,
   ) {
     return JSON.stringify({
       ok: result.ok,
       output: result.output,
       error: result.error,
       ...(repair ? { repair } : {}),
+      ...(retry ? { retry } : {}),
     })
   }
 

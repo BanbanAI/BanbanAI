@@ -11,12 +11,16 @@ import type {
   UnifiedFlowIssueBlockedNextAction,
 } from './nocodeEditorFlowUnifiedIssue'
 import {
+  isFlowSchemePrerequisiteMissingIssue,
   normalizeUnifiedFlowIssueBlockedNextAction,
   normalizeUnifiedFlowIssues,
 } from './nocodeEditorFlowUnifiedIssue'
 import {
   normalizeVisibleFlowGroundingQuestions,
 } from './nocodeEditorFlowGroundingPresentation'
+import {
+  carryOverNocodeEditorFlowPersonnelProjectionFields,
+} from './nocodeEditorFlowPersonnelSourceOptions'
 import type {
   NocodeEditorFlowSchemeGroundingDiagnostic,
 } from './nocodeEditorFlowSchemeGrounding'
@@ -46,6 +50,7 @@ export type FlowIssueLegacyProjection = {
   flowGroundingQuestions?: NocodeEditorAiConfirmQuestion[]
   flowGroundingReturnToStage?: 'flow-scheme'
   flowGroundingUserMessage?: string
+  flowPrerequisiteMissing?: boolean
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -128,7 +133,11 @@ const buildRoutingResult = (
 const isReturnToFlowSchemeIssue = (issue: UnifiedFlowIssue) => (
   issue.userActionRequired === true
   && issue.returnToStage === 'flow-scheme'
-  && Boolean(issue.questionPayload)
+  && (
+    Boolean(issue.questionPayload)
+    // 前置缺失没有确认题，但语义仍是“回到方案阶段补生成”，不能降级成执行阻塞。
+    || isFlowSchemePrerequisiteMissingIssue(issue)
+  )
 )
 
 export const routeUnifiedFlowIssues = (
@@ -170,7 +179,8 @@ const buildDedupedIssueQuestionEntries = (
   const result: FlowIssueQuestionEntry[] = []
   issues.forEach((issue, issueIndex) => {
     const question = projectIssueToVisibleQuestion(issue, issueIndex)
-    const key = normalizeText(question.decisionKey)
+    const key = normalizeText(issue.decisionPointKey)
+      || normalizeText(question.decisionKey)
       || normalizeText(question.id)
       || normalizeText(question.title)
     if (!key || usedKeys.has(key)) {
@@ -243,16 +253,19 @@ const projectIssueToVisibleQuestion = (
       : [],
   })
   const question = questions[0] || buildFallbackQuestionPayload(issue, index)
+  // 可见化投影只保留展示白名单字段，人员来源题依赖的 personnelDecision / personnelCandidate
+  // 需从 issue.questionPayload 原题回挂，否则卡片渲染侧的人员来源规范化守卫会失效。
+  const visibleQuestion = carryOverNocodeEditorFlowPersonnelProjectionFields(sourceQuestion, question)
   const decisionKey = normalizeText(sourceQuestion.decisionKey)
   return decisionKey
     ? {
-      ...question,
+      ...visibleQuestion,
       decisionKey,
       ...(sourceQuestion.decisionKeySource
         ? { decisionKeySource: sourceQuestion.decisionKeySource }
         : {}),
     }
-    : question
+    : visibleQuestion
 }
 
 const isLateStageReturnIssue = (issue: UnifiedFlowIssue) => (
@@ -276,7 +289,25 @@ const buildReturnToFlowSchemeProjection = (
     }
   }
 
-  const questionEntries = buildDedupedIssueQuestionEntries(activeIssues)
+  // 前置缺失本身不产生确认题：先把它从问题来源里剔除，再决定还有没有题可问。
+  // 不能只在“全是前置缺失”时短路——混合场景下 buildDedupedIssueQuestionEntries 会给
+  // 没有 questionPayload 的 issue 兜底造一个 note_only 问题，死锁会原样复现。
+  const questionIssues = activeIssues.filter(issue => !isFlowSchemePrerequisiteMissingIssue(issue))
+  if (!questionIssues.length) {
+    return {
+      planningStatus: 'needs_confirmation',
+      openQuestions: [],
+      confirmation: null,
+      requiredNextAction: 'editor_plan_flow_scheme',
+      blockedNextAction: input.routing.blockedNextAction
+        || resolveFirstBlockedNextAction(activeIssues),
+      userMessage: input.routing.userMessage
+        || resolveFirstText(activeIssues, issue => issue.userMessage),
+      flowPrerequisiteMissing: true,
+    }
+  }
+
+  const questionEntries = buildDedupedIssueQuestionEntries(questionIssues)
   const questions = questionEntries.map(entry => entry.question)
   const openQuestions = questionEntries.map(entry => (
     projectIssueToOpenQuestion(entry.issue, entry.issueIndex, entry.question)

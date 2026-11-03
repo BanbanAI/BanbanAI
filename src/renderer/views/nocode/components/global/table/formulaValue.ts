@@ -1,6 +1,7 @@
 import type { Field } from "@common/types/project";
 import {
   collectFormulaFieldUsages,
+  normalizeLegacyRuntimeSubformReferences,
   replaceByFormula,
   replaceColFieldsByFormula,
 } from "@common/utils/formula";
@@ -85,7 +86,7 @@ export const replaceFormulaFieldValues = (
     return usages[index];
   };
 
-  let replaced = replaceColFieldsByFormula(formula, keys => {
+  let replaced = replaceColFieldsByFormula(normalizeLegacyRuntimeSubformReferences(formula), keys => {
     const id = keys.join(".");
     const resolved = valueMap.get(id);
     if (!resolved) return [];
