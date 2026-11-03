@@ -2,6 +2,7 @@ import type { NocodeEditorFlowEntryIntent } from './nocodeEditorFlowEntryIntent'
 import type { NocodeEditorPlanningScope } from './nocodeEditorPlanningScope'
 import { isNocodeEditorPostFormFlowEnabledForScope } from './nocodeEditorPostFormFlowScope'
 import {
+  isNocodeEditorPendingFlowIntentForTarget,
   normalizeNocodeEditorPendingFlowIntent,
 } from './nocodeEditorPendingFlowIntent'
 import type { NocodeEditorPendingFlowIntent } from './nocodeEditorPendingFlowIntent'
@@ -71,10 +72,10 @@ export const NOCODE_EDITOR_POST_FORM_FLOW_FOLLOW_UP_AUTO_CONTINUE_MESSAGE =
 const POST_FORM_FLOW_FOLLOW_UP_MODE: NocodeEditorPostFormFlowFollowUpMode = 'visible-follow-up'
 const POST_FORM_FLOW_FOLLOW_UP_STATUS: NocodeEditorPostFormFlowFollowUpStatus = 'available'
 const POST_FORM_FLOW_FOLLOW_UP_AUTO_CONTINUE_DELAY_SECONDS = 20 as const
-const EXPLICIT_FLOW_REASON_SUMMARY = '当前表单已经生成完成，原始需求里的流程部分还没有落地，建议继续创建流程，把提交后的审批、办理或确认动作一起规划完整。'
-const SUGGESTED_REASON_SUMMARY = '当前表单的使用场景和字段结构都出现了流程承接线索，建议继续创建流程，把提交后的审批、办理或确认动作一起规划完整。'
-const CONSIDER_REASON_SUMMARY = '当前表单只出现了部分流程承接线索，字段结构或使用场景仍不够完整；可考虑先确认是否需要审批、办理或通知流程。'
-const NOT_SUGGESTED_REASON_SUMMARY = '当前表单的使用场景和结构里都缺少明显流程承接线索，默认先完成表单；如确实需要流程，可以再说明触发方式、审批或办理场景。'
+const EXPLICIT_FLOW_REASON_SUMMARY = '本次表单已经生成完成，原始需求里的流程部分还没有落地，建议继续创建流程，把提交后的审批、办理或确认动作一起规划完整。'
+const SUGGESTED_REASON_SUMMARY = '本次表单的使用场景和字段结构都出现了流程承接线索，建议继续创建流程，把提交后的审批、办理或确认动作一起规划完整。'
+const CONSIDER_REASON_SUMMARY = '本次表单只出现了部分流程承接线索，字段结构或使用场景仍不够完整；可考虑先确认是否需要审批、办理或通知流程。'
+const NOT_SUGGESTED_REASON_SUMMARY = '本次表单的使用场景和结构里都缺少明显流程承接线索，默认先完成表单；如确实需要流程，可以再说明触发方式、审批或办理场景。'
 
 const normalizeText = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim()
 
@@ -295,10 +296,16 @@ export const decideNocodeEditorPostFormFlowFollowUp = (input: {
     entryFlowIntent?.state === 'explicit_positive'
     && pendingFlowIntent
     && pendingFlowIntent.status === 'pending_after_form_apply'
+    // 挂账必须属于本次生成的表单，否则旧表单的流程要求不能借新表单续跑。
+    && isNocodeEditorPendingFlowIntentForTarget({
+      pendingFlowIntent,
+      targetFormId,
+      targetFormName,
+    })
   ) {
     return buildExplicitFlowClarificationFollowUp({
       targetFormId: targetFormId || pendingFlowIntent.targetFormId,
-      targetFormName: targetFormName || pendingFlowIntent.targetFormName || entryFlowIntent.targetFormName,
+      targetFormName: targetFormName || pendingFlowIntent.targetFormName,
       now: input.now,
     })
   }

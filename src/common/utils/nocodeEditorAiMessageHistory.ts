@@ -19,6 +19,7 @@ import {
   isNocodeEditorFailedStageSummaryMetadata,
   normalizeNocodeEditorStageSummaryStage,
 } from './nocodeEditorToolResultSummaryState'
+import { isPureNocodeEditorFlowSchemeReviewResultText } from './nocodeEditorFlowScheme'
 
 type NocodeEditorHistoryMessageLike = {
   id?: unknown
@@ -248,11 +249,24 @@ const hasRenderableAssistantHistoryPayload = (message: NocodeEditorHistoryMessag
   )
 }
 
+// 复核协议体是模型和引擎之间的内部报文，历史里即使已经落库也不能回显给用户。
+const isLeakedFlowSchemeReviewProtocolMessage = (
+  message: NocodeEditorHistoryMessageLike,
+) => (
+  isAssistantMessage(message)
+  && isPureNocodeEditorFlowSchemeReviewResultText(message.content)
+  && !hasRenderableAssistantHistoryPayload(message)
+)
+
 const shouldKeepNocodeEditorAiHistoryMessage = (
   message: NocodeEditorHistoryMessageLike,
 ) => {
   if (!isAssistantMessage(message) || isHiddenFromTimelineMessage(message)) {
     return true
+  }
+
+  if (isLeakedFlowSchemeReviewProtocolMessage(message)) {
+    return false
   }
 
   if (normalizeContent(message.content)) {
@@ -481,16 +495,48 @@ const getFlowPlanSummaryScopeKey = (
   return getFlowPlanBlockScopeKey(flowBlock)
 }
 
-const findFlowPlanSummaryScopeEntry = <TEntry extends { scopeKey: string; index: number }>(
-  entries: TEntry[],
-  scopeKey: string,
+const getFlowPlanSummaryDraftIdentityKey = (
+  message: NocodeEditorHistoryMessageLike,
 ) => {
-  return entries.find(entry => isSamePlanningConfirmationContext(entry.scopeKey, scopeKey))
+  const flowBlock = getFlowPlanArtifactBlock(message)
+  if (!flowBlock) {
+    return ''
+  }
+  return getFlowPlanBlockDraftIdentityKey(flowBlock)
+}
+
+type FlowPlanScopeEntry = {
+  scopeKey: string
+  draftIdentityKey: string
+  index: number
+  block?: unknown
+}
+
+// 规划上下文只说明“同一条链路”，同一 link 下仍可能有多个 revision；
+// 只有 revision+stagedAt 相同才是同一版，不能按 scope 把旧版整条折叠掉。
+const findFlowPlanScopeEntry = (
+  entries: FlowPlanScopeEntry[],
+  scopeKey: string,
+  draftIdentityKey: string,
+) => {
+  const scoped = entries.filter(entry => (
+    isSamePlanningConfirmationContext(entry.scopeKey, scopeKey)
+  ))
+  if (!scoped.length) {
+    return undefined
+  }
+
+  if (!draftIdentityKey) {
+    return [...scoped].sort((left, right) => right.index - left.index)[0]
+  }
+
+  return scoped.find(entry => entry.draftIdentityKey === draftIdentityKey)
+    || scoped.find(entry => !entry.draftIdentityKey)
 }
 
 const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessageLike>(messages: T[]) => {
   const latestVisibleFlowPlanSummaryIndexByTrace = new Map<string, number>()
-  const latestVisibleFlowPlanSummaryEntries: Array<{ scopeKey: string; index: number }> = []
+  const latestVisibleFlowPlanSummaryEntries: FlowPlanScopeEntry[] = []
 
   messages.forEach((message, index) => {
     if (!isVisibleFlowPlanSummaryMessage(message)) {
@@ -499,16 +545,20 @@ const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessag
 
     const scopeKey = getFlowPlanSummaryScopeKey(message)
     if (scopeKey) {
-      const existingEntry = findFlowPlanSummaryScopeEntry(
+      const draftIdentityKey = getFlowPlanSummaryDraftIdentityKey(message)
+      const existingEntry = findFlowPlanScopeEntry(
         latestVisibleFlowPlanSummaryEntries,
         scopeKey,
+        draftIdentityKey,
       )
       if (existingEntry) {
         existingEntry.scopeKey = scopeKey
+        existingEntry.draftIdentityKey = draftIdentityKey
         existingEntry.index = index
       } else {
         latestVisibleFlowPlanSummaryEntries.push({
           scopeKey,
+          draftIdentityKey,
           index,
         })
       }
@@ -528,9 +578,10 @@ const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessag
 
     const scopeKey = getFlowPlanSummaryScopeKey(message)
     if (scopeKey) {
-      const latestEntry = findFlowPlanSummaryScopeEntry(
+      const latestEntry = findFlowPlanScopeEntry(
         latestVisibleFlowPlanSummaryEntries,
         scopeKey,
+        getFlowPlanSummaryDraftIdentityKey(message),
       )
       return !latestEntry || index >= latestEntry.index
     }
@@ -546,7 +597,7 @@ const collapseSupersededFlowPlanSummaries = <T extends NocodeEditorHistoryMessag
 }
 
 const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLike>(messages: T[]) => {
-  const latestVisibleFlowPlanBlockEntries: Array<{ scopeKey: string; index: number; block?: unknown }> = []
+  const latestVisibleFlowPlanBlockEntries: FlowPlanScopeEntry[] = []
 
   messages.forEach((message, index) => {
     if (!isAssistantMessage(message) || isHiddenFromTimelineMessage(message)) {
@@ -560,17 +611,21 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
         return
       }
 
-      const existingEntry = findFlowPlanSummaryScopeEntry(
+      const draftIdentityKey = getFlowPlanBlockDraftIdentityKey(block)
+      const existingEntry = findFlowPlanScopeEntry(
         latestVisibleFlowPlanBlockEntries,
         scopeKey,
+        draftIdentityKey,
       )
       if (existingEntry) {
         existingEntry.scopeKey = scopeKey
+        existingEntry.draftIdentityKey = draftIdentityKey
         existingEntry.index = index
         existingEntry.block = block
       } else {
         latestVisibleFlowPlanBlockEntries.push({
           scopeKey,
+          draftIdentityKey,
           index,
           block,
         })
@@ -597,9 +652,11 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
         return true
       }
 
-      const latestEntry = findFlowPlanSummaryScopeEntry(
+      const draftIdentityKey = getFlowPlanBlockDraftIdentityKey(block)
+      const latestEntry = findFlowPlanScopeEntry(
         latestVisibleFlowPlanBlockEntries,
         scopeKey,
+        draftIdentityKey,
       )
       if (!latestEntry || messageIndex >= latestEntry.index) {
         return true
@@ -607,7 +664,6 @@ const collapseSupersededFlowPlanBlocks = <T extends NocodeEditorHistoryMessageLi
 
       // 与最新“已生成”块同草稿身份的暂存块是卡片锚点：加载期同步会把它原位改写为已生成卡片，
       // 删除它会让卡片跳回 apply 消息（现场与重开后的位置不一致）。
-      const draftIdentityKey = getFlowPlanBlockDraftIdentityKey(block)
       if (
         draftIdentityKey
         && !isAppliedFlowPlanBlock(block)

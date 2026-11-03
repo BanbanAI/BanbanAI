@@ -93,9 +93,15 @@ export const resolveNocodeEditorFlowSchemePendingQuestions = (
     return []
   }
   const projection = projectFlowDecisionContract(questions, confirmation?.factSnapshot || {})
-  const pending = projection.diagnostics.length
-    ? questions.filter(question => question.required !== false && !questionHasStoredAnswer(question))
-    : projection.unresolved.filter(question => question.required !== false)
+  const invalidQuestionKeys = new Set(
+    projection.diagnostics
+      .map(item => normalizeText(item.decisionKey))
+      .filter(Boolean),
+  )
+  const pending = projection.unresolved.filter(question => (
+    question.required !== false
+    && !invalidQuestionKeys.has(questionKeyOf(question))
+  ))
   return filterPendingNocodeEditorFlowConfirmationQuestions(
     pending.map(stripQuestionAnswerFields),
   )

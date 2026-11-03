@@ -38,6 +38,11 @@ export type FlowBlueprintPreflightState = {
   deadlineAt: number
   summarySnapshotRef?: FlowSummarySnapshotRef | null
   nodeExampleCoverage?: FlowNodeExampleCoverage | null
+  // 失败蓝图的结构骨架（nodeKey/branchKey）。自动续跑是独立回合，历史会被压缩成摘要，
+  // 模型容易重新生成同名无 key 节点；恢复预检时把骨架带回去，保持结构连续。
+  blueprintStructureHint?: string | null
+  // 上一次蓝图失败的归类码。恢复提示要说明失败原因，避免模型沿用导致同一原因再次失败。
+  lastFailureCode?: string | null
 }
 
 export const DEFAULT_FLOW_BLUEPRINT_PREFLIGHT_TOTAL_TIMEOUT_MS = 20_000
@@ -109,6 +114,12 @@ const normalizeNodeExampleCoverage = (value: FlowNodeExampleCoverage | null | un
   }
 }
 
+const normalizeBlueprintStructureHint = (value: unknown) => (
+  typeof value === 'string' && value.trim() ? value.trim() : null
+)
+
+const normalizeFailureCode = (value: unknown) => normalizeText(value) || null
+
 export const createFlowBlueprintPreflightState = (input: {
   planningContextKey: string
   schemeRevision: number
@@ -132,6 +143,8 @@ export const createFlowBlueprintPreflightState = (input: {
     deadlineAt: now + DEFAULT_FLOW_BLUEPRINT_PREFLIGHT_TOTAL_TIMEOUT_MS,
     summarySnapshotRef: normalizeSummarySnapshotRef(input.summarySnapshotRef) ?? null,
     nodeExampleCoverage: normalizeNodeExampleCoverage(input.nodeExampleCoverage) ?? null,
+    blueprintStructureHint: null,
+    lastFailureCode: null,
   }
 }
 
@@ -165,6 +178,8 @@ export const updateFlowBlueprintPreflightProgress = (
     nodeExampleCoverage: nextNodeExampleCoverage === undefined
       ? normalizeNodeExampleCoverage(state.nodeExampleCoverage) ?? null
       : nextNodeExampleCoverage,
+    blueprintStructureHint: normalizeBlueprintStructureHint(state.blueprintStructureHint),
+    lastFailureCode: normalizeFailureCode(state.lastFailureCode),
   }
 
   if (toolName === 'editor_get_flow_summary') {
@@ -191,4 +206,28 @@ export const updateFlowBlueprintPreflightProgress = (
   }
 
   return nextState
+}
+
+// 投影与提示词文案同源；各写一份会让文案继续宣传预算已耗尽的工具。null = 不在预检，不收敛。
+export const resolveFlowBlueprintPreflightAllowedToolNames = (
+  state: FlowBlueprintPreflightState | null | undefined,
+): string[] | null => {
+  if (!state) {
+    return null
+  }
+  const names: string[] = []
+  if (
+    normalizeNumber(state.summaryRefreshCount)
+    < DEFAULT_FLOW_BLUEPRINT_PREFLIGHT_SUMMARY_REFRESH_BUDGET
+  ) {
+    names.push('editor_get_flow_summary')
+  }
+  if (
+    normalizeNumber(state.nodeExampleFetchCount)
+    < DEFAULT_FLOW_BLUEPRINT_PREFLIGHT_NODE_EXAMPLE_FETCH_BUDGET
+  ) {
+    names.push('editor_get_flow_node_examples')
+  }
+  names.push('editor_stage_flow_blueprint')
+  return names
 }

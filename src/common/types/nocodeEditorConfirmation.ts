@@ -15,7 +15,7 @@ export type NocodeEditorPlanningQuestionDomain =
   | 'unknown'
 export type NocodeEditorPlanningQuestionStage = Extract<
   NocodeEditorAiConfirmStage,
-  'app-plan' | 'form-plan'
+  'app-plan' | 'form-plan' | 'flow-plan'
 >
 export type NocodeEditorAiConfirmQuestionKind =
   | 'note_only'

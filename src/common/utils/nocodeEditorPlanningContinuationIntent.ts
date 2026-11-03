@@ -1,6 +1,9 @@
 import {
   isNocodeEditorCompleteNewFormIntent,
 } from './nocodeEditorSingleFormPlan'
+import {
+  isNocodeEditorStructuredConfirmationReplyMessage,
+} from './nocodeEditorTaskContextRequest'
 
 const normalizeText = (value: unknown) => String(value || '').trim()
 
@@ -68,6 +71,12 @@ export const shouldContinueCurrentPlanningChain = (input: {
   const text = normalizeText(input.userMessage)
   if (!text) {
     return false
+  }
+
+  // 卡片的结构化答复会原样带上选项文案，可能包含“新建…表”这类表述；
+  // 它的语义仍是回答当前卡片，不能被当成“创建全新表单”而中断规划链。
+  if (isNocodeEditorStructuredConfirmationReplyMessage(text)) {
+    return true
   }
 
   if (isNocodeEditorCompleteNewFormIntent(input)) {

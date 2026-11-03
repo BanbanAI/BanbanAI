@@ -33,6 +33,9 @@ import {
   readFlowPersonnelDependencyDecision,
   type FlowPersonnelDecision,
 } from './nocodeEditorFlowDecisionIdentity'
+import {
+  ensurePendingFlowQuestionsAnswerable,
+} from './nocodeEditorFlowQuestionAnswerSpace'
 
 export type NocodeEditorFlowSchemeStepKind =
   | 'approval'
@@ -1041,7 +1044,9 @@ export const normalizeNocodeEditorFlowScheme = (
     preReconciliationQuestions: trustedConfirmation?.questions || [],
     resolvedDecisionKeys: confirmationReconciliation.resolvedDecisionKeys,
   })
-  const reconciledConfirmation = confirmationReconciliation.confirmation
+  const reconciledConfirmation = ensurePendingFlowQuestionsAnswerable(
+    confirmationReconciliation.confirmation,
+  )
   const factProjection = decisionContractVersion === 2
     ? projectFlowDecisionContract(reconciledConfirmation?.questions || [], factSnapshot)
     : null

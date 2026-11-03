@@ -209,10 +209,17 @@ export const buildFlowSchemeDependencyFromGroundingDiagnostic = (
   const targetFormIdentity = normalizeText(
     diagnostic.targetFormId || diagnostic.targetFormName,
   ).toLowerCase()
+  const branchKey = normalizeText(diagnostic.branchKey) || undefined
   const base = {
     id: `flow-dependency:${code}:${scope.scopeKey || 'global'}:${encodeURIComponent(targetFormIdentity || 'form')}:${encodeURIComponent(fieldIdentity || 'field')}`,
     scopeKind: scope.scopeKind,
     scopeKey: scope.scopeKey,
+    // 合成题按分支作答；节点级依赖仍保留 scopeKey=nodeKey，额外记录业务分支身份供决策匹配。
+    ...((code.startsWith('grounding_condition_')
+      || code.startsWith('grounding_source_')
+      || code.startsWith('grounding_write_'))
+      ? { branchKey }
+      : {}),
     scopeTitle: scope.scopeTitle,
     targetFormId: normalizeText(diagnostic.targetFormId) || undefined,
     targetFormName: normalizeText(diagnostic.targetFormName) || undefined,

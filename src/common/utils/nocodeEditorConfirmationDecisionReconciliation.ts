@@ -206,11 +206,8 @@ const buildQuestionConstraintKey = (question: NocodeEditorAiConfirmQuestion) => 
   decisionScope: question.decisionScope || null,
   dependsOn: (question.dependsOn || []).map(normalizeText).sort(),
   domain: normalizeText(question.domain),
-  options: (question.options || []).map(option => [
-    normalizeText(option.value),
-    normalizeText(option.label),
-    normalizeText(option.description),
-  ]).sort((a, b) => a[0].localeCompare(b[0])),
+  // 只按取值比对选项：label/description 是措辞，改写它们不代表问题约束变化。
+  options: (question.options || []).map(option => normalizeText(option.value)).sort((a, b) => a.localeCompare(b)),
   personnelDecision: question.personnelDecision || null,
   prerequisites: (question.prerequisites || []).map(condition => ({
     decisionKey: normalizeText(condition.decisionKey),

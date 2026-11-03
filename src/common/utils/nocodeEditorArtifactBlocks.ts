@@ -1,5 +1,6 @@
 import { compareBlueprintPhase } from './nocodeEditorBlueprintLifecycle'
 import { mergeSingleFormBlueprintFragments } from './nocodeEditorBlueprintFormNormalization'
+import { isSamePlanningConfirmationContext } from './nocodeEditorPlanningConfirmationIdentity'
 
 type NocodeEditorArtifactBlockLike = {
   type?: unknown
@@ -257,6 +258,40 @@ export const findNocodeEditorArtifactBlockMergeIndex = (
     isNocodeEditorArtifactBlock(item)
     && normalizeText(item.kind) === blockKind
   ))
+}
+
+/**
+ * 同一方案上下文里是否已经有一张待作答的流程确认卡。
+ * 合并键对 flow-scheme 只按 kind 唯一，错误卡会把 pending 卡顶掉，所以建错误卡前必须先问这一句。
+ */
+export const hasNocodeEditorPendingFlowSchemeConfirmation = (input: {
+  blocks?: Array<Record<string, any>> | null
+  planningContextKey?: string | null
+}) => {
+  const planningContextKey = normalizeText(input?.planningContextKey)
+  const blocks = Array.isArray(input?.blocks) ? input.blocks : []
+  return blocks.some(block => {
+    if (!isNocodeEditorArtifactBlock(block)) {
+      return false
+    }
+    if (normalizeText(block.kind) !== 'flow-scheme') {
+      return false
+    }
+    if (normalizeText(block.status) === 'error') {
+      return false
+    }
+    if (normalizeText(block.confirmation?.status) !== 'pending') {
+      return false
+    }
+    const blockPlanningContextKey = normalizeText(
+      block.confirmation?.planningContextKey || block.sourcePlanningContextKey,
+    )
+    // 身份缺失时宁可认为会覆盖：保住一张还能作答的卡，比展示一条失败更能让用户继续。
+    if (!planningContextKey || !blockPlanningContextKey) {
+      return true
+    }
+    return isSamePlanningConfirmationContext(planningContextKey, blockPlanningContextKey)
+  })
 }
 
 const getArtifactFinishedAt = (block: NocodeEditorArtifactBlockLike) => (

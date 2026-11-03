@@ -65,3 +65,74 @@ export const resolveFlowTargetFormDeclaration = (
     matchedName: String(matched.name || '').trim() || undefined,
   }
 }
+
+export type FlowSchemeTargetIdentitySource = 'declared' | 'trusted' | 'previous' | 'active' | 'none'
+
+export type FlowSchemeTargetIdentityResult = {
+  formId: string
+  formName: string
+  source: FlowSchemeTargetIdentitySource
+  inheritedFromPrevious: boolean
+  declaredConflictsWithTrusted: boolean
+}
+
+// 目标表单是流程方案的身份：模型声明 → 确认卡可信上下文 → 上一版同名方案 → 当前打开表单。
+// “当前打开的表单”只说明用户此刻在浏览哪张表，用户切到别的表单后回答卡片或重提方案时，
+// 它不能覆盖已经建立的方案身份，否则目标会跟着人走。
+export const resolveFlowSchemeTargetIdentity = (input: {
+  declaredFormId?: unknown
+  declaredFormName?: unknown
+  trustedFormId?: unknown
+  trustedFormName?: unknown
+  previousFormId?: unknown
+  previousFormName?: unknown
+  previousTitle?: unknown
+  currentTitle?: unknown
+  activeFormId?: unknown
+  activeFormName?: unknown
+}): FlowSchemeTargetIdentityResult => {
+  const text = (value: unknown) => String(value ?? '').trim()
+  const declaredFormId = text(input?.declaredFormId)
+  const declaredFormName = text(input?.declaredFormName)
+  const trustedFormId = text(input?.trustedFormId)
+  const trustedFormName = text(input?.trustedFormName)
+  const previousFormId = text(input?.previousFormId)
+  const previousFormName = text(input?.previousFormName)
+  const declaredConflictsWithTrusted = Boolean(trustedFormId && (
+    declaredFormId
+      ? declaredFormId !== trustedFormId
+      : Boolean(
+        declaredFormName
+        && trustedFormName
+        && normalizeFlowTargetFormToken(declaredFormName) !== normalizeFlowTargetFormToken(trustedFormName),
+      )
+  ))
+  const previousTitleToken = normalizeFlowTargetFormToken(input?.previousTitle)
+  const inheritedFromPrevious = Boolean(
+    !declaredFormId
+    && !declaredFormName
+    && !trustedFormId
+    && !trustedFormName
+    && previousTitleToken
+    && previousTitleToken === normalizeFlowTargetFormToken(input?.currentTitle)
+    && (previousFormId || previousFormName),
+  )
+  const formId = declaredFormId
+    || (declaredConflictsWithTrusted ? '' : trustedFormId)
+    || (inheritedFromPrevious ? previousFormId : '')
+    || text(input?.activeFormId)
+  const formName = declaredFormName
+    || trustedFormName
+    || (inheritedFromPrevious ? previousFormName : '')
+    || text(input?.activeFormName)
+  const source: FlowSchemeTargetIdentitySource = declaredFormId || declaredFormName
+    ? 'declared'
+    : trustedFormId || trustedFormName
+      ? 'trusted'
+      : inheritedFromPrevious
+        ? 'previous'
+        : formId || formName
+          ? 'active'
+          : 'none'
+  return { formId, formName, source, inheritedFromPrevious, declaredConflictsWithTrusted }
+}

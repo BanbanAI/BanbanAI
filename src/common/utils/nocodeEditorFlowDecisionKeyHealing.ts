@@ -44,6 +44,91 @@ const hasDecisionAnswer = (decision: Record<string, unknown>) => Boolean(
   || text(decision.answerDetail)
 )
 
+export type FlowDecisionStepScopeHealingEntry = {
+  questionId: string
+  decisionKey: string
+  staleStepKey: string
+}
+
+const readStepScope = (question: Record<string, unknown>) => {
+  const scope = isRecord(question.decisionScope) ? question.decisionScope : null
+  const kind = text(scope?.kind)
+  const id = text(scope?.id)
+  return kind === 'step' && id ? { kind, id } : null
+}
+
+const readSchemeStepKeys = (scheme: Record<string, unknown>) => {
+  const mainPath = Array.isArray(scheme.mainPath) ? scheme.mainPath : []
+  const branches = Array.isArray(scheme.branches) ? scheme.branches : []
+  const steps = [
+    ...mainPath,
+    ...branches.flatMap(branch => (
+      isRecord(branch) && Array.isArray(branch.steps) ? branch.steps : []
+    )),
+  ].filter(isRecord)
+  return new Set(steps.map(step => text(step.key)).filter(Boolean))
+}
+
+/**
+ * 已确认题随方案重新暂存时，步骤键可能被模型重写（主链路拆分支、审批步骤改名）。
+ * 题上的 decisionScope.step 来自上一版，不能当作本轮契约错误：
+ * 只要上一版同锚点题确认过同一个步骤，就先摘掉失效的显式作用域，
+ * 交给 reconcileFlowSchemeConfirmedAnchors 按「同锚点 + 候选步骤」重锚。
+ */
+export const healFlowSchemeDecisionStepScopes = (input: {
+  scheme: unknown
+  previousQuestions?: Array<Record<string, unknown>> | null
+}): { scheme: unknown; healed: FlowDecisionStepScopeHealingEntry[] } => {
+  const scheme = input.scheme
+  const untouched = { scheme, healed: [] as FlowDecisionStepScopeHealingEntry[] }
+  if (!isRecord(scheme)) return untouched
+  const confirmation = isRecord(scheme.confirmation) ? scheme.confirmation : null
+  const rawQuestions = Array.isArray(confirmation?.questions) ? confirmation.questions : []
+  const previousQuestions = Array.isArray(input.previousQuestions)
+    ? input.previousQuestions.filter(isRecord)
+    : []
+  if (!rawQuestions.length || !previousQuestions.length) return untouched
+
+  const stepKeys = readSchemeStepKeys(scheme)
+  if (!stepKeys.size) return untouched
+
+  const previousByAnchor = new Map<string, Record<string, unknown>>()
+  for (const question of previousQuestions) {
+    if (question.confirmed !== true) continue
+    const key = readQuestionKey(question)
+    if (key) previousByAnchor.set(key, question)
+  }
+
+  const healed: FlowDecisionStepScopeHealingEntry[] = []
+  const nextQuestions = rawQuestions.map((question) => {
+    if (!isRecord(question)) return question
+    const scope = readStepScope(question)
+    if (!scope || stepKeys.has(scope.id)) return question
+    const anchor = readQuestionKey(question)
+    const previous = anchor ? previousByAnchor.get(anchor) : null
+    const previousScope = previous ? readStepScope(previous) : null
+    // 只有「上一版同锚点题确认过同一个步骤」才是可继承的漂移；
+    // 模型本轮新写的无效步骤继续由契约校验拦住。
+    if (!previousScope || previousScope.id !== scope.id) return question
+    const { decisionScope, ...rest } = question
+    healed.push({
+      questionId: text(question.id) || anchor,
+      decisionKey: anchor,
+      staleStepKey: scope.id,
+    })
+    return rest
+  })
+
+  if (!healed.length) return untouched
+  return {
+    scheme: {
+      ...scheme,
+      confirmation: { ...confirmation, questions: nextQuestions },
+    },
+    healed,
+  }
+}
+
 export const healFlowSchemeDecisionKeys = (input: {
   scheme: unknown
   /** 上一版暂存方案的确认题：提供键，也提供锚点（scope / facts / title / changes） */
@@ -127,7 +212,7 @@ export const healFlowSchemeDecisionKeys = (input: {
   )
 
   const rewriteQuestion = (question: Record<string, unknown>) => {
-    const key = text(question.decisionKey) || text(question.id)
+    const key = readQuestionKey(question)
     const nextKey = renames.get(key)
     return {
       ...question,

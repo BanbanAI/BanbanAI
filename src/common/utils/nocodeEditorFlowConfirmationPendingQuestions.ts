@@ -17,7 +17,7 @@ export const flowConfirmationQuestionKey = (question: NocodeEditorAiConfirmQuest
   text(question.decisionKey) || text(question.id)
 )
 
-const isAnsweredQuestion = (question: NocodeEditorAiConfirmQuestion) => Boolean(
+export const isFlowConfirmationQuestionAnswered = (question: NocodeEditorAiConfirmQuestion) => Boolean(
   question.confirmed === true
   || text(question.selectedOptionValue)
   || text(question.answerSummary)
@@ -69,18 +69,25 @@ export const resolveFlowConfirmationPendingQuestionProjection = (input: {
     factSnapshot: input.factSnapshot,
     decisionSnapshot: input.decisionSnapshot,
   })
-  if (contract.invalid) {
-    return { pendingQuestions: [], contract }
-  }
+  // 契约失败只隔离被点名的题：一题写错不应让整张卡变成 0 题死锁。
+  // readiness 仍通过 contract.invalid 阻止暂存蓝图，隔离不会放行下游动作。
+  const invalidQuestionKeys = new Set(
+    contract.diagnostics
+      .map(item => text(item.decisionKey))
+      .filter(Boolean),
+  )
   const restrict = input.restrictToDecisionKeys
     ? new Set(Array.from(input.restrictToDecisionKeys).map(text).filter(Boolean))
     : null
   const pendingQuestions = questions.filter((question) => {
     const key = flowConfirmationQuestionKey(question)
-    if (!key || question.required === false || isAnsweredQuestion(question)) return false
+    if (!key || isFlowConfirmationQuestionAnswered(question)) return false
+    if (invalidQuestionKeys.has(key)) return false
+    const explicitlyOpen = restrict?.has(key) === true
+    if (question.required === false && !explicitlyOpen) return false
     if (contract.states.get(key) === 'inapplicable') return false
     if (input.requireReady && !contract.readyKeys.has(key)) return false
-    if (restrict && !restrict.has(key)) return false
+    if (restrict && !explicitlyOpen) return false
     return true
   })
   return { pendingQuestions, contract }

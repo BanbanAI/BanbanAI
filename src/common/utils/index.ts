@@ -24,6 +24,7 @@ export * from './nocodeEditorFlowIntentSignal';
 export * from './nocodeEditorFlowSchemeGrounding';
 export * from './nocodeEditorFlowGroundingPresentation';
 export * from './nocodeEditorPendingFlowIntent';
+export * from './nocodeEditorAppliedFlowTarget';
 export * from './nocodeEditorPostFormFlowSignals';
 export * from './nocodeEditorPostFormFlowScope';
 export * from './nocodeEditorPostFormFlowOpportunity';

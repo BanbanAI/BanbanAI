@@ -8,6 +8,10 @@ import {
 import {
   filterNocodeEditorQuestionsForStage,
 } from './nocodeEditorQuestionStagePolicy'
+import {
+  isNocodeEditorDefaultHandledConfirmationQuestion,
+  isNocodeEditorPendingDecisionQuestion,
+} from './nocodeEditorConfirmationQuestionGrouping'
 
 type ProjectBlueprintConfirmationOptions = {
   confirmation?: unknown
@@ -28,9 +32,53 @@ type ReconcileBlueprintConfirmationOptions = ProjectBlueprintConfirmationOptions
 
 const normalizeText = (value: unknown) => String(value ?? '').trim()
 
-const normalizeQuestionTitleKey = (value: unknown) => normalizeText(value).toLowerCase()
+const normalizeQuestionTitleKey = (value: unknown) => (
+  normalizeText(value)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\?/g, '？')
+)
 
-const isPendingQuestion = (question: NocodeEditorAiConfirmQuestion) => question.confirmed !== true
+const resolveQuestionTitleText = (value: unknown) => (
+  typeof value === 'string'
+    ? normalizeText(value)
+    : (
+      value && typeof value === 'object'
+        ? normalizeText((value as Record<string, unknown>).title)
+        : ''
+    )
+)
+
+// 同一问题可能同时出现在结构化 confirmation 和 openQuestions 中：
+// 纯文本题常把说明附在题干后，例如“xxx是否合适？后续会…”。以第一个问号前的
+// 题干作为补充身份键；如果问号后还有追问，则不做截断，避免把两个连续问题误合并。
+const resolveQuestionTitleIdentityKeys = (value: unknown) => {
+  const title = resolveQuestionTitleText(value)
+  if (!title) {
+    return []
+  }
+
+  const normalizedTitle = normalizeQuestionTitleKey(title)
+  const questionMarkIndex = title.search(/[?？]/)
+  if (questionMarkIndex < 0) {
+    return [normalizedTitle]
+  }
+
+  const coreTitle = title.slice(0, questionMarkIndex + 1).trim()
+  const remainder = title.slice(questionMarkIndex + 1)
+  if (!coreTitle || /[?？]/.test(remainder)) {
+    return [normalizedTitle]
+  }
+
+  const normalizedCoreTitle = normalizeQuestionTitleKey(coreTitle)
+  return normalizedCoreTitle && normalizedCoreTitle !== normalizedTitle
+    ? [normalizedTitle, normalizedCoreTitle]
+    : [normalizedTitle]
+}
+
+const isPendingQuestion = (question: NocodeEditorAiConfirmQuestion) => (
+  isNocodeEditorPendingDecisionQuestion(question)
+)
 
 const isCompletedQuestion = (question: NocodeEditorAiConfirmQuestion) => (
   question.confirmed === true
@@ -42,13 +90,26 @@ const isCompletedQuestion = (question: NocodeEditorAiConfirmQuestion) => (
   )
 )
 
+const resolveQuestionTargetIdentityKey = (question: NocodeEditorAiConfirmQuestion) => {
+  const formKey = normalizeText(question.decisionTarget?.formKey)
+  const fieldKey = normalizeText(question.decisionTarget?.fieldKey)
+  return formKey && fieldKey ? `target:${formKey}:${fieldKey}` : ''
+}
+
+const POSITIONAL_BLUEPRINT_QUESTION_ID =
+  /^(?:blueprint|form-blueprint)-question-\d+(?:-\d+)?$|^blueprint-late-question-\d+(?:-\d+)?$/u
+
+// 位置型 id 只表示「本轮第几题」，换一轮就会指向另一道题，不能当作已完成身份。
+const isPositionalBlueprintQuestionId = (id: unknown) => (
+  POSITIONAL_BLUEPRINT_QUESTION_ID.test(normalizeText(id))
+)
+
 const getQuestionIdentityKeys = (question: NocodeEditorAiConfirmQuestion) => (
   [
     normalizeText(question.decisionKey),
-    /^(?:blueprint|form-blueprint)-question-\d+$/u.test(normalizeText(question.id))
-      ? ''
-      : normalizeText(question.id),
-    normalizeQuestionTitleKey(question.title),
+    isPositionalBlueprintQuestionId(question.id) ? '' : normalizeText(question.id),
+    resolveQuestionTargetIdentityKey(question),
+    ...resolveQuestionTitleIdentityKeys(question.title),
   ].filter(Boolean)
 )
 
@@ -141,16 +202,123 @@ const dedupeQuestionTitles = (questions: NocodeEditorAiConfirmQuestion[]) => {
   const seen = new Set<string>()
   return questions.reduce<string[]>((titles, question) => {
     const title = normalizeText(question.title)
-    const key = normalizeQuestionTitleKey(title)
-    if (!title || (key && seen.has(key))) {
+    const keys = resolveQuestionTitleIdentityKeys(title)
+    if (!title || keys.some(key => seen.has(key))) {
       return titles
     }
-    if (key) {
-      seen.add(key)
-    }
+    keys.forEach(key => seen.add(key))
     titles.push(title)
     return titles
   }, [])
+}
+
+const OPEN_QUESTION_DUPLICATE_SIMILARITY_THRESHOLD = 0.72
+
+const normalizeQuestionSimilarityText = (value: unknown) => (
+  normalizeText(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]/gu, '')
+)
+
+const collectQuestionTextBigrams = (text: string) => {
+  const bigrams = new Set<string>()
+  for (let index = 0; index < text.length - 1; index += 1) {
+    bigrams.add(text.slice(index, index + 2))
+  }
+  return bigrams
+}
+
+const computeQuestionTextSimilarity = (left: unknown, right: unknown) => {
+  const leftText = normalizeQuestionSimilarityText(left)
+  const rightText = normalizeQuestionSimilarityText(right)
+  if (!leftText || !rightText) {
+    return 0
+  }
+  if (leftText === rightText) {
+    return 1
+  }
+  if (leftText.length < 2 || rightText.length < 2) {
+    return 0
+  }
+
+  const leftBigrams = collectQuestionTextBigrams(leftText)
+  const rightBigrams = collectQuestionTextBigrams(rightText)
+  let intersection = 0
+  leftBigrams.forEach((bigram) => {
+    if (rightBigrams.has(bigram)) {
+      intersection += 1
+    }
+  })
+  return (2 * intersection) / (leftBigrams.size + rightBigrams.size)
+}
+
+const resolveQuestionComparisonText = (value: unknown) => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const question = value as Record<string, unknown>
+    return [
+      normalizeText(question.title),
+      normalizeText(question.description),
+    ].filter(Boolean).join('\n')
+  }
+  return normalizeText(value)
+}
+
+const QUESTION_INTENT_PATTERN = /[?？]|请|是否|如何|怎么|怎样|哪|哪些|哪个|多少|多久|需要|要不要|能否|可否|确认|说明|补充|选择|填写|提供/u
+
+const isDeclarativeQuestionStatement = (value: unknown) => {
+  const text = resolveQuestionComparisonText(value)
+  return Boolean(text) && !QUESTION_INTENT_PATTERN.test(text)
+}
+
+const resolveQuestionFieldNameSuffixes = (value: string) => new Set(
+  Array.from(value.matchAll(/([\p{Script=Han}]{2,8})字段/gu))
+    .map(match => normalizeQuestionSimilarityText(match[1]))
+    .filter(Boolean),
+)
+
+const resolveQuestionQuotedTerms = (value: string) => new Set(
+  Array.from(value.matchAll(/[“「『]([^”」』]{1,40})[”」』]/gu))
+    .map(match => normalizeQuestionSimilarityText(match[1]))
+    .filter(Boolean),
+)
+
+const hasConflictingQuestionEntities = (left: string, right: string) => {
+  const leftFieldSuffixes = resolveQuestionFieldNameSuffixes(left)
+  const rightFieldSuffixes = resolveQuestionFieldNameSuffixes(right)
+  if (
+    leftFieldSuffixes.size
+    && rightFieldSuffixes.size
+    && !Array.from(leftFieldSuffixes).some(suffix => rightFieldSuffixes.has(suffix))
+  ) {
+    return true
+  }
+
+  const leftQuotedTerms = resolveQuestionQuotedTerms(left)
+  const rightQuotedTerms = resolveQuestionQuotedTerms(right)
+  return leftQuotedTerms.size > 0
+    && rightQuotedTerms.size > 0
+    && (
+      Array.from(leftQuotedTerms).some(term => !rightQuotedTerms.has(term))
+      || Array.from(rightQuotedTerms).some(term => !leftQuotedTerms.has(term))
+    )
+}
+
+// openQuestions 只承载问题；陈述式内容通常是结构化说明被重复放进了另一条通道。
+// 仅在文本高度重合且没有指向不同字段/对象时丢弃副本，提问句始终保留。
+const isDuplicateStructuredQuestionOpenQuestion = (
+  value: unknown,
+  structuredQuestionTexts: string[],
+) => {
+  const comparisonText = resolveQuestionComparisonText(value)
+  if (!isDeclarativeQuestionStatement(comparisonText)) {
+    return false
+  }
+  return structuredQuestionTexts.some((structuredText) => (
+    computeQuestionTextSimilarity(comparisonText, structuredText)
+      >= OPEN_QUESTION_DUPLICATE_SIMILARITY_THRESHOLD
+    && !hasConflictingQuestionEntities(comparisonText, structuredText)
+  ))
 }
 
 const ensureUniqueQuestionIds = (questions: NocodeEditorAiConfirmQuestion[]) => {
@@ -189,15 +357,31 @@ export const projectBlueprintConfirmation = (
     openQuestions: rawOpenQuestions,
     summary,
   })
-  const completedQuestionTitleKeys = new Set(
+  const completedQuestionKeys = new Set(
     (initialBaseConfirmation?.questions || [])
       .filter(isCompletedQuestion)
-      .map(question => normalizeQuestionTitleKey(question.title))
+      .flatMap(getQuestionIdentityKeys)
       .filter(Boolean),
   )
+  const resolveValueIdentityKeys = (value: unknown) => (
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? getQuestionIdentityKeys(value as NocodeEditorAiConfirmQuestion)
+      : resolveQuestionTitleIdentityKeys(value)
+  )
+  const structuredQuestionTexts = Array.isArray(rawOpenQuestions) && rawOpenQuestions.length
+    ? (normalizeNocodeEditorConfirmationPayload({
+      stage: 'blueprint',
+      confirmation,
+      summary,
+    })?.questions || [])
+      .map(question => resolveQuestionComparisonText(question))
+      .filter(Boolean)
+    : []
   const openQuestions = Array.isArray(rawOpenQuestions)
     ? rawOpenQuestions.filter(value => (
-      !completedQuestionTitleKeys.has(normalizeQuestionTitleKey(value))
+      !resolveValueIdentityKeys(value)
+        .some(key => completedQuestionKeys.has(key))
+      && !isDuplicateStructuredQuestionOpenQuestion(value, structuredQuestionTexts)
     ))
     : rawOpenQuestions
   const normalizedBaseConfirmation = normalizeNocodeEditorConfirmationPayload({
@@ -241,7 +425,10 @@ export const projectBlueprintConfirmation = (
     ? baseConfirmation.questions.filter(isPendingQuestion)
     : []
   const latePendingQuestions = Array.isArray(lateQuestionConfirmation?.questions)
-    ? lateQuestionConfirmation.questions.filter(isPendingQuestion)
+    ? lateQuestionConfirmation.questions
+      .filter(isPendingQuestion)
+      .filter(question => !getQuestionIdentityKeys(question)
+        .some(key => completedQuestionKeys.has(key)))
     : []
 
   if (!latePendingQuestions.length) {
@@ -252,27 +439,49 @@ export const projectBlueprintConfirmation = (
     }
   }
 
-  const pendingQuestionsByTitle = new Map<string, NocodeEditorAiConfirmQuestion>()
+  const pendingBaseQuestionsByKey = new Map<string, NocodeEditorAiConfirmQuestion>()
   basePendingQuestions.forEach((question) => {
-    const key = normalizeQuestionTitleKey(question.title)
-    if (key && !pendingQuestionsByTitle.has(key)) {
-      pendingQuestionsByTitle.set(key, question)
-    }
+    getQuestionIdentityKeys(question).forEach((key) => {
+      if (key && !pendingBaseQuestionsByKey.has(key)) {
+        pendingBaseQuestionsByKey.set(key, question)
+      }
+    })
   })
 
   const mergedPendingQuestions: NocodeEditorAiConfirmQuestion[] = []
+  const mergedBaseQuestions = new Set<NocodeEditorAiConfirmQuestion>()
   latePendingQuestions.forEach((question) => {
-    const key = normalizeQuestionTitleKey(question.title)
-    if (key && pendingQuestionsByTitle.has(key)) {
-      mergedPendingQuestions.push(pendingQuestionsByTitle.get(key) as NocodeEditorAiConfirmQuestion)
-      pendingQuestionsByTitle.delete(key)
+    const matchedBaseQuestion = getQuestionIdentityKeys(question)
+      .map(key => pendingBaseQuestionsByKey.get(key))
+      .find((candidate): candidate is NocodeEditorAiConfirmQuestion => Boolean(candidate))
+    if (matchedBaseQuestion) {
+      if (!mergedBaseQuestions.has(matchedBaseQuestion)) {
+        mergedBaseQuestions.add(matchedBaseQuestion)
+        mergedPendingQuestions.push(matchedBaseQuestion)
+      }
       return
     }
     mergedPendingQuestions.push(question)
   })
-  pendingQuestionsByTitle.forEach(question => mergedPendingQuestions.push(question))
+  basePendingQuestions.forEach((question) => {
+    if (!mergedBaseQuestions.has(question)) {
+      mergedPendingQuestions.push(question)
+    }
+  })
 
-  const uniqueMergedPendingQuestions = ensureUniqueQuestionIds(mergedPendingQuestions)
+  // 迟到问题只能追加待确认项，不能把已完成结论从卡片记录里抹掉：
+  // 下一版暂存/刷新会以这里的结果恢复当前蓝图，丢弃已完成问题会让已答决策
+  // 在后续版本被字段澄清重新问一遍。「已按默认处理」的说明项同样需要保留。
+  const finalizedQuestions = ensureUniqueQuestionIds(mergeQuestionsByIdentity(
+    Array.isArray(baseConfirmation?.questions)
+      ? baseConfirmation.questions.filter(question => (
+        isCompletedQuestion(question)
+        || isNocodeEditorDefaultHandledConfirmationQuestion(question)
+      ))
+      : [],
+    mergedPendingQuestions,
+  ))
+  const finalizedPendingQuestions = finalizedQuestions.filter(isPendingQuestion)
 
   return {
     confirmation: {
@@ -284,10 +493,10 @@ export const projectBlueprintConfirmation = (
       summary: baseConfirmation?.summary || lateQuestionConfirmation?.summary || summary,
       completionSummary: undefined,
       resultSummary: undefined,
-      questions: uniqueMergedPendingQuestions,
+      questions: finalizedQuestions,
     },
-    openQuestions: dedupeQuestionTitles(uniqueMergedPendingQuestions),
-    pendingQuestions: uniqueMergedPendingQuestions,
+    openQuestions: dedupeQuestionTitles(finalizedPendingQuestions),
+    pendingQuestions: finalizedPendingQuestions,
   }
 }
 
@@ -322,7 +531,8 @@ export const reconcileBlueprintConfirmationDecisions = (
     getQuestionIdentityKeys(question).some(key => completedKeys.has(key))
   )
   const remainingOpenQuestions = baseProjection.openQuestions.filter((title) => (
-    !completedKeys.has(normalizeQuestionTitleKey(title))
+    !resolveQuestionTitleIdentityKeys(title)
+      .some(key => completedKeys.has(key))
   ))
   const openQuestionConfirmation = normalizeNocodeEditorConfirmationPayload({
     stage: 'blueprint',

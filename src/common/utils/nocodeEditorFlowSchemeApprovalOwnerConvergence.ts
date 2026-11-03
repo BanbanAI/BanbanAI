@@ -17,6 +17,8 @@ import type {
 } from './nocodeEditorFlowUnifiedIssue'
 import {
   buildUnifiedFlowIssuesFromSchemeRestageDiagnostics,
+  FLOW_APPROVAL_OWNER_FIELD_REF_QUESTION_KEY_PREFIX,
+  FLOW_APPROVAL_OWNER_SOURCE_ESCAPE_OPTION_VALUE,
 } from './nocodeEditorFlowUnifiedIssue'
 import {
   isNocodeEditorFlowApprovalOwnerSourceQuestion,
@@ -49,11 +51,20 @@ const resolveCurrentTarget = resolveFlowApprovalOwnerSummaryTarget
 
 export { collectFlowSchemeApprovalSteps }
 
+const APPROVAL_OWNER_SOURCE_DECISION_KEY = 'flow.approval.owner.source'
+
+// 来源题可能带节点后缀（:stepKey 或 .stepKey），历史卡片仍是裸键，三种写法都归同一槽位。
+const isApprovalOwnerSourceDecisionKey = (decisionKey: string) => (
+  decisionKey === APPROVAL_OWNER_SOURCE_DECISION_KEY
+  || decisionKey.startsWith(`${APPROVAL_OWNER_SOURCE_DECISION_KEY}:`)
+  || decisionKey.startsWith(`${APPROVAL_OWNER_SOURCE_DECISION_KEY}.`)
+)
+
 const hasFormMemberSourceDecision = (
   decisions: NocodeEditorConfirmationDecision[] | undefined,
 ) => (decisions || []).some((decision) => {
   const decisionKey = normalizeText(decision?.decisionKey)
-  if (decisionKey === 'flow.approval.owner.source') {
+  if (isApprovalOwnerSourceDecisionKey(decisionKey)) {
     return normalizeText(decision.selectedOptionValue) === 'form_member_field'
       || decision.approvalOwnerSource === 'form_member_field'
   }
@@ -74,11 +85,13 @@ const hasQuestionAnswer = (question: NocodeEditorAiConfirmQuestion) => (
   )
 )
 
+// 优先按生成侧的结构化 key 前缀识别；标题正则仅作兼容兜底，避免措辞漂移漏判导致重复提问。
 const isNarrowApprovalOwnerFieldQuestion = (
   question: NocodeEditorFlowSchemeQuestion,
-) => /(?:使用|选择|指定).{0,12}(?:哪个|哪一个|哪位).{0,12}(?:成员|人员).{0,8}字段.{0,12}审批(?:人|人员|对象)|(?:哪个|哪一个).{0,12}(?:成员|人员).{0,8}字段.{0,12}作为.{0,8}审批/u.test(
-  `${normalizeText(question.title)} ${normalizeText(question.reason)}`,
-)
+) => normalizeText(question.key).startsWith(FLOW_APPROVAL_OWNER_FIELD_REF_QUESTION_KEY_PREFIX)
+  || /(?:使用|选择|指定).{0,12}(?:哪个|哪一个|哪位).{0,12}(?:成员|人员).{0,8}字段.{0,12}审批(?:人|人员|对象)|(?:哪个|哪一个).{0,12}(?:成员|人员).{0,8}字段.{0,12}作为.{0,8}审批/u.test(
+    `${normalizeText(question.title)} ${normalizeText(question.reason)}`,
+  )
 
 const findPendingConfirmationQuestion = (
   scheme: NocodeEditorFlowScheme,
@@ -98,8 +111,15 @@ const getConcreteMemberFieldOptions = (
   if (!question || question.questionKind !== 'single_select') {
     return null
   }
-  const options = question.options || []
-  if (options.length < 2) {
+  const allOptions = question.options || []
+  if (allOptions.length < 2) {
+    return null
+  }
+  // 平台逃生选项（改用其他来源）不属于字段取值，参与校验会把合法问题误判为无效。
+  const options = allOptions.filter(option => (
+    normalizeText(option.value) !== FLOW_APPROVAL_OWNER_SOURCE_ESCAPE_OPTION_VALUE
+  ))
+  if (!options.length) {
     return null
   }
 

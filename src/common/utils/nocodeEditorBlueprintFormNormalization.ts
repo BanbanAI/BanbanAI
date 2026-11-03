@@ -40,6 +40,49 @@ export const normalizeNocodeEditorBlueprintIdentityToken = (value: unknown) => S
   .replace(/[\s\-_/\\]/g, '')
   .replace(/[，。、“”"'‘’；：？！【】[\]（）()<>]/g, '')
 
+const BLUEPRINT_FORM_SUFFIX_PATTERN = /(档案|信息|管理|资料|台账|列表|清单|字典|基础数据|基础资料|主数据|记录|表单|表)$/
+
+export const stripNocodeEditorBlueprintFormSuffixes = (value: unknown) => {
+  let current = String(value || '').trim()
+  if (!current) {
+    return ''
+  }
+
+  while (BLUEPRINT_FORM_SUFFIX_PATTERN.test(current)) {
+    current = current.replace(BLUEPRINT_FORM_SUFFIX_PATTERN, '').trim()
+  }
+
+  return current || String(value || '').trim()
+}
+
+// 同一张表可能被写成“学生信息 / 学生信息表”。但“项目管理表”和“项目台账”都剥到
+// 底会得到“项目”，它们是不同的表，不能这样合并。所以只从更长的一侧逐层剥后缀，
+// 剥到与短名完全一致才算同一张。
+export const isSameNocodeEditorBlueprintFormName = (left: unknown, right: unknown) => {
+  const leftToken = normalizeNocodeEditorBlueprintIdentityToken(left)
+  const rightToken = normalizeNocodeEditorBlueprintIdentityToken(right)
+  if (!leftToken || !rightToken) {
+    return false
+  }
+  if (leftToken === rightToken) {
+    return true
+  }
+  let longer = leftToken
+  let shorter = rightToken
+  if (longer.length < shorter.length) {
+    longer = rightToken
+    shorter = leftToken
+  }
+  let current = longer
+  while (BLUEPRINT_FORM_SUFFIX_PATTERN.test(current)) {
+    current = current.replace(BLUEPRINT_FORM_SUFFIX_PATTERN, '').trim()
+    if (current === shorter) {
+      return true
+    }
+  }
+  return false
+}
+
 export const getNocodeEditorBlueprintFormIdentity = (form?: NocodeEditorBlueprintFormLike | null) => (
   trimString(form?.formKey) || normalizeNocodeEditorBlueprintIdentityToken(form?.tableName)
 )

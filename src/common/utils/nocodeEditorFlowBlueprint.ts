@@ -7,6 +7,7 @@ import type {
 } from './nocodeEditorFlowPlan'
 import {
   isNocodeEditorFlowDataChangeType,
+  isNocodeEditorFlowPlanBranchNodeType,
   normalizeNocodeEditorFlowPlan,
 } from './nocodeEditorFlowPlan'
 
@@ -49,6 +50,7 @@ export type NocodeEditorFlowBlueprintContractDiagnosticCode =
   | 'flow_owner_sources_conflict'
   | 'flow_notify_receivers_unsupported'
   | 'flow_notify_recipients_unsupported'
+  | 'flow_branch_branches_in_options_unsupported'
 
 export type NocodeEditorFlowBlueprintContractDiagnostic = {
   code: NocodeEditorFlowBlueprintContractDiagnosticCode
@@ -277,6 +279,23 @@ const validateFlowNodes = (input: {
           repairable: true,
         })
       }
+    }
+    // 分支节点只认节点级 branches；写进 options 不会被规范化读出，
+    // 后续人员校验只会看到“分支内的节点缺失”，无法指出真正的问题。
+    if (
+      isNocodeEditorFlowPlanBranchNodeType(nodeType)
+      && (!Array.isArray(value.branches) || value.branches.length === 0)
+      && Array.isArray(options.branches)
+      && options.branches.length > 0
+    ) {
+      input.diagnostics.push({
+        code: 'flow_branch_branches_in_options_unsupported',
+        message: '条件/并行分支的 branches 必须写在节点上，不能放进 options；请把 options.branches 整体移到节点级 branches。',
+        path: `${nodePath}.options.branches`,
+        nodeKey: normalizeText(value.nodeKey) || undefined,
+        nodeType,
+        repairable: true,
+      })
     }
     if (Array.isArray(value.branches)) {
       value.branches.forEach((branch, branchIndex) => {

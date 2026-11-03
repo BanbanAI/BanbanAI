@@ -15,6 +15,14 @@ const normalizeArtifactTypeToken = (value: unknown) => {
   return normalized || 'artifact'
 }
 
+// 只有 type=form 的规划产物才是蓝图必须复用的表；流程、看板、页面等由各自阶段承接。
+export const isNocodeEditorPlanningFormArtifact = (value: unknown) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  return normalizeArtifactTypeToken((value as Record<string, unknown>).type) === 'form'
+}
+
 export const normalizeNocodeEditorAppBuilderPlanningModeToken = (
   value: unknown,
 ): NocodeEditorAppBuilderPlanningModeToken => {

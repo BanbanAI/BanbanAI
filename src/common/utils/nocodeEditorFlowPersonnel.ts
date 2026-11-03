@@ -146,6 +146,146 @@ export const isSameFlowPersonnelSourceType = (
   || (isManagerFlowPersonnelSourceType(left) && isManagerFlowPersonnelSourceType(right))
 )
 
+export type FlowRawPersonnelRequirementDiagnostic = {
+  code:
+    | 'personnel_department_manager_shape_invalid'
+    | 'personnel_department_manager_source_mismatch'
+    | 'personnel_field_ref_shape_invalid'
+  message: string
+  path: string
+  stepKey?: string
+}
+
+const collectRawSchemeSteps = (value: UnknownRecord) => [
+  ...(Array.isArray(value.mainPath)
+    ? value.mainPath.map((step, index) => ({ step, path: `mainPath[${index}]` }))
+    : []),
+  ...(Array.isArray(value.branches)
+    ? value.branches.flatMap((branch, branchIndex) => (
+      isRecord(branch) && Array.isArray(branch.steps)
+        ? branch.steps.map((step, stepIndex) => ({
+          step,
+          path: `branches[${branchIndex}].steps[${stepIndex}]`,
+        }))
+        : []
+    ))
+    : []),
+]
+
+// 人员配置的结构错误必须在归一化前拦截：顶层 mode/level 会被静默丢弃，
+// 进而把“层级已给”误判成“层级缺失”，下游再生成一张重复的层级确认卡。
+export const validateRawFlowPersonnelRequirementShapes = (
+  value: unknown,
+): FlowRawPersonnelRequirementDiagnostic[] => {
+  if (!isRecord(value)) {
+    return []
+  }
+
+  return collectRawSchemeSteps(value).flatMap(({ step, path }) => {
+    if (!isRecord(step) || !isRecord(step.personnelRequirement)) {
+      return []
+    }
+    const requirement = step.personnelRequirement
+    const stepKey = normalizeText(step.key || step.nodeKey) || undefined
+    const sourceType = normalizeText(requirement.sourceType)
+    const stepPath = `${path}.personnelRequirement`
+    const diagnostics: FlowRawPersonnelRequirementDiagnostic[] = []
+    const hasNestedDepartmentManager = isRecord(requirement.departmentManager)
+    const hasTopLevelDivision = requirement.mode !== undefined || requirement.level !== undefined
+
+    if (hasTopLevelDivision && !hasNestedDepartmentManager) {
+      diagnostics.push({
+        code: 'personnel_department_manager_shape_invalid',
+        message: '部门主管的方向和层级必须嵌套在 departmentManager: { mode, level } 中，不能在 personnelRequirement 顶层写 mode/level。',
+        path: `${stepPath}.departmentManager`,
+        stepKey,
+      })
+    } else if (hasTopLevelDivision && hasNestedDepartmentManager) {
+      diagnostics.push({
+        code: 'personnel_department_manager_shape_invalid',
+        message: '人员配置同时出现了顶层 mode/level 与 departmentManager，存在两份冲突的部门主管层级，请只保留 departmentManager。',
+        path: stepPath,
+        stepKey,
+      })
+    }
+
+    if (hasNestedDepartmentManager) {
+      const manager = requirement.departmentManager as UnknownRecord
+      const mode = normalizeText(manager.mode)
+      const level = Number(manager.level)
+      if ((mode !== 'up' && mode !== 'down') || !Number.isInteger(level) || level < 1) {
+        diagnostics.push({
+          code: 'personnel_department_manager_shape_invalid',
+          message: 'departmentManager 必须提供 mode（up/down）与从 1 开始的整数 level。',
+          path: `${stepPath}.departmentManager`,
+          stepKey,
+        })
+      }
+      if (sourceType !== 'department_manager') {
+        diagnostics.push({
+          code: 'personnel_department_manager_source_mismatch',
+          message: '只有 sourceType=department_manager 时才能配置 departmentManager，否则该配置会被丢弃。',
+          path: `${stepPath}.departmentManager`,
+          stepKey,
+        })
+      }
+    }
+
+    if (sourceType === 'form_member' || sourceType === 'form_department') {
+      const hasTopLevelField = requirement.fieldId !== undefined
+        || requirement.fieldName !== undefined
+        || requirement.expectedType !== undefined
+      if (hasTopLevelField && !isRecord(requirement.fieldRef)) {
+        diagnostics.push({
+          code: 'personnel_field_ref_shape_invalid',
+          message: '表单人员字段必须嵌套在 fieldRef: { fieldId, fieldName, expectedType } 中，不能在 personnelRequirement 顶层写字段信息。',
+          path: `${stepPath}.fieldRef`,
+          stepKey,
+        })
+      }
+    }
+
+    return diagnostics
+  })
+}
+
+export type FlowRawPersonnelRequirementNotice = {
+  code: 'personnel_field_ref_ignored_for_department_manager'
+  message: string
+  path: string
+  stepKey?: string
+}
+
+export const collectRawFlowPersonnelRequirementNotices = (
+  value: unknown,
+): FlowRawPersonnelRequirementNotice[] => {
+  if (!isRecord(value)) {
+    return []
+  }
+  return collectRawSchemeSteps(value).flatMap(({ step, path }) => {
+    if (!isRecord(step) || !isRecord(step.personnelRequirement)) {
+      return []
+    }
+    const requirement = step.personnelRequirement
+    if (normalizeText(requirement.sourceType) !== 'department_manager') {
+      return []
+    }
+    const fieldRef = isRecord(requirement.fieldRef) ? requirement.fieldRef : null
+    const hasFieldSignal = Boolean(
+      fieldRef && (normalizeText(fieldRef.fieldId) || normalizeText(fieldRef.fieldName)),
+    ) || requirement.fieldId !== undefined || requirement.fieldName !== undefined
+    if (!hasFieldSignal) {
+      return []
+    }
+    return [{
+      code: 'personnel_field_ref_ignored_for_department_manager' as const,
+      message: '部门主管来源不支持按表单字段锚定（运行时按提交人所在部门取主管），本次已忽略 fieldRef 并保留部门主管层级；如需按某个部门字段取主管，请向用户确认或在方案说明中注明。',
+      path: `${path}.personnelRequirement.fieldRef`,
+      stepKey: normalizeText(step.key || step.nodeKey) || undefined,
+    }]
+  })
+}
+
 export const normalizeNocodeEditorFlowPersonnelRequirement = (
   value: unknown,
 ): NocodeEditorFlowPersonnelRequirement | null => {
@@ -181,10 +321,16 @@ export const normalizeNocodeEditorFlowPersonnelRequirement = (
     )
   )
 
+  const fieldSignalBelongsToSource = sourceType === 'form_member' || sourceType === 'form_department'
+  // 部门负责人在运行时按提交人所在部门锚定，不接受 fieldRef。
+  // 这里忽略字段锚点，但不能把 sourceType/departmentManager 一起降级，
+  // 否则“层级已给”会被误判成“层级缺失”，下游再生成一张重复层级卡。
+  const fieldSignalIgnoredForDepartmentManager = sourceType === 'department_manager'
+
   if (
     (userRefs.length > 0 && sourceType !== 'fixed_users')
     || (roleRefs.length > 0 && sourceType !== 'fixed_roles')
-    || (hasFieldSignal && sourceType !== 'form_member' && sourceType !== 'form_department')
+    || (hasFieldSignal && !fieldSignalBelongsToSource && !fieldSignalIgnoredForDepartmentManager)
     || (hasDepartmentManagerSignal && sourceType !== 'department_manager')
   ) {
     return unresolvedRequirement()
