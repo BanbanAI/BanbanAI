@@ -166,4 +166,57 @@ assert.deepEqual(
   ['legacy.option_a', 'legacy.option_b'],
 )
 
+// 会话回放：来源题被模型多标了 changes=topology，分支题也是 topology。
+// 旧实现取 changes 与槽位的最小层，两题同层后不补顺序边，「审批人来源」和
+// 「是否需要按请假类型分流审批」同时待答。人员题只能按槽位分层。
+const leaveTypeBranchQuestion = (): NocodeEditorAiConfirmQuestion => ({
+  id: 'q-2',
+  decisionKey: 'flow.condition.leaveType',
+  title: '是否需要按请假类型分流审批',
+  questionKind: 'binary',
+  required: true,
+  options: [
+    { value: 'yes', label: '是' },
+    { value: 'no', label: '否' },
+  ],
+  decisionScope: { kind: 'flow', id: 'student-leave-flow' },
+  producesFacts: ['need_condition_branch'],
+  changes: ['topology', 'scope'],
+  dependsOn: [],
+})
+
+const mislabeledSourceQuestion = (): NocodeEditorAiConfirmQuestion => ({
+  ...sourceQuestion('step-approval'),
+  title: '审批人来源',
+  decisionScope: { kind: 'flow', id: 'student-leave-flow' },
+  producesFacts: ['approval_owner_source'],
+  changes: ['topology', 'binding'],
+})
+
+const leaveQuestions = [mislabeledSourceQuestion(), leaveTypeBranchQuestion()]
+const leaveContract = projectFlowDecisionContract(leaveQuestions)
+assert.deepEqual(leaveContract.diagnostics, [])
+assert.equal(leaveContract.states.get('flow.condition.leaveType'), 'ready')
+assert.equal(
+  leaveContract.states.get('flow.approval.owner.source.step-approval'),
+  'blocked_by_prerequisite',
+)
+assert.deepEqual(
+  leaveContract.orderDependencies.map(edge => `${edge.dependencyKey}->${edge.decisionKey}`),
+  ['flow.condition.leaveType->flow.approval.owner.source.step-approval'],
+)
+const leavePendingProjection = (decisionSnapshot?: Record<string, string>) => (
+  resolveFlowConfirmationPendingQuestionProjection({
+    questions: leaveContract.questions,
+    factSnapshot: {},
+    requireReady: true,
+    ...(decisionSnapshot ? { decisionSnapshot } : {}),
+  }).pendingQuestions.map(question => question.decisionKey)
+)
+assert.deepEqual(leavePendingProjection(), ['flow.condition.leaveType'])
+assert.deepEqual(
+  leavePendingProjection({ 'flow.condition.leaveType': 'yes' }),
+  ['flow.approval.owner.source.step-approval'],
+)
+
 console.log('flow decision order tiers: ok')

@@ -372,4 +372,100 @@ const writeDependency = buildFlowSchemeDependencyFromGroundingDiagnostic({
 })
 assert.equal(writeDependency?.branchKey, 'branch-1')
 
+// 16. 重规划把分支级题抬成全局题：唯一同能力答案继承该题并关闭。
+const scopedToGlobalScheme = makeScheme({
+  confirmation: {
+    stage: 'flow-scheme',
+    status: 'pending',
+    planningContextKey: 'ctx-expense',
+    questions: [{
+      id: 'flow.condition.field:global',
+      decisionKey: 'flow.condition.field:global',
+      title: '按报销金额分流的判断字段',
+      questionKind: 'note_only',
+      required: true,
+      producesFacts: ['condition_field'],
+    }],
+  },
+  dependencies: [makeDependency()],
+})
+const scopedToGlobalResult = convergeNocodeEditorFlowReplanQuestions({
+  scheme: scopedToGlobalScheme,
+  decisions: [makeDecision({
+    questionId: 'flow-grounding-condition-field-missing:condition_amount',
+    decisionKey: 'flow.condition.field:condition_amount',
+    selectedOptionValue: 'choose-another-condition-field',
+    answerSummary: '改用其他判断字段',
+    answerDetail: '报销总金额',
+  })],
+  flowSummary: summary,
+})
+assert.equal(scopedToGlobalResult.scheme.confirmation?.questions[0]?.confirmed, true)
+assert.equal(scopedToGlobalResult.scheme.confirmation?.questions[0]?.answerDetail, '报销总金额')
+assert.equal(scopedToGlobalResult.scheme.confirmation?.status, 'completed')
+assert.equal(scopedToGlobalResult.diagnostics[0]?.code, 'flow_replan_question_closed')
+assert.equal(scopedToGlobalResult.diagnostics[0]?.decisionKey, 'flow.condition.field:global')
+assert.equal(
+  scopedToGlobalResult.consumedDecisionKeys.includes('flow.condition.field:condition_amount'),
+  true,
+)
+// 继承后的身份要跟当前方案一致：依赖按全局身份匹配并写回该键。
+assert.equal(scopedToGlobalResult.scheme.dependencies?.[0]?.resolutionStatus, 'resolved')
+assert.equal(scopedToGlobalResult.scheme.dependencies?.[0]?.decisionKey, 'flow.condition.field:global')
+
+// 17. 同能力存在多条已答决策时无法判断答的是哪条，继续提问。
+const ambiguousScopeResult = convergeNocodeEditorFlowReplanQuestions({
+  scheme: scopedToGlobalScheme,
+  decisions: [
+    makeDecision({
+      questionId: 'flow-grounding-condition-field-missing:branch-1',
+      answerDetail: '报销总金额',
+    }),
+    makeDecision({
+      questionId: 'flow-grounding-condition-field-missing:branch-2',
+      decisionKey: 'flow.condition.field:branch-2',
+      answerDetail: '报销总金额',
+    }),
+  ],
+  flowSummary: summary,
+})
+assert.equal(ambiguousScopeResult.scheme.confirmation?.questions[0]?.confirmed, undefined)
+assert.equal(ambiguousScopeResult.diagnostics.length, 0)
+
+// 18. 继承来的答案证据不成立时仍保留问题。
+const forbiddenGlobalResult = convergeNocodeEditorFlowReplanQuestions({
+  scheme: scopedToGlobalScheme,
+  decisions: [makeDecision({
+    questionId: 'flow-grounding-condition-field-missing:condition_amount',
+    decisionKey: 'flow.condition.field:condition_amount',
+    selectedOptionValue: 'choose-another-condition-field',
+    answerSummary: '改用其他判断字段',
+    answerDetail: '报销部门',
+  })],
+  flowSummary: summary,
+})
+assert.equal(forbiddenGlobalResult.scheme.confirmation?.questions[0]?.confirmed, undefined)
+assert.equal(forbiddenGlobalResult.diagnostics[0]?.code, 'flow_replan_question_kept')
+assert.equal(forbiddenGlobalResult.diagnostics[0]?.reason, 'decision_evidence_invalid')
+assert.equal(forbiddenGlobalResult.diagnostics[0]?.evidenceReason, 'field_not_usable')
+
+// 19. 最新方案仍有模型自建的未解决依赖时，继承也不关闭。
+const residualGlobalResult = convergeNocodeEditorFlowReplanQuestions({
+  scheme: makeScheme({
+    confirmation: scopedToGlobalScheme.confirmation,
+    dependencies: [makeDependency({ id: 'model-dependency-condition-global' })],
+  }),
+  decisions: [makeDecision({
+    questionId: 'flow-grounding-condition-field-missing:condition_amount',
+    decisionKey: 'flow.condition.field:condition_amount',
+    selectedOptionValue: 'choose-another-condition-field',
+    answerSummary: '改用其他判断字段',
+    answerDetail: '报销总金额',
+  })],
+  flowSummary: summary,
+})
+assert.equal(residualGlobalResult.scheme.confirmation?.questions[0]?.confirmed, undefined)
+assert.equal(residualGlobalResult.diagnostics[0]?.code, 'flow_replan_question_kept')
+assert.equal(residualGlobalResult.diagnostics[0]?.reason, 'residual_dependency')
+
 console.log('flow replan open question convergence: ok')

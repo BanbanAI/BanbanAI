@@ -3,68 +3,111 @@ import assert from 'node:assert/strict'
 import { ChatOpenAI } from '@langchain/openai'
 
 import {
+  AI_SCENE_HARD_OUTPUT_LIMIT,
   NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS,
   NOCODE_EDITOR_MAX_OUTPUT_TOKENS,
-  WORKBENCH_DEFAULT_OUTPUT_TOKENS,
-  applyNocodeEditorOutputLimit,
   buildChatModelOutputOptions,
   resolveOutputLimitModelKwargs,
 } from '../../src/main/modules/ai/openai/ai-provider-output-policy'
 
-// 编辑器场景默认下发 16,384 输出上限；上限要真正离开 modelKwargs 走到 ChatOpenAI。
+const invocationParamsOf = (model: ChatOpenAI) => model.invocationParams() as Record<string, unknown>
+
+// undefined 键不会进入请求体，过滤后剩下的才是实际下发的上限键。
+const invocationLimitKeys = (model: ChatOpenAI) => (
+  ['max_tokens', 'max_completion_tokens'].filter(key => invocationParamsOf(model)[key] !== undefined)
+)
+
+const createModel = (options: Record<string, unknown>) => new ChatOpenAI({
+  apiKey: 'regression-test-key',
+  model: 'gpt-4o-mini',
+  ...options,
+  useResponsesApi: false,
+})
+
+// 编辑器场景默认 16,384，且只允许一个上限来源。
 const nocodeEditorLimit = resolveOutputLimitModelKwargs({ scene: 'nocode-editor' })
 assert.equal(nocodeEditorLimit.effectiveOutputTokens, NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
-assert.equal(nocodeEditorLimit.modelKwargs.max_tokens, NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
+assert.equal(nocodeEditorLimit.preferredLimitKey, 'max_tokens')
+assert.deepEqual(nocodeEditorLimit.modelKwargs, {})
 
-const nocodeEditorOutputOptions = buildChatModelOutputOptions({
-  modelKwargs: nocodeEditorLimit.modelKwargs,
-  effectiveOutputTokens: nocodeEditorLimit.effectiveOutputTokens,
-})
-assert.equal(nocodeEditorOutputOptions.maxTokens, NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
+const nocodeEditorOptions = buildChatModelOutputOptions(nocodeEditorLimit)
+assert.equal(nocodeEditorOptions.maxTokens, NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
+assert.equal(nocodeEditorOptions.modelKwargs?.max_tokens, undefined)
+assert.equal(nocodeEditorOptions.modelKwargs?.max_completion_tokens, undefined)
 
-const chatCompletionsMaxTokens = (model: ChatOpenAI) => (
-  (model.invocationParams() as { max_tokens?: number }).max_tokens
-)
+const nocodeEditorModel = createModel(nocodeEditorOptions)
+assert.deepEqual(invocationLimitKeys(nocodeEditorModel), ['max_tokens'])
+assert.equal(invocationParamsOf(nocodeEditorModel).max_tokens, NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS)
 
-// LangChain 的 invocationParams 会先用 this.maxTokens 覆盖 modelKwargs.max_tokens，
-// 所以只把上限塞进 modelKwargs 会在 SDK 层变成 undefined，等于没有上限。
-const legacyModel = new ChatOpenAI({
-  apiKey: 'regression-test-key',
-  model: 'gpt-4o-mini',
-  modelKwargs: nocodeEditorLimit.modelKwargs,
-  useResponsesApi: false,
-})
-assert.equal(chatCompletionsMaxTokens(legacyModel), undefined)
-
-const nocodeEditorModel = new ChatOpenAI({
-  apiKey: 'regression-test-key',
-  model: 'gpt-4o-mini',
-  ...nocodeEditorOutputOptions,
-  useResponsesApi: false,
-})
-assert.equal(
-  chatCompletionsMaxTokens(nocodeEditorModel),
-  NOCODE_EDITOR_DEFAULT_OUTPUT_TOKENS,
-)
-
-// 其它场景保持 8,192 默认值，不因本次改动被抬成编辑器上限。
+// 非 nocode 场景没有显式配置时不再默认压到 8192，而是不带输出上限。
 const workbenchLimit = resolveOutputLimitModelKwargs({ scene: 'workbench' })
-assert.equal(workbenchLimit.effectiveOutputTokens, WORKBENCH_DEFAULT_OUTPUT_TOKENS)
-assert.equal(workbenchLimit.modelKwargs.max_tokens, WORKBENCH_DEFAULT_OUTPUT_TOKENS)
+assert.equal(workbenchLimit.effectiveOutputTokens, null)
+assert.equal(workbenchLimit.preferredLimitKey, 'max_tokens')
 
-// 显式配置也不能突破场景硬上限。
+const workbenchOptions = buildChatModelOutputOptions(workbenchLimit)
+assert.equal(workbenchOptions.maxTokens, undefined)
+const workbenchModel = createModel(workbenchOptions)
+assert.deepEqual(invocationLimitKeys(workbenchModel), [])
+
+// 显式配置的 workbench 默认值仍然生效。
+const configuredWorkbenchLimit = resolveOutputLimitModelKwargs({
+  scene: 'workbench',
+  workbenchDefaultOutputTokens: 4_096,
+})
+assert.equal(configuredWorkbenchLimit.effectiveOutputTokens, 4_096)
+
+// 显式上限超过场景硬上限时收敛；其它 modelKwargs 原样保留。
 const oversizedLimit = resolveOutputLimitModelKwargs({
   scene: 'nocode-editor',
-  modelKwargs: { max_tokens: NOCODE_EDITOR_MAX_OUTPUT_TOKENS * 4 },
+  modelKwargs: {
+    max_tokens: NOCODE_EDITOR_MAX_OUTPUT_TOKENS * 4,
+    reasoning_effort: 'high',
+  },
 })
-assert.equal(oversizedLimit.effectiveOutputTokens, NOCODE_EDITOR_MAX_OUTPUT_TOKENS)
-assert.equal(oversizedLimit.modelKwargs.max_tokens, NOCODE_EDITOR_MAX_OUTPUT_TOKENS)
-assert.equal(
-  applyNocodeEditorOutputLimit({
-    scene: 'nocode-editor',
-    modelKwargs: oversizedLimit.modelKwargs,
-  })?.max_tokens,
-  NOCODE_EDITOR_MAX_OUTPUT_TOKENS,
-)
+assert.equal(oversizedLimit.effectiveOutputTokens, AI_SCENE_HARD_OUTPUT_LIMIT)
+assert.equal(oversizedLimit.preferredLimitKey, 'max_tokens')
+assert.deepEqual(oversizedLimit.modelKwargs, { reasoning_effort: 'high' })
+
+// context window 仍是硬上限。
+const contextLimited = resolveOutputLimitModelKwargs({
+  scene: 'nocode-editor',
+  modelKwargs: { max_tokens: AI_SCENE_HARD_OUTPUT_LIMIT },
+  contextWindow: 8_000,
+})
+assert.equal(contextLimited.effectiveOutputTokens, 7_999)
+
+// 兼容网关显式配置 max_completion_tokens：保留该键并省略 maxTokens，
+// 否则 SDK 会再注入 max_tokens，形成双键。
+const gatewayLimit = resolveOutputLimitModelKwargs({
+  scene: 'nocode-editor',
+  modelKwargs: {
+    max_completion_tokens: 12_000,
+    temperature: 0.2,
+  },
+})
+assert.equal(gatewayLimit.preferredLimitKey, 'max_completion_tokens')
+assert.equal(gatewayLimit.effectiveOutputTokens, 12_000)
+assert.deepEqual(gatewayLimit.modelKwargs, { temperature: 0.2 })
+
+const gatewayOptions = buildChatModelOutputOptions(gatewayLimit)
+assert.equal(gatewayOptions.maxTokens, undefined)
+assert.equal(gatewayOptions.modelKwargs?.max_tokens, undefined)
+assert.equal(gatewayOptions.modelKwargs?.max_completion_tokens, 12_000)
+
+const gatewayModel = createModel(gatewayOptions)
+assert.deepEqual(invocationLimitKeys(gatewayModel), ['max_completion_tokens'])
+assert.equal(invocationParamsOf(gatewayModel).max_completion_tokens, 12_000)
+
+// 两个键同时存在时以 max_completion_tokens 为准，另一个键不再下发。
+const dualKeyLimit = resolveOutputLimitModelKwargs({
+  scene: 'nocode-editor',
+  modelKwargs: {
+    max_tokens: 9_000,
+    max_completion_tokens: 12_000,
+  },
+})
+assert.equal(dualKeyLimit.preferredLimitKey, 'max_completion_tokens')
+assert.equal(dualKeyLimit.effectiveOutputTokens, 12_000)
+assert.deepEqual(dualKeyLimit.modelKwargs, {})
 
 console.log('provider-output-limit: ok')

@@ -2,8 +2,33 @@ import assert from 'node:assert/strict'
 
 import {
   buildProviderToolChoiceModelKey,
+  resolveProviderRequiredToolChoiceDecision,
   shouldUseProviderRequiredToolChoice,
 } from '../../src/main/modules/ai/openai/ai-provider-tool-choice'
+
+// 三种回退必须可区分，调用方才能把“能力未验证”升级为 warn。
+assert.equal(resolveProviderRequiredToolChoiceDecision({
+  requested: false,
+  supportsRequiredToolChoice: true,
+}).fallbackReason, 'not_requested')
+assert.equal(resolveProviderRequiredToolChoiceDecision({
+  requested: true,
+  supportsRequiredToolChoice: false,
+}).fallbackReason, 'capability_unverified')
+assert.equal(resolveProviderRequiredToolChoiceDecision({
+  requested: true,
+  supportsRequiredToolChoice: true,
+  reasoningMode: 'builtin-route',
+}).fallbackReason, 'builtin_route')
+assert.equal(resolveProviderRequiredToolChoiceDecision({
+  requested: true,
+  supportsRequiredToolChoice: true,
+  rejectedByProvider: true,
+}).fallbackReason, 'provider_rejected')
+assert.deepEqual(resolveProviderRequiredToolChoiceDecision({
+  requested: true,
+  supportsRequiredToolChoice: true,
+}), { toolChoice: 'required', fallbackReason: '' })
 
 assert.equal(shouldUseProviderRequiredToolChoice({
   requested: false,

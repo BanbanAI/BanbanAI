@@ -5,6 +5,7 @@ import {
   resolveAiArtifactCurrentRoundQuestions,
   resolveAiArtifactPendingQuestions,
   resolveAiArtifactQuestions,
+  resolveAiArtifactRecordQuestions,
   resolveAiArtifactStatusTag,
 } from '../../src/renderer/views/nocode/components/ai/artifactBlock'
 import type { AiAssistantFlowSchemeArtifactBlock } from '../../src/common/types/ai'
@@ -93,6 +94,25 @@ assert.deepEqual(
 assert.deepEqual(
   resolveAiArtifactCurrentRoundQuestions(pendingV2Block).map(question => question.title),
   ['审批人来源'],
+)
+
+// 过期/只读卡片回看：答完的当前轮问题必须保留，不能因为待答过滤后为空而整段消失。
+const answeredRoundBlock = createFlowSchemeBlock({
+  openQuestionKeys: ['trigger_mode', 'amount_branching'],
+  status: 'pending',
+})
+assert.deepEqual(resolveAiArtifactPendingQuestions(answeredRoundBlock), [])
+assert.deepEqual(
+  resolveAiArtifactRecordQuestions(answeredRoundBlock).map(question => question.title),
+  ['流程触发方式', '是否按报销金额分流'],
+)
+assert.deepEqual(
+  resolveAiArtifactRecordQuestions(pendingV2Block).map(question => question.title),
+  ['审批人来源'],
+)
+assert.deepEqual(
+  resolveAiArtifactRecordQuestions(pendingV2Block),
+  resolveAiArtifactCurrentRoundQuestions(pendingV2Block),
 )
 
 const blockWithoutOpenQuestions = createFlowSchemeBlock({ openQuestionKeys: [] })

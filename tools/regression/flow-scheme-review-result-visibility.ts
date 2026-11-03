@@ -104,4 +104,52 @@ const cardHistory = normalizeNocodeEditorAiMessageHistory([
 ])
 assert.deepEqual(cardHistory.map(message => message.id), ['a1'])
 
+// 6. 模型没写正文时，暂存方案的用户可见文案必须按方案真实状态给出下一步，
+//    不能对已无待确认题的方案说“先确认当前方案问题”。
+const readySchemeResult = {
+  name: 'editor_plan_flow_scheme',
+  ok: true,
+  output: {
+    revision: 12,
+    scheme: {
+      id: 'flow-scheme-project',
+      title: '项目管理表流程方案',
+      summary: '为项目管理表配置立项和结项审批流程。',
+      target: { formId: 't_yxg36gals19s', formName: '项目管理表' },
+      trigger: { type: 'submit', description: '新增项目提交时触发' },
+      mainPath: [{ key: 'approval_project_establish', kind: 'approval', title: '立项审批' }],
+      openQuestions: [],
+      confirmation: { status: 'completed', questions: [] },
+    },
+  },
+}
+const readyFallbackText = buildNocodeEditorToolLoopFinalAssistantText({
+  latestRoundAssistantText: '',
+  assistantText: '',
+  finishReason: 'stop',
+  actionResults: [readySchemeResult],
+})
+assert.equal(readyFallbackText.includes('nocodeEditorToolResultMessages.flowSchemeReadyForBlueprint'), true)
+assert.equal(readyFallbackText.includes('nocodeEditorLoopFallback.flowSchemeStaged'), false)
+
+const pendingSchemeResult = {
+  ...readySchemeResult,
+  output: {
+    ...readySchemeResult.output,
+    scheme: {
+      ...readySchemeResult.output.scheme,
+      openQuestions: [{ key: 'flow.trigger', title: '触发方式', reason: '需要确认立项和结项的触发方式' }],
+      confirmation: { status: 'pending', questions: [] },
+    },
+  },
+}
+const pendingFallbackText = buildNocodeEditorToolLoopFinalAssistantText({
+  latestRoundAssistantText: '',
+  assistantText: '',
+  finishReason: 'stop',
+  actionResults: [pendingSchemeResult],
+})
+assert.equal(pendingFallbackText.includes('nocodeEditorToolResultMessages.pendingQuestionsRemain'), true)
+assert.equal(pendingFallbackText.includes('nocodeEditorToolResultMessages.flowSchemeReadyForBlueprint'), false)
+
 console.log('flow scheme review result visibility: ok')

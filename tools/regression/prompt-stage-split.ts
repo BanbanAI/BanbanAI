@@ -21,6 +21,12 @@ const FLOW_MARKERS = [
   'personnelDecision',
   'binary 只用于明确的二选一确认题',
   '规划层级判定',
+  'topology、scope、cardinality、options、applicability、meaning、strategy、binding',
+  '触发方式变化会改变流程起点和节点构成，按 topology 记',
+  '人员决策只能标在真正询问人员来源或绑定的单选题上',
+  '选项必须先对齐 editor_get_flow_summary 中该字段的 enumOptionsPreview',
+  '禁止新增近义写法',
+  '用户可见正文只写 1 句状态播报',
 ]
 for (const marker of FLOW_MARKERS) {
   assert.ok(fullPrompt.includes(marker), `全量 prompt 缺少流程 marker: ${marker}`)

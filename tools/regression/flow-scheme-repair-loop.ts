@@ -8,6 +8,14 @@ import {
   FLOW_STRUCTURE_ASSUMPTION_STOP_LOSS_MESSAGE,
 } from '../../src/main/modules/ai/nocode-editor/nocode-editor-flow-scheme-repair.util'
 import { resolveRepeatedFlowSchemeError } from '../../src/main/modules/ai/nocode-editor/nocode-editor-stage-output-contract'
+import {
+  buildRestoredFlowBlueprintPreflightPrompt,
+  restoreFlowBlueprintPreflightStateFromHistory,
+  resolveFlowBlueprintPreflightStopDecision,
+} from '../../src/main/modules/ai/nocode-editor/nocode-editor-flow-blueprint-preflight.util'
+import { initTestI18n } from './test-i18n'
+
+initTestI18n()
 
 // 1) 结构假设失败属于模型可自修的问题，必须回传诊断
 assert.equal(FLOW_SCHEME_DECISION_CONTRACT_ISSUE_IDS.has('flow-structure-assumption-unconfirmed'), true)
@@ -142,5 +150,79 @@ const salvageMessage = buildFlowSchemeTextSalvageRetryMessage(salvagedScheme)
 assert.equal(salvageMessage.includes('editor_plan_flow_scheme'), true)
 assert.equal(salvageMessage.includes('"title": "报销申请审批流程方案"'), true)
 assert.equal(salvageMessage.includes('不要重新规划'), true)
+
+// 10) 蓝图续跑恢复：失败原因要带回去；人员来源类失败不能再要求沿用失败蓝图骨架
+const completedSchemeExchange = {
+  name: 'editor_plan_flow_scheme',
+  ok: true,
+  output: {
+    // 现场结构：模型为绕过契约报错把方案压扁成一个审批步骤
+    scheme: {
+      id: 'flow-scheme-project-001',
+      title: '项目管理表流程',
+      confirmation: { status: 'completed' },
+      openQuestions: [],
+    },
+    planningStatus: 'ready_for_review',
+  },
+  metadata: {},
+}
+const failedBlueprintExchange = (code: string) => ({
+  name: 'editor_stage_flow_blueprint',
+  ok: false,
+  error: '流程蓝图中的人员来源与已收敛流程方案不一致。',
+  metadata: {
+    input: {
+      blueprint: {
+        triggerBranches: [
+          { branchKey: 'branch-setup', nodes: [{ nodeKey: 'step-approval-setup', type: 'approval' }] },
+          { branchKey: 'branch-close', nodes: [{ nodeKey: 'step-approval-close', type: 'approval' }] },
+        ],
+      },
+    },
+    flowUnifiedIssues: [{
+      issueId: 'flow-blueprint-personnel-reference-inconsistent',
+      diagnostics: [{ code }],
+    }],
+  },
+})
+const preflightHistory = (code: string) => [
+  { metadata: { modelToolExchangeResult: completedSchemeExchange } },
+  { metadata: { modelToolExchangeResult: failedBlueprintExchange(code) } },
+]
+const restorePreflight = (code: string) => restoreFlowBlueprintPreflightStateFromHistory({
+  messages: preflightHistory(code),
+  userMessage: '继续生成流程蓝图',
+  now: 1_790_000_000_000,
+})
+
+const personnelRestoreState = restorePreflight('flow_personnel_source_mismatch')
+assert.equal(personnelRestoreState?.lastFailureCode, 'flow_personnel_source_mismatch')
+const personnelRestorePrompt = buildRestoredFlowBlueprintPreflightPrompt(personnelRestoreState!)
+assert.equal(personnelRestorePrompt.includes('人员来源与已确认方案不一致'), true)
+assert.equal(personnelRestorePrompt.includes('沿用其中的 nodeKey/branchKey'), false)
+assert.equal(personnelRestorePrompt.includes('step-approval-setup'), false)
+
+const otherRestoreState = restorePreflight('blueprint_approval_owner_dependency_missing')
+assert.equal(otherRestoreState?.lastFailureCode, 'blueprint_approval_owner_dependency_missing')
+const otherRestorePrompt = buildRestoredFlowBlueprintPreflightPrompt(otherRestoreState!)
+assert.equal(otherRestorePrompt.includes('blueprint_approval_owner_dependency_missing'), true)
+assert.equal(otherRestorePrompt.includes('沿用其中的 nodeKey/branchKey'), true)
+
+// 11) 收口文案要给出可执行下一步，而不是“请重新继续”
+const stopDecision = resolveFlowBlueprintPreflightStopDecision({
+  state: {
+    ...personnelRestoreState!,
+    reminderCount: 1,
+  },
+  now: 1_790_000_001_000,
+  hasSuccessfulBlueprintCall: false,
+})
+assert.equal(stopDecision.kind, 'finish')
+assert.equal(
+  stopDecision.kind === 'finish' && stopDecision.assistantMessage.includes('继续生成流程蓝图'),
+  true,
+)
+assert.equal(stopDecision.kind === 'finish' && stopDecision.assistantMessage.includes('请重新继续'), false)
 
 console.log('flow-scheme-repair-loop: ok')

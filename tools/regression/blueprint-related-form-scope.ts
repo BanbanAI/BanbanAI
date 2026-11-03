@@ -4,10 +4,15 @@ import {
   NOCODE_EDITOR_BLUEPRINT_REPLACE_NOT_AUTHORIZED,
   NOCODE_EDITOR_BLUEPRINT_SCOPE_EXTRA_FORMS,
   NOCODE_EDITOR_BLUEPRINT_SCOPE_INCOMPLETE,
+  alignNocodeEditorBlueprintFormIdentities,
   resolveNocodeEditorBlueprintScopePlannedForms,
   validateNocodeEditorBlueprintReplaceScope,
 } from '../../src/common/utils/nocodeEditorBlueprintInput'
-import { resolvePlanningScopeToolGuard } from '../../src/main/modules/ai/nocode-editor/nocode-editor-planning-convergence.util'
+import {
+  resolveBlueprintScopeRecoveryPlanningGuard,
+  resolvePlanningContinuationToolGuard,
+  resolvePlanningScopeToolGuard,
+} from '../../src/main/modules/ai/nocode-editor/nocode-editor-planning-convergence.util'
 
 const primaryForm = {
   formKey: 'form_leave',
@@ -65,6 +70,12 @@ if (unauthorized.ok === false) {
   assert.deepEqual(unauthorized.unexpectedForms, [
     { formKey: 'form_student', tableName: '学生信息表' },
   ])
+  // 范围错误必须把已规划身份带回给模型，否则模型只能重新规划。
+  assert.deepEqual(unauthorized.plannedForms, [
+    { formKey: 'form_leave', tableName: '学生请假申请表' },
+  ])
+  assert.match(unauthorized.message, /formKey=form_leave/u)
+  assert.match(unauthorized.message, /updateMode=replace/u)
 }
 
 // 额外表之间互相引用不算授权：只有已规划主表能作为引用来源。
@@ -322,5 +333,80 @@ const blueprintToolGuard = resolvePlanningScopeToolGuard({
   planningCompleted: true,
 })
 assert.equal(blueprintToolGuard.blocked, false)
+
+// 规划上下文键只存在于请求侧（渲染层工件生成），摘要未持久化时不能放行重新规划。
+const continuationWithMissingSummaryKey = resolvePlanningContinuationToolGuard({
+  toolName: 'editor_stage_app_plan',
+  userMessage: '当前卡片的问题，我已逐项确认如下：\n1. 客户范围\n答：全部客户',
+  confirmationStage: 'app-plan',
+  planningContextKey: 'app-plan:sol-1:artifact-1:1:1',
+  taskSummary: {
+    planningConfirmationStatus: 'completed',
+    planningConfirmationContextKey: '',
+    planningMode: 'app-plan',
+  },
+})
+assert.equal(continuationWithMissingSummaryKey.blocked, true)
+
+// 摘要里明确是另一条规划链时仍保持保守：不做跨链拦截。
+assert.equal(resolvePlanningContinuationToolGuard({
+  toolName: 'editor_stage_app_plan',
+  userMessage: '当前卡片的问题，我已逐项确认如下：\n1. 客户范围\n答：全部客户',
+  confirmationStage: 'app-plan',
+  planningContextKey: 'app-plan:sol-2:artifact-9:2:2',
+  taskSummary: {
+    planningConfirmationStatus: 'completed',
+    planningConfirmationContextKey: 'form-plan:sol-1:form-1:1:1',
+    planningMode: 'app-plan',
+  },
+}).blocked, false)
+
+// 蓝图范围错误出现后，本轮禁止用重新规划迁就蓝图，并带回已规划身份。
+const recoveryGuard = resolveBlueprintScopeRecoveryPlanningGuard({
+  toolName: 'editor_stage_app_plan',
+  scopeErrorSeen: true,
+  plannedForms: [{ formKey: 'artifact-1', tableName: '客户信息表' }],
+})
+assert.equal(recoveryGuard.blocked, true)
+assert.deepEqual(recoveryGuard.plannedFormLabels, ['客户信息表（formKey=artifact-1）'])
+assert.match(recoveryGuard.message, /editor_stage_app_blueprint|updateMode=replace/u)
+assert.match(recoveryGuard.message, /formKey=artifact-1/u)
+
+// 未出现范围错误时不拦截规划；非规划工具也不受该守卫影响。
+assert.equal(resolveBlueprintScopeRecoveryPlanningGuard({
+  toolName: 'editor_stage_app_plan',
+  scopeErrorSeen: false,
+}).blocked, false)
+assert.equal(resolveBlueprintScopeRecoveryPlanningGuard({
+  toolName: 'editor_stage_app_blueprint',
+  scopeErrorSeen: true,
+}).blocked, false)
+
+// 表/表单后缀差异在唯一匹配时作为兜底：先回填规划 formKey，再通过范围校验。
+const suffixPlannedForms = [{ formKey: 'artifact-1', tableName: '客户信息表' }]
+const suffixProposedForms = [{ tableName: '客户信息', fields: [] }]
+assert.deepEqual(
+  alignNocodeEditorBlueprintFormIdentities(suffixPlannedForms, suffixProposedForms),
+  [{ formKey: 'artifact-1', tableName: '客户信息', fields: [] }],
+)
+assert.deepEqual(validateNocodeEditorBlueprintReplaceScope({
+  updateMode: 'replace',
+  plannedForms: suffixPlannedForms,
+  proposedForms: suffixProposedForms,
+  currentForms: [],
+  hasCurrentBlueprint: false,
+}), { ok: true })
+
+// 去后缀后不唯一时不能猜身份，保持原样交给严格校验。
+assert.deepEqual(
+  alignNocodeEditorBlueprintFormIdentities(
+    [
+      { formKey: 'artifact-1', tableName: '客户信息表' },
+      { formKey: 'artifact-2', tableName: '客户信息' },
+    ],
+    [{ tableName: '客户信息' }],
+  ),
+  [{ tableName: '客户信息' }],
+)
 
 console.log('blueprint-related-form-scope: ok')
