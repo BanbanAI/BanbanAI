@@ -200,7 +200,9 @@ export class RelatedData extends SelectData {
       this.selectedRows = rows || {};
       this.updateLastChangeTime();
     }
-    this.syncInputValueToRow();
+    if (this.inSubFormRow) {
+      this.syncInputValueToRow();
+    }
   }
 
   private syncInputValueToRow(value?: unknown) {
@@ -219,7 +221,7 @@ export class RelatedData extends SelectData {
     // transient change timestamp before their relation lookup completes.
     const rawValue = this.dataValue;
     if (isEmpty(this.connectionTable)) return [];
-    if (isEmpty(this.selectedRows) && !isEmpty(rawValue)) {
+    if (!this.isChanged && isEmpty(this.selectedRows) && !isEmpty(rawValue)) {
       return rawValue;
     }
     const selectedValue = Object.entries(this.selectedRows).map(([key, rows]) => {
