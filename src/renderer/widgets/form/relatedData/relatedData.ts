@@ -200,7 +200,11 @@ export class RelatedData extends SelectData {
       this.selectedRows = rows || {};
       this.updateLastChangeTime();
     }
-    this.syncInputValueToRow();
+    // 主表提交靠 inputValue 与当前行的差异判断变更字段，提前写回主表行会让差异恒为空，
+    // 导致只改关联数据时提交不发更新请求；子表单行仍需要把值同步到行上。
+    if (this.inSubFormRow) {
+      this.syncInputValueToRow();
+    }
   }
 
   private syncInputValueToRow(value?: unknown) {
@@ -219,7 +223,7 @@ export class RelatedData extends SelectData {
     // transient change timestamp before their relation lookup completes.
     const rawValue = this.dataValue;
     if (isEmpty(this.connectionTable)) return [];
-    if (isEmpty(this.selectedRows) && !isEmpty(rawValue)) {
+    if (!this.isChanged && isEmpty(this.selectedRows) && !isEmpty(rawValue)) {
       return rawValue;
     }
     const selectedValue = Object.entries(this.selectedRows).map(([key, rows]) => {
