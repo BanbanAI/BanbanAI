@@ -1,4 +1,4 @@
-import { licenseEnum, NocodeBody, NocodeFormData, NocodeStructureType, ProjectNode } from '@common/types/nocode';
+import { License, NocodeBody, NocodeFormData, NocodeStructureType, ProjectNode } from '@common/types/nocode';
 import { getRuntime } from "@main/runtime";
 import { DepolyFile } from "@main/utils";
 import { basename, extname, join } from "path";
@@ -530,9 +530,7 @@ export async function writeNocodeBody(nocodeDir: string, nocodeBody: NocodeBody)
   }
 
   nocodeBody.sign = createMainVersion();
-  if (nocodeBody.license !== licenseEnum.COMMUNITY) {
-    nocodeBody.license = licenseEnum.COMMUNITY;
-  }
+  nocodeBody.license = License.COMMUNITY;
   const content = serializeNocodeBody(nocodeBody);
 
   await mkdir(nocodeDir, { recursive: true });
