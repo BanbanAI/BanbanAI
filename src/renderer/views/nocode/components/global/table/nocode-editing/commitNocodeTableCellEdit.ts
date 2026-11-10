@@ -259,12 +259,36 @@ export const commitNocodeTableCellEdit = async (
   }
 
   const formulaFields = resolvedDeps.getFormulaFields([changedField], options.widget.table.fields, options.widget.tables);
+  const hydratedEmptySubTableFieldUIDs = new Set<string>();
+  if (!options.column.params.isSubColumn) {
+    const dependentSubTableFieldUIDs = new Set(formulaFields
+      .map((field) => String(field?.uid || ""))
+      .filter((fieldUID) => fieldUID.includes("."))
+      .map((fieldUID) => fieldUID.split(".")[0]));
+    for (const subTableFieldUID of dependentSubTableFieldUIDs) {
+      if (options.widget.isSubTableFullyLoaded?.(subTableFieldUID) !== false) {
+        continue;
+      }
+      const fullRow = await options.widget.getFullRow?.(rowUUID, subTableFieldUID);
+      if (!fullRow || !Array.isArray(fullRow[subTableFieldUID])) {
+        continue;
+      }
+      workingRow[subTableFieldUID] = fullRow[subTableFieldUID];
+      previousRow[subTableFieldUID] = resolvedDeps.cloneRow(fullRow[subTableFieldUID]);
+      if (!workingRow[subTableFieldUID].length) {
+        hydratedEmptySubTableFieldUIDs.add(subTableFieldUID);
+      }
+    }
+  }
   resolvedDeps.rowsDefaultValueCalculation(
     [workingRow],
     { formulaFields, defaultFields: [] },
     options.widget.table,
     options.widget.formData,
   );
+  for (const fieldUID of hydratedEmptySubTableFieldUIDs) {
+    workingRow[fieldUID] = [];
+  }
 
   const diffRow = buildNocodeTableRowDiff({
     oldRow: previousRow,

@@ -1524,6 +1524,7 @@ export interface NumberFormatOptions {
   thousandSeparator?: string;
   decimalSeparator?: string;
   decimalPadding?: boolean;
+  groupWithSameSeparator?: boolean;
 }
 
 export enum FormWidgetType {

@@ -970,6 +970,8 @@ export class AmountInput extends FormElement {
     const thousandSeparator = this.getOption("thousand-separator");
     if (thousandSeparator === "comma") {
       return ",";
+    } else if (thousandSeparator === "dot") {
+      return ".";
     } else if (thousandSeparator === "space") {
       return " ";
     }

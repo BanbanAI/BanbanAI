@@ -51,7 +51,7 @@ import { getNocodeDataSourceTableByUID } from "@common/utils/connection";
 import { attachPrintableRelatedSubFormRows, buildPrintableRelatedSubFormRuntimeFields, getPrintableRelatedSubForms } from "@common/utils/related";
 import { applyCopiedNocodeInternalIdMaps, buildCopiedNocodeInternalIdMaps, remapCopiedNocodeInternalIds, remapCopiedPageBodyInternalIds } from "./copy-nocode-internal-id-map";
 import type { CopiedNocodeInternalIdMaps } from "./copy-nocode-internal-id-map";
-import { ApiException } from "../api/filters";
+import { ApiException } from "@main/modules/api";
 
 export const CLIENT_VERSION = 4;
 let PORT = 4400;
@@ -1129,8 +1129,9 @@ export class ProjectService implements OnApplicationBootstrap {
     const result = renameNode(nocodeBody.structure)
     if(result) {
       await saveNocodeBody(this.nocodesDir, nocodeId, nocodeBody)
+      return true
     }
-    return;
+    return false
   }
 
   public async copyNocode(nocodeId: string, parentId: string, copyData = false) {

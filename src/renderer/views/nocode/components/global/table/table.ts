@@ -33,7 +33,7 @@ import { buildAggregateRuntimeTables, buildBoardConnectionsWithAggregateTables, 
 import { FormDataStage } from "@common/utils";
 import { canReadNocodeTableDataByBody, isPublicDataPermissionBypassedRoute } from "@renderer/views/nocode/utils/data-permission";
 import router from "@renderer/router";
-import { filterAutoComputeConditions, filterAutoComputeSortFields } from "./column-capability";
+import { filterAutoComputeConditions, filterAutoComputeSortFields, isColumnSortDisabled } from "./column-capability";
 import { extendConnectionsWithTableAggregateFields, mergeBucketsWithTableAggregateFields } from "@renderer/utils/tableAggregateField";
 import { buildMainAndSubSearchCondition, buildSubTableDisplaySearchCondition } from "./search-filter";
 import type { FormDataFindFilterNode, FormDataFindResponse } from "@common/types/form-data-find";
@@ -647,7 +647,8 @@ export class Table implements RelatedData {
   }
 
   private sanitizeSortFieldsValue(value: FormSortField[] = []) {
-    return filterAutoComputeSortFields(value, this._columns.value);
+    return filterAutoComputeSortFields(value, this._columns.value)
+      .filter(item => !isColumnSortDisabled(this._columns.value.find(column => column.uid === item.field)));
   }
 
   getTable(uid: TableUID) {
@@ -1338,12 +1339,18 @@ export class Table implements RelatedData {
       .filter(field => !hidden.has(field.uid) || required.has(field.uid) || isSystemField(field))
       .map(field => field.uid);
     const subForms: Record<FieldUID, FieldUID[]> = {};
-    for (const parentFieldUID of this.getRequestedSubTableFieldUIDs()) {
+    const requestedSubTableFieldUIDs = new Set(this.getRequestedSubTableFieldUIDs());
+    for (const parentFieldUID of this._subTableUIDs.keys()) {
+      if (required.has(parentFieldUID)) {
+        requestedSubTableFieldUIDs.add(parentFieldUID);
+      }
+    }
+    for (const parentFieldUID of requestedSubTableFieldUIDs) {
       const subTableUID = this._subTableUIDs.get(parentFieldUID)?.[1];
       const subTable = subTableUID ? this.getTable(subTableUID) : undefined;
       if (!subTable) continue;
       const subFields = subTable.fields
-        .filter(field => !hidden.has(field.uid) || isSystemField(field))
+        .filter(field => !hidden.has(field.uid) || required.has(field.uid) || isSystemField(field))
         .map(field => field.uid);
       if (subFields.length) subForms[parentFieldUID] = subFields;
     }
@@ -2098,6 +2105,20 @@ export class Table implements RelatedData {
     return this._subTableData.value;
   }
 
+  public isSubTableFullyLoaded(fieldUID: FieldUID) {
+    if (!this.getRequestedSubTableFieldUIDs().has(fieldUID)) {
+      return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(this._subTableData.value, fieldUID)) {
+      return false;
+    }
+    if (!isEmpty(this.getSearchRules("sub").conditions?.[fieldUID])) {
+      return false;
+    }
+    const searchConditions = this.searchValue?.filter(condition => condition?.uid?.split(".")[0] === fieldUID);
+    return isEmpty(searchConditions);
+  }
+
   get subTableFieldUIDs() {
     return this._subTableFieldUIDs.value;
   }
@@ -2231,12 +2252,14 @@ export class Table implements RelatedData {
       const fields = this._relatedTableFields.get(fieldUID) ?? [];
       const uuidField = getUUIDSystemField(fields);
       if (!uuidField?.uid) continue;
+      const relatedIds = Array.from(new Set(ids)).filter(Boolean);
+      if (!relatedIds.length) continue;
       const targetTableContext = this.getOptionTableContext(relatedTableUID);
       requests.push(
         this.getData(relatedTableUID[1], {
           filters: {
             [relatedTableUID[1]]: [
-              { [uuidField.uid]: { $in: Array.from(new Set(ids)) } }
+              { [uuidField.uid]: { $in: relatedIds } }
             ]
           },
         }, targetTableContext?.connection?.nocodeId || this.nocodeId).then(({rows, count}) => [fieldUID, { rows, total: count }] as [FieldUID, _TableData]).catch(() => null)
@@ -2392,10 +2415,6 @@ export class Table implements RelatedData {
       if (createTimeField) {
         orderBy[createTimeField.uid] = SortType.DESC;
       }
-    }
-    const uniqueKey = this.rowKey;
-    if (!isEmpty(orderBy) && uniqueKey && !(uniqueKey in orderBy)) {
-      orderBy[uniqueKey] = SortType.DESC;
     }
     return orderBy;
   }

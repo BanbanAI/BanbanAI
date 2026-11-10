@@ -9,7 +9,7 @@ import { Request } from "express";
 import { Reflector } from "@nestjs/core";
 import { NOCODES_DIR } from "@main/constants";
 import { validateSynchronization } from "@main/utils";
-import { ApiException } from "@main/modules/api/filters";
+import { ApiException } from "@main/modules/api";
 
 
 interface SyncConfig {

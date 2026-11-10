@@ -3,6 +3,8 @@ import type { ImageMap, imageOptions } from "@common/utils/print/shared";
 import type * as ExcelJSTypes from "exceljs";
 import { isEmpty } from "@common/utils/object";
 import { formatFloat } from "@common/utils/math";
+import { formatNumberWithSeparator, getDisplayAmount } from "@common/utils/amount";
+import { formatNumberFieldDisplayValue } from "@common/utils/fieldValue";
 import { cloneDeep } from 'lodash';
 import { formDataApi } from "@renderer/utils/api/form-data";
 import { getUUIDSystemField, SystemField } from "@common/utils/connection";
@@ -1140,6 +1142,22 @@ export const systemPrint = async ({
   })
   windowPrint(PrintType.HTML, html);
 }
+const resolveRelatedLowerAmountValue = (
+  row: Row | undefined,
+  columns: Column[],
+  relatedLowerAmount?: string,
+) => {
+  if (!row || !relatedLowerAmount) return void 0
+  const relatedFieldUID = String(relatedLowerAmount).split(".").at(-1)
+  if (!relatedFieldUID) return void 0
+  const relatedKey = relatedFieldUID.startsWith("f_")
+    ? relatedFieldUID
+    : columns.find(item => item.elementId === relatedFieldUID)?.uid
+  if (!relatedKey || !Object.prototype.hasOwnProperty.call(row, relatedKey)) return void 0
+  const value = row[relatedKey]
+  return value === null || value === void 0 ? void 0 : value
+}
+
 /**
  * 打印数据替换 需要将 一些数据替换为 打印时需要的格式 如：成员需要展示名字，而不是展示id；数字需要按照配置展示
  * @param data 打印数据
@@ -1151,6 +1169,7 @@ export const printDataReplace = async (
   columns: Column[],
   options: null | { nocodeId?: string; loadBucket?: (tableUID: string, queryOptions: any) => Promise<any> } = null,
 ) => {
+  const sourceRows = rows
   rows = cloneDeep(rows)
   const cacheMap = new Map()
   const resolvePrintAssetUrl = (value: unknown) => {
@@ -1174,7 +1193,7 @@ export const printDataReplace = async (
     }
     return ""
   }
-  const dealColumnMap = {
+  const dealColumnMap: Record<string, (rows: Row[], column: Column, columns: Column[]) => Promise<void>> = {
     subForm: async (rows: Row[], column: Column) => {
       const key = column?.uid
       if (!key) return
@@ -1270,8 +1289,14 @@ export const printDataReplace = async (
           if (isNaN(value)) {
             value = 0
           }
-          const { isPercent, decimalPlaces, completeZero } = column?.extra;
-          let resultText = formatFloat(value, decimalPlaces, completeZero);
+          const { isPercent, decimalPlaces, completeZero, thousandSeparator } = column?.extra;
+          let resultText = !isPercent && thousandSeparator
+            ? formatNumberWithSeparator(value, {
+              decimalPlaces,
+              decimalPadding: completeZero,
+              thousandSeparator,
+            })
+            : formatFloat(value, decimalPlaces, completeZero);
           if (isPercent) {
             resultText = formatFloat(value * 100, decimalPlaces, completeZero)
             resultText += "%";
@@ -1288,6 +1313,50 @@ export const printDataReplace = async (
           numberSuffix = column?.extra?.['unit'];
         }
         data[key] = `${numberPrefix}${numberValue}${numberSuffix}`
+      }
+    },
+    amount: async (datas: Row[], column: Column, columns: Column[]) => {
+      const key = column?.uid
+      if (!key) {
+        return
+      }
+      if (isEmpty(column?.extra)) {
+        return
+      }
+      for (let i = 0; i < datas.length; i++) {
+        const data = datas[i];
+        if (!data) {
+          continue
+        }
+        const value = data?.[key]
+        if (value === void 0 || value === null || value === '') {
+          continue
+        }
+        if (column.extra.isAggregateMetric) {
+          const formattedValue = formatNumberFieldDisplayValue(value, column.extra)
+          data[key] = formattedValue && column.extra.isPercent ? `${formattedValue}%` : formattedValue
+          continue
+        }
+        const amount = column.extra.amount
+        if (!amount) {
+          continue
+        }
+        const relatedLowerAmountValue = amount.isUppercase
+          ? resolveRelatedLowerAmountValue(sourceRows?.[i], columns, amount.relatedLowerAmount)
+          : void 0
+        const amountValue = relatedLowerAmountValue === void 0 ? value : relatedLowerAmountValue
+        data[key] = getDisplayAmount(amountValue, {
+          isUppercase: amount.isUppercase,
+          currencyType: amount.currencyType,
+          uppercaseLanguage: amount.uppercaseLanguage,
+          uppercaseShowFormat: amount.uppercaseShowFormat,
+          decimalPlaces: column.extra.decimalPlaces ?? amount.decimal,
+          decimalPadding: amount.decimalPadding ?? amount.completeZero ?? column.extra.completeZero,
+          thousandSeparator: amount.thousandSeparator,
+          decimalSeparator: amount.decimalSeparator,
+          prefix: amount.prefix,
+          suffix: amount.suffix
+        })
       }
     },
     file: async (datas: Row[], column: Column) => {
@@ -1363,7 +1432,7 @@ export const printDataReplace = async (
     const key = getKey(column)
     const func = dealColumnMap[key]
     if (func) {
-      await func(rows, column)
+      await func(rows, column, columns)
     }
   }
   return rows

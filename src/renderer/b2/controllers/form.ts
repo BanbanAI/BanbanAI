@@ -488,12 +488,14 @@ export abstract class AbstractForm extends BaseWidget {
     // 监听页面真实显隐和值变化，使所有现有控件共享同一套快照和冻结语义。
     this._stopHiddenFieldSubmitStateWatch = this.effectScope.run(() => watch(
       () => this.formInputs.map(formInput => {
-        const isBusinessHidden = !!formInput.fieldId && formInput.isHidden && !formInput.isHiddenByFieldPermission;
+        const fieldId = formInput.fieldId;
+        const isBusinessHidden = !!fieldId && formInput.isHidden && !formInput.isHiddenByFieldPermission;
+        const mode = getHiddenFieldSubmitMode(this.getSoul().options, fieldId);
         return {
-          fieldId: formInput.fieldId,
-          value: isBusinessHidden ? deepClone(formInput.inputValue) : undefined,
+          fieldId,
+          value: isBusinessHidden && mode !== HiddenFieldSubmitMode.RECALCULATE ? formInput.inputValue : undefined,
           isBusinessHidden,
-          mode: getHiddenFieldSubmitMode(this.getSoul().options, formInput.fieldId),
+          mode,
         };
       }).filter(item => !!item.fieldId),
       (inputs) => {
@@ -915,9 +917,15 @@ export abstract class AbstractForm extends BaseWidget {
     }
 
     const subFormRows = this.getSubFormRows(subForm);
-    if (!subFormRows.length && this.hasRequiredSubFormSchemaField(subForm)) {
-      subForm.validationError = new Error(i18next.t('form.fieldRequiredTips'));
-      return subForm;
+    if (!subFormRows.length) {
+      if (!isEmpty(subForm.inputValue)) {
+        await subForm.validate();
+        return subForm.validationError ? subForm : null;
+      }
+      if (this.hasRequiredSubFormSchemaField(subForm)) {
+        subForm.validationError = new Error(i18next.t('form.fieldRequiredTips'));
+        return subForm;
+      }
     }
 
     for (const subFormRow of subFormRows) {

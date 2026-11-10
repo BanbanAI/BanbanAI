@@ -361,6 +361,9 @@ const rateColors = computed(() => {
 const switchActiveText = computed(() => String(props.column.schema.activeText || i18next.t("activeStateText", { ns: ["widget.form.switch", "translation"] })));
 const switchInactiveText = computed(() => String(props.column.schema.inactiveText || i18next.t("inactiveStateText", { ns: ["widget.form.switch", "translation"] })));
 const switchInlinePrompt = computed(() => props.column.schema.inlinePrompt === true);
+const isSwitchOn = (value: unknown) => value === true
+  || value === "true"
+  || (switchActiveText.value !== "" && value === switchActiveText.value);
 const inputMaxLength = computed(() => props.column.type === "widget.form.phoneInput" ? 11 : undefined);
 const isTextarea = computed(() => props.column.type === "widget.form.textarea");
 const inlineDraft = ref("");
@@ -595,7 +598,7 @@ const syncInlineDraft = () => {
     displayValue = formatter?.(ctx) ?? value;
   }
   inlineDraft.value = displayValue === undefined || displayValue === null ? "" : String(displayValue);
-  booleanDraft.value = value === true || value === "true";
+  booleanDraft.value = isSwitchOn(value);
   inlineDirty.value = false;
 };
 

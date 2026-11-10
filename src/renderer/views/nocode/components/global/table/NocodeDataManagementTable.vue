@@ -1910,9 +1910,9 @@ const handleUpdateColumnData = async (column: Column) => {
     });
     ElMessage.success(i18next.t("NocodeDataManagementTable.updateSuccess"));
     widget.refreshData();
-  } catch (error) {
-    handleNocodeSyncConflictError(error, nocodeSignIsLatest);
-    throw error;
+  } catch (error: any) {
+    if (handleNocodeSyncConflictError(error, nocodeSignIsLatest)) return;
+    ElMessage.error(error?.message || i18next.t("NocodeDataManagementTable.updateFailed"));
   }
 };
 

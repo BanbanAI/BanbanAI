@@ -9,6 +9,7 @@ import { LocalStrategy } from "./strategies/local.strategy";
 import { SessionSerializer } from "./serializers";
 import { NocodeMiddleware } from "./middlewares/nocode.middleware";
 import { ProjectModule } from "../project";
+import { AUTH_SERVICE } from "@main/constants";
 
 @Global()
 @Module({
@@ -22,8 +23,9 @@ import { ProjectModule } from "../project";
     LocalStrategy,
     SessionSerializer,
     AuthService,
+    { provide: AUTH_SERVICE, useExisting: AuthService },
   ],
-  exports: [ AuthService ],
+  exports: [ AuthService, AUTH_SERVICE ],
 })
 export class AuthModule implements NestModule {
   async configure(consumer: MiddlewareConsumer) {

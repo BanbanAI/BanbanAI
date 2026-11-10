@@ -115,6 +115,11 @@ export class MongoDb extends BaseDb {
         for (const [field, sortType] of Object.entries(options.sort)) {
           mongoSort[field] = sortType || -1;
         }
+        if (!('_id' in mongoSort)) {
+          mongoSort._id = mongoSort[SystemField.CREATE_TIME] === SortType.ASC || mongoSort[SystemField.CREATE_TIME] === undefined
+            ? SortType.ASC
+            : SortType.DESC;
+        }
         cursor = cursor.sort(mongoSort);
       } else {
         cursor = cursor.sort({ [SystemField.CREATE_TIME]: options.sort || -1 } as Sort);

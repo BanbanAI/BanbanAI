@@ -139,7 +139,6 @@
       :isShowQuick="false"
       :multiple="true"
       currentType="department"
-      :loading="departmentActionLoading"
       @confirm="handleBatchAdjustDepartmentConfirm"
     />
     <organize-delete-user-dialog
@@ -192,7 +191,6 @@ const addUserDialogRef = ref();
 const addUserToDepartmentDialogRef = ref();
 const selectUserToRoleDialogRef = ref();
 const batchAdjustDepartmentDialogRef = ref();
-const departmentActionLoading = ref(false);
 const userTableRef = ref();
 const batchManageDropdownVisible = ref(false);
 const selectedUsers = ref<NocodeUser[]>([]);
@@ -432,23 +430,16 @@ const handleBatchAdjustDepartment = () => {
 }
 
 const handleBatchAdjustDepartmentConfirm = async (value) => {
-  if (departmentActionLoading.value) return;
-  departmentActionLoading.value = true;
   const departmentIds = value.departments.map((item: Department) => item.id).filter(Boolean) as string[];
-  try {
-    for (const user of selectedUsers.value) {
-      await organizeUtil.updateUser({
-        ...user,
-        nocodeId,
-        departments: departmentIds,
-      });
-    }
-    ElMessage.success(i18next.t('OrganizeMemberManagerMain.editSuccess'));
-    await getUserList();
-    batchAdjustDepartmentDialogRef.value?.close();
-  } finally {
-    departmentActionLoading.value = false;
+  for (const user of selectedUsers.value) {
+    await organizeUtil.updateUser({
+      ...user,
+      nocodeId,
+      departments: departmentIds,
+    });
   }
+  ElMessage.success(i18next.t('OrganizeMemberManagerMain.editSuccess'));
+  await getUserList();
 }
 
 const handleDeleteUser = async (): Promise<boolean> => {

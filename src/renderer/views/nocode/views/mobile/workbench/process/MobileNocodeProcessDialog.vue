@@ -166,6 +166,7 @@ import { canRollbackFlow, getFlowById, isDataProcessingNode } from "@common/util
 import i18next from 'i18next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { canShowProcessSubmitButton } from '../../../../utils/process-submit-button';
+import { resolveReInitiateMode, type ReInitiateMode } from '../../../../utils/process-reinitiate';
 import { sanitizeCopiedRowForCopy } from '@renderer/views/nocode/components/global/table/copy';
 import { usePassportStore } from '@renderer/stores';
 
@@ -192,7 +193,7 @@ const emit = defineEmits<{
   (event: "back"),
   (event: "deleteTodo"),
   (event: "toDrawer"),
-  (event: "reInitiate", payload: { row: Row, tableUID: OptionTableUID }),
+  (event: "reInitiate", payload: { row: Row, tableUID: OptionTableUID, mode: ReInitiateMode }),
   (event: 'cancel'),
   (event: 'transfer'),
   (event: "update:modelValue", value: boolean),
@@ -313,10 +314,26 @@ const reInitiatableStatuses = [
   ProcessNodeStatus.CANCELED,
 ];
 
+const reInitiateMode = ref<ReInitiateMode | null>(null);
+
+watch(
+  () => [props.modelValue, props.todo?.todoId, props.todo?.status] as const,
+  async ([visible, todoId]) => {
+    reInitiateMode.value = null;
+    if (!visible || !todoId) return;
+    if (props.category !== TodoCategory.MY_INITIATED || !reInitiatableStatuses.includes(props.todo?.status)) return;
+    const mode = await resolveReInitiateMode(props.todo);
+    if (props.todo?.todoId !== todoId) return;
+    reInitiateMode.value = mode;
+  },
+  { immediate: true },
+);
+
 const canReInitiate = computed(() => {
   return props.category === TodoCategory.MY_INITIATED
     && reInitiatableStatuses.includes(props.todo?.status)
-    && !formPlaceholderText.value;
+    && !formPlaceholderText.value
+    && !!reInitiateMode.value;
 });
 const closeDialog = () => {
   emit("update:modelValue", false);
@@ -556,17 +573,21 @@ const reInitiate = () => {
   const currentRow = nocodeFormRef.value?.getFormRow?.();
   const currentTable = nocodeFormRef.value?.getCurrentTable?.();
   const currentFormData = nocodeFormRef.value?.getCurrentFormData?.();
-  if (!currentRow || !currentTable || !currentFormData?.uid) {
+  const mode = reInitiateMode.value;
+  if (!currentRow || !currentTable || !currentFormData?.uid || !mode) {
     ElMessage.warning(i18next.t('MobileNocodeProcessDialog.reInitiateUnavailable'));
     return;
   }
   emit('reInitiate', {
-    row: sanitizeCopiedRowForCopy({
-      row: currentRow,
-      table: currentTable,
-      formData: currentFormData,
-    }),
+    row: mode === 'add'
+      ? sanitizeCopiedRowForCopy({
+        row: currentRow,
+        table: currentTable,
+        formData: currentFormData,
+      })
+      : currentRow,
     tableUID: [currentFormData.uid, currentTable.uid],
+    mode,
   });
 }
 

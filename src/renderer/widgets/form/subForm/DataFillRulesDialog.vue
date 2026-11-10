@@ -1052,6 +1052,7 @@ const currentFormFieldsDisable = (uid) => {
 }
 
 const currentSelectSubform = computed(() => {
+  if (!rule.value?.conditions) return null
   for(const condition of rule.value?.conditions) {
     if(condition.value?.split('.').length === 2) {
       return condition.value?.split('.')[0]
@@ -1120,7 +1121,7 @@ const getTreePath = (val) => {
   return []
 }
 watch(() => rule.value.fillWidgets, (newVal, oldVal) => {
-  if(newVal == oldVal) return
+  if(newVal == oldVal || !newVal) return
   for(let i = 0; i < newVal.length; i++) {
     const item = newVal[i]
     const targetUID = item.linkageWidget

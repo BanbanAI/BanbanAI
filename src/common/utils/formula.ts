@@ -180,6 +180,10 @@ function parseToDayjs(v: any) {
 }
 
 const excelAdd = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
@@ -252,10 +256,17 @@ const excelAdd = function (a: any, b: any) {
 };
 
 const excelSubtract = function (a: any, b: any) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return null;
+  }
+
   const aIsDate = isDateString(a);
   const bIsDate = isDateString(b);
   const aIsTime = isTimeString(a);
   const bIsTime = isTimeString(b);
+
+  if ((aIsDate || aIsTime) && isExcelBlank(b)) return null;
+  if ((bIsDate || bIsTime) && isExcelBlank(a)) return null;
 
     if (aIsDate && typeof b === "number") {
       const ms = b * 86400000;
@@ -1158,7 +1169,8 @@ function formatDate(date: Date, format: string): string {
     .replace(/Y{2,3}/g, year.toString().slice(-2))
     .replace(/Y/g, year.toString())
     .replace(/M{3,4}/g, padStartZero(month))
-    .replace(/M{1,2}/g, month.toString())
+    .replace(/M{2}/g, padStartZero(month))
+    .replace(/M/g, month.toString())
     .replace(/d{2}/g, padStartZero(day))
     .replace(/d/g, day.toString()) // 支持单个d
     .replace(/D{2}/g, padStartZero(day))
@@ -2998,6 +3010,38 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
     const subField = subTable?.fields.find(item => item.uid === subFieldId || item.meta?.uid === subFieldId);
     return !!subField && (subField.revisedType || subField.type) === 'number';
   }
+  const resolveFormulaReferenceField = (fieldId: string, subFieldId?: string) => {
+    const field = targetTable.fields.find(item => item.uid === fieldId || item.meta?.uid === fieldId);
+    if (!subFieldId) return field;
+    const subTableUID = field?.meta?.extra?.subTableUID?.at(-1);
+    const subTable = formData.tables.find(table => table.uid === subTableUID);
+    return subTable?.fields.find(item => item.uid === subFieldId || item.meta?.uid === subFieldId);
+  }
+  const emptyValueOfFormulaField = (field?: Field) => {
+    switch (field?.revisedType || field?.type) {
+      case "number":
+        return 0;
+      case "array":
+        return [];
+      case "object":
+        return {};
+      default:
+        return "";
+    }
+  }
+  const normalizeFormulaReference = (
+    value: unknown,
+    fieldId: string,
+    subFieldId: string,
+    shouldNormalizeFormulaValues: boolean,
+  ) => {
+    const normalizedValue = value === undefined || value === null
+      ? (isNumericFormulaReference(fieldId, subFieldId)
+        ? value
+        : emptyValueOfFormulaField(resolveFormulaReferenceField(fieldId, subFieldId)))
+      : value;
+    return normalizeFormulaNumericValue(normalizedValue, shouldNormalizeFormulaValues);
+  }
   const formulaCollectMap = formulaFields.map(item => {
     return {
       uid: item.uid,
@@ -3026,9 +3070,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
               if (subFieldId) {
                 const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
                 return getSubFieldColumnValues(fieldValue, subFieldId)
-                  .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+                  .map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
               } else {
-                return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+                return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
               }
             },
           )
@@ -3038,9 +3082,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
               && !emptyCheckReferenceKeys.has(keys.join(','));
             if (subFieldId) {
               const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
-              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+              return getSubFieldColumnValues(fieldValue, subFieldId).map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
             } else {
-              return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+              return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
             }
           })
           if (!formula) continue;
@@ -3066,9 +3110,9 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
               if (subFieldId) {
                 const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
                 return getSubFieldColumnValues(fieldValue, subFieldId)
-                  .map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+                  .map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
               } else {
-                return [normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues)];
+                return [normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues)];
               }
             },
           )
@@ -3083,11 +3127,11 @@ export const rowsDefaultValueCalculation = (rows: Row[], calculationField: cacul
                 const fieldValue = Array.isArray(row?.[fieldId]) ? row[fieldId] : [];
                 const values = getSubFieldColumnValues(fieldValue, subFieldId);
                 if (fieldId === key) {
-                  return normalizeFormulaNumericValue(values[index], shouldNormalizeFormulaValues);
+                  return normalizeFormulaReference(values[index], fieldId, subFieldId, shouldNormalizeFormulaValues);
                 }
-                return values.map(value => normalizeFormulaNumericValue(value, shouldNormalizeFormulaValues));
+                return values.map(value => normalizeFormulaReference(value, fieldId, subFieldId, shouldNormalizeFormulaValues));
               } else {
-                return normalizeFormulaNumericValue(row?.[fieldId], shouldNormalizeFormulaValues);
+                return normalizeFormulaReference(row?.[fieldId], fieldId, subFieldId, shouldNormalizeFormulaValues);
               }
             })
             if (!formula) continue;

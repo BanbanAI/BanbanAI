@@ -79,6 +79,7 @@
       <teleport to="body">
         <RuntimeSelectDataHost
           v-if="runtimeSelectDataWidget && runtimeSelectDataContext"
+          :key="runtimeSelectDataWidget.uid"
           v-model="runtimeSelectDataVisible"
           :widget="runtimeSelectDataWidget"
           :runtime="runtimeSelectDataContext"
@@ -190,7 +191,7 @@ const runtimeGridColumns = computed(() => {
     .filter((column): column is NonNullable<typeof column> => Boolean(column));
 });
 
-const runtimeColumnTitle = (column: any) => String(column?.schema?.title || column?.fieldId || '');
+const runtimeColumnTitle = (column: any) => String(column?.schema?.title ?? '');
 const isRuntimeColumnRequired = (column: any) => {
   const widget = showColumns.value.find(item => item.fieldId === column?.fieldId || item.uid === column?.id);
   return widget ? isColumnRequired(widget) : false;
@@ -859,6 +860,12 @@ const lineHeight = computed(() => {
     align-items: center;
     min-width: 0;
     width: 100%;
+
+    .required {
+      color: #eb5050;
+      font-size: 14px;
+      margin-right: 4px;
+    }
 
     .column-title {
       flex: 1;

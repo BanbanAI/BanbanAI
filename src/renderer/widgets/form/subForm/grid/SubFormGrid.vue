@@ -160,7 +160,7 @@ const columnWidths = computed(() => {
   const configured = props.columns.map(col => ({
     column: col,
     width: Number((col.schema as any)?.widthInSubForm || 200),
-    title: (col.schema as any)?.title || col.fieldId,
+    title: (col.schema as any)?.title ?? '',
   }));
   const configuredTotal = configured.reduce((sum, item) => sum + item.width, 0);
   const usable = Math.min(scrollViewportWidth.value, viewportWidth.value);

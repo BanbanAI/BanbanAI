@@ -20,6 +20,8 @@ import { ScheduledTriggerStartupBarrier } from "./scheduled-trigger/scheduled-tr
 import { ScheduledTriggerSubscriptionBackfill } from "./scheduled-trigger/scheduled-trigger-subscription-backfill";
 import { ViewActionTriggerTaskService } from "./view-action-trigger-task.service";
 import { FlowWorkerPool } from "./flow-worker-pool";
+import { FormDataAuditService } from "./form-data-audit.service";
+import { FORM_DATA_AUDIT_SERVICE, FORM_DATA_SERVICE } from "@main/constants";
 
 @Global()
 @Module({
@@ -29,6 +31,9 @@ import { FlowWorkerPool } from "./flow-worker-pool";
     FormDataConnector,
     DbManager,
     FormFlowService,
+    FormDataAuditService,
+    { provide: FORM_DATA_SERVICE, useExisting: FormDataService },
+    { provide: FORM_DATA_AUDIT_SERVICE, useExisting: FormDataAuditService },
     FlowWorkerPool,
     DraftStorageStateService,
     ViewActionTriggerTaskService,
@@ -46,7 +51,7 @@ import { FlowWorkerPool } from "./flow-worker-pool";
     ScheduledTriggerSystemWake,
     ScheduledTriggerReconciliation,
   ],
-  exports: [ FormDataConnector, FormDataService, FormFlowService, DbManager, DraftStorageStateService, ViewActionTriggerTaskService, ScheduleDefinitionService, ScheduledTriggerRepository, ScheduledTriggerSignal, ScheduledTriggerSystemWake ],
+  exports: [ FormDataConnector, FormDataService, FormDataAuditService, FormFlowService, DbManager, DraftStorageStateService, ViewActionTriggerTaskService, ScheduleDefinitionService, ScheduledTriggerRepository, ScheduledTriggerSignal, ScheduledTriggerSystemWake, FORM_DATA_SERVICE, FORM_DATA_AUDIT_SERVICE ],
 })
 export class FormDataModule {
 

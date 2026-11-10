@@ -80,7 +80,8 @@ const draftValue = computed(() => {
 
 const booleanDraftValue = computed(() => {
   const value = activeValue.value.value;
-  return value === true || value === "true";
+  const activeText = String(activeColumn.value?.schema.activeText || "");
+  return value === true || value === "true" || (activeText !== "" && value === activeText);
 });
 
 const fallbackInputType = computed(() => {

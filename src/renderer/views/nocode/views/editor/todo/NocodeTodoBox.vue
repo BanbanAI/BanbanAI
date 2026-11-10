@@ -456,6 +456,8 @@
       :nocodeID="reInitiateNocodeId"
       :tableName="reInitiateTableName"
       :row="reInitiateRow"
+      :mode="reInitiateMode"
+      :uuid="reInitiateUuid"
       :message="$t('NocodeTodoBox.reInitiateSuccess')"
       @close="handleReInitiateClose"
       @submitted="handleRefresh"
@@ -478,6 +480,7 @@ import dayjs from 'dayjs';
 import { canRollbackFlow, isSystemField, getFlowById, SystemField, getSystemColumnConfigurations, transformCondition } from '@common/utils';
 import { ProcessNodeStatus, ProcessNodeType } from '@common/types/project'
 import { formFlowApi, getOperationEmptyRowDisplayText, isOperationEmptyRowDisplayTodo, isSingleOnceTimeTaskDisplayTodo, isViewContextOnceNoFormDataTodo } from '@renderer/views/nocode/utils';
+import type { ReInitiateMode } from '@renderer/views/nocode/utils/process-reinitiate';
 import { FormMode } from '@renderer/types/base';
 import { provideFormMode } from '@renderer/views/nocode/components/global/table/hooks';
 import ProcessInitiateDialog from '../form/dialogs/ProcessInitiateDialog.vue';
@@ -974,13 +977,17 @@ const reInitiateRow = ref<Row | null>(null);
 const reInitiateTableUID = ref<OptionTableUID | null>(null);
 const reInitiateNocodeId = ref('');
 const reInitiateTableName = ref('');
+const reInitiateMode = ref<ReInitiateMode>('add');
+const reInitiateUuid = ref('');
 
-const handleReInitiate = async ({ row, tableUID }: { row: Row, tableUID: OptionTableUID }) => {
+const handleReInitiate = async ({ row, tableUID, mode }: { row: Row, tableUID: OptionTableUID, mode: ReInitiateMode }) => {
   const todo = dialogState.getArgs('todoDialogVisible');
   reInitiateRow.value = row;
   reInitiateTableUID.value = tableUID;
   reInitiateNocodeId.value = todo?.nocodeId || '';
   reInitiateTableName.value = todo?.formName || '';
+  reInitiateMode.value = mode;
+  reInitiateUuid.value = mode === 'edit' ? (todo?.uuid || '') : '';
   dialogState.todoDialogVisible = false;
   await nextTick();
   reInitiateDialogVisible.value = true;
@@ -992,6 +999,8 @@ const handleReInitiateClose = () => {
   reInitiateTableUID.value = null;
   reInitiateNocodeId.value = '';
   reInitiateTableName.value = '';
+  reInitiateMode.value = 'add';
+  reInitiateUuid.value = '';
 }
 const cancelFlow = async (todo: TODO) => {
   currentTodo.value = todo;

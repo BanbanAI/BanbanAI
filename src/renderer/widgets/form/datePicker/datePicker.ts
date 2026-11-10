@@ -1,5 +1,5 @@
 import { FormElementConfiguration, RuleFunc, RuleFuncValue, AggregationType } from "@common/types/nocode";
-import { replaceByFormula, evaluateFormula, findIdByFormula, FormulaConfig } from "@common/utils/formula";
+import { replaceByFormula, evaluateFormula, findIdByFormula, getFormulaStr, FormulaConfig } from "@common/utils/formula";
 import { DefinedOptions } from "@renderer/b2/types";
 import { FormElement } from "@renderer/b2/controllers/form";
 import resource from "./locales";
@@ -557,6 +557,10 @@ export class DatePicker extends FormElement {
 
   get defaultFormulaValue() {
     return this.getOption<string | FormulaConfig>("default-formula");
+  }
+
+  get defaultFormulaValueStr() {
+    return getFormulaStr(this.defaultFormulaValue);
   }
 
 

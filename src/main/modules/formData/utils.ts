@@ -766,6 +766,13 @@ export class LevelDB extends BaseDb {
       let sort = isEmpty(options?.sort) ? SortType.DESC : options.sort;
       if (typeof sort !== "object") {
         sort = { [this.sortField]: sort as SortType };
+      } else {
+        sort = { ...sort };
+        if (!(this.sortField in sort)) {
+          sort[this.sortField] = sort[SystemField.CREATE_TIME] === SortType.ASC || sort[SystemField.CREATE_TIME] === undefined
+            ? SortType.ASC
+            : SortType.DESC;
+        }
       }
       for (const key in sort) {
         sort[key] = sort[key] == SortType.DESC ? -1 : 1;

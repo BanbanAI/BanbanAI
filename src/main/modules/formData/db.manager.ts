@@ -9,7 +9,8 @@ import { Preferences } from "../common";
 import { DatabaseConnection } from "./database-connection";
 import { isEmpty } from "@common/utils/object";
 import md5 from "md5";
-import { FormDataStoreScope } from "@common/types/project";
+import { FormDataStoreScope, SortType } from "@common/types/project";
+import { SystemField } from "@common/utils";
 
 @Injectable()
 export class DbManager {
@@ -165,10 +166,12 @@ export class DbManager {
         }
         const originDb = await this.getDB(meta.id, formDataTable);
         const db = await this._getDB(meta.id, formDataTable, options);
-        const data = await originDb.find();
+        const data = await originDb.find({}, { sort: { [SystemField.CREATE_TIME]: SortType.ASC } });
+
         if (!isEmpty(data)) {
           await db.remove({});
-          await db.insert(data);
+          const rowsToInsert = data.map(({ _id, ...row }) => row);
+          await db.insert(rowsToInsert);
         }
       }
     }

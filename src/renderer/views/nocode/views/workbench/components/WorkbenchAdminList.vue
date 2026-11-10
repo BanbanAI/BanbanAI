@@ -27,7 +27,6 @@
       }" 
       ref="addAdminDialogRef" 
       @confirm="handleAdminConfirm"
-      :loading="addAdminLoading"
       :isOnlyAdd="true"
     ></organize-manager-dialog>
     <workbench-dialog class="delete-dialog" v-model="deleteDialog" :title="$t('WorkbenchAdminList.delAdmin')" width="480px">
@@ -97,20 +96,13 @@ const handleAdd = () => {
 
 
 const handleAdminConfirm = async(value) => {
-  if (addAdminLoading.value) return;
   const { users } = value;
   const userIds = users.map(item => item.id);
-  addAdminLoading.value = true;
-  try {
-    const result = await organizeUtil.setAdmins({
-      ids: [...userIds],
-    });
-    if (isRequestFailureResult(result)) return;
-    addAdminDialogRef.value?.close();
-    emit('updatePageInfo', currentPage.value, pageSize.value);
-  } finally {
-    addAdminLoading.value = false;
-  }
+  const result = await organizeUtil.setAdmins({
+    ids: [...userIds],
+  });
+  if (isRequestFailureResult(result)) return;
+  emit('updatePageInfo', currentPage.value, pageSize.value);
 }
 
 let deleteRow = null;
@@ -121,7 +113,6 @@ const handleDelete = (row) => {
 
 const deleteDialog = ref(false)
 const actionLoading = ref(false)
-const addAdminLoading = ref(false)
 
 const deleteStaff = async ()=>{
   if (actionLoading.value || !deleteRow) return;

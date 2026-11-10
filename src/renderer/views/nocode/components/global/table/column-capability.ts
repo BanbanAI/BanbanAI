@@ -6,6 +6,7 @@ const AUTO_COMPUTE_WIDGET_TYPE = "widget.form.autoCompute";
 export type ColumnLike = {
   uid: FieldUID | string,
   name?: string,
+  type?: string,
   extra?: {
     widgetType?: string,
   } | Record<string, any>,
@@ -36,15 +37,28 @@ export const isAutoComputeFieldId = (columns: ColumnLike[] = [], fieldId?: strin
   return isAutoComputeColumn(findColumnByFieldId(columns, fieldId));
 };
 
-export const isSortDisabledSystemColumn = (
+const SORT_DISABLED_SYSTEM_FIELDS = [
+  SystemField.DATA_TITLE,
+  SystemField.CURRENT_OWNER,
+  SystemField.UUID,
+  SystemField.RELATED_SUB_FORM,
+  SystemField.STATUS,
+  SystemField.DATA_OWNER,
+  SystemField.CREATE_OWNER,
+  SystemField.UPDATE_OWNER,
+];
+
+const isSortDisabledSystemColumn = (
   column?: Pick<ColumnLike, "uid" | "extra" | "name"> | null,
 ) => {
-  return [
-    SystemField.DATA_TITLE,
-    SystemField.CURRENT_OWNER,
-    SystemField.UUID,
-    SystemField.RELATED_SUB_FORM,
-  ].includes(column?.name as any);
+  return SORT_DISABLED_SYSTEM_FIELDS.includes(column?.name as any);
+};
+
+export const isColumnSortDisabled = (column?: ColumnLike | null) => {
+  return isSortDisabledSystemColumn(column)
+    || Boolean(column?.subColumns?.length)
+    || column?.type === "array"
+    || column?.type === "object";
 };
 
 export const filterAutoComputeConditions = <T extends { uid?: string }>(conditions: T[] = [], columns: ColumnLike[] = []) => {
