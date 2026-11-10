@@ -820,10 +820,6 @@ export enum PrintFlowCommentNodeScope {
   /** 自定义节点 */
   CUSTOM = "custom",
 }
-export enum License {
-  COMMUNITY = "Community",
-  COMMERCIAL = "Commercial",
-}
 export type PrintFlowCommentRule = {
   order?: PrintFlowCommentOrder,
   nodeScope?: PrintFlowCommentNodeScope,
@@ -914,7 +910,7 @@ export type NocodeBody = {
   printTemplate?: Record<TableUID, PrintTemplate[]>,
   isEditTableCell?: boolean,
   sign?: string,
-  license?: License
+  license?: "Community"
 }
 
 export type NocodeCoverSummary = {
