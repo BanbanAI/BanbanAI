@@ -10009,7 +10009,8 @@
     "fieldPlaceHolder": "請選擇字段",
     "confirmButton": "確認",
     "cancelButton": "取消",
-    "requiredMessage": "必填項不能爲空"
+    "requiredMessage": "必填項不能爲空",
+    "contentFieldMissing": "當前表沒有富文本字段，請先在表單中添加富文本字段後重試"
   },
   "workbenchAiToolCalls": {
     "searchApps": "查找相關應用",

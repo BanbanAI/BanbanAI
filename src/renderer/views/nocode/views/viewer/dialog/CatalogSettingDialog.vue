@@ -8,7 +8,6 @@
       top="30vh"
       destroy-on-close
       :close-on-click-modal="false"
-      @open="dialogOpen"
       @closed="dialogDataReset"
       draggable align-center
     >
@@ -107,7 +106,7 @@
 </template>
 
 <script lang='ts' setup>
-import { ref, computed, shallowRef, inject } from 'vue';
+import { ref, computed, shallowRef, inject, watch, nextTick } from 'vue';
 import { ElDialog, ElForm, ElMessage, FormRules } from 'element-plus';
 import { Field } from "@common/types/project";
 import axios from 'axios';
@@ -187,6 +186,11 @@ function handleConfirm(): void {
   elFormRef.value.validate(async (valid: boolean, fields: any) => {
     if (!valid) return;
 
+    if (props.type === 'document' && !contentFieldList.value.length) {
+      ElMessage.error(i18next.t('catalogSettingDialog.contentFieldMissing'));
+      return;
+    }
+
     settingForm.value.type = props.type
     settingForm.value.name = props.type === 'category' ? i18next.t('CatalogSettingDialog.catalogView') : i18next.t('CatalogSettingDialog.docView')
     
@@ -220,6 +224,10 @@ async function dialogOpen(): Promise<void> {
   await getStructureFieldList();
   getCatalogTitleFieldList(relatedTableId.value);
 }
+watch(() => props.modelValue, (value) => {
+  if (!value) return;
+  nextTick(dialogOpen);
+}, { immediate: true });
 </script>
 <style scoped lang='scss'>
 .catalog-setting-dialog {
