@@ -7,7 +7,7 @@ import { getNocodeBody, getNocodeRuntimeState, getRuntimeCounter, parseExcelData
 import { ConnectionUID, DataChangeType, Field, FieldUID, FlowOpinionFile, ProcessNodeType, Row, Table, TableUID, WhereCondition } from '@common/types/project';
 import { isSystemAdminAccount, type Account } from '@common/types/account';
 import { isEmpty, deepClone } from '@common/utils/object';
-import { FormDataStage, getFlows, getUUIDSystemField, hasConfiguredValue, isBuiltinField, replaceIllegalChars } from '@common/utils';
+import { FormDataStage, getFlows, getUUIDSystemField, hasConfiguredValue, isBuiltinField, replaceIllegalChars, SystemField } from '@common/utils';
 import { getNocodeDataSourceTableByUID } from '@common/utils/connection';
 import { ConnectionUtils } from '../project/connection.utils';
 import { unique } from '@common/utils/unique';
@@ -1848,6 +1848,18 @@ export class NocodeService implements OnApplicationBootstrap {
       }
 
       if (serialNumberOfNotImp.length) await saveNocodeRuntimeState(this.nocodesDir, nocodeId, runtimeState); // 保存自动编号计数
+
+      if (extraData.fillDefaultValue && importMode === 'addData') {
+        const subFormFields = table.fields.filter(field => field.meta?.extra?.widgetType === 'widget.form.subform');
+        for (const row of rows) {
+          row[SystemField.UUID] ||= unique();
+          for (const subFormField of subFormFields) {
+            for (const subRow of row[subFormField.uid] || []) {
+              subRow[SystemField.UUID] ||= unique();
+            }
+          }
+        }
+      }
 
       // 只有当fillDefaultValue为true时才处理默认值和公式字段
       if (extraData.fillDefaultValue) { 
