@@ -60,6 +60,10 @@ type TryAddDataOptions = {
 }
 type SubTableUpdateFieldMap = Map<FieldUID, ViewActionFieldId[] | null>;
 
+type ViewActionRuntimeOptions = Pick<TriggerOptions, "flowWorkerContext"> & {
+  skipPersistedViewFilters?: boolean;
+};
+
 type UniqueRowDescriptor = {
   identity: string;
   rowIndex: number;
@@ -3764,10 +3768,13 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ) {
     const rowKey = getUUIDSystemField(table.fields).uid;
     const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
-    const persistedFilterRules = this.getViewActionPersistedFilterRules(nocodeBody, table.uid, request.viewId);
+    const persistedFilterRules = options.skipPersistedViewFilters
+      ? []
+      : this.getViewActionPersistedFilterRules(nocodeBody, table.uid, request.viewId);
     const persistedCondition = await this.buildViewActionPersistedCondition(
       formData,
       nocodeId,
@@ -3862,6 +3869,7 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ) {
     const mergedCondition = await this.buildViewActionCondition(
       nocodeBody,
@@ -3869,6 +3877,7 @@ export class FormDataService implements OnApplicationBootstrap {
       nocodeId,
       table,
       request,
+      options,
     );
     return await this.getSubmittedRows(formData, nocodeId, table, mergedCondition, {
       applyGetPermission: true,
@@ -3909,6 +3918,7 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ): Promise<ViewActionTriggerRetryTargets> {
     const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
     const uniqueRows = this.getUniqueViewActionRows(
@@ -3919,6 +3929,7 @@ export class FormDataService implements OnApplicationBootstrap {
         nocodeId,
         table,
         request,
+        options,
       ),
     );
     const uuidFieldId = getUUIDSystemField(table.fields).uid;
@@ -4977,7 +4988,7 @@ export class FormDataService implements OnApplicationBootstrap {
     table: Table,
     action: ViewAction,
     request: ExecuteViewActionRequest,
-    runtimeOptions: Pick<TriggerOptions, "flowWorkerContext"> = {},
+    runtimeOptions: ViewActionRuntimeOptions = {},
   ): Promise<ExecuteViewActionResult> {
     if (action.behavior.type !== ViewActionBehaviorType.TRIGGER_PROCESS) {
       throw new Error(global.i18next.t('formDataService.viewActionTriggerProcessOnly'));
@@ -4997,6 +5008,7 @@ export class FormDataService implements OnApplicationBootstrap {
           request.nocodeId,
           table,
           request,
+          runtimeOptions,
         )
       : null;
     const viewCondition = isRetryByTargetUUIDs
@@ -5007,6 +5019,7 @@ export class FormDataService implements OnApplicationBootstrap {
           request.nocodeId,
           table,
           request,
+          runtimeOptions,
         );
     const affectedCount = isRetryByTargetUUIDs
       ? (retryTargets?.affectedCount || 0)
@@ -5056,6 +5069,7 @@ export class FormDataService implements OnApplicationBootstrap {
         request.nocodeId,
         table,
         request,
+        runtimeOptions,
       ),
     );
     const affectedRowsDigest = isRetryByTargetUUIDs
@@ -5390,7 +5404,10 @@ export class FormDataService implements OnApplicationBootstrap {
     };
   }
 
-  async precheckViewActionTrigger(request: ExecuteViewActionRequest): Promise<ViewActionTriggerPrecheckResult> {
+  async precheckViewActionTrigger(
+    request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
+  ): Promise<ViewActionTriggerPrecheckResult> {
     const nocodeBody = await getNocodeBody(this.nocodesDir, request.nocodeId);
     const formData = nocodeBody?.formData;
     const table = formData?.tables?.find(item => item.uid === request.tableUID);
@@ -5417,6 +5434,7 @@ export class FormDataService implements OnApplicationBootstrap {
       request.nocodeId,
       table,
       request,
+      options,
     );
     const candidateCount = targetUUIDs.length
       ? targetUUIDs.length
@@ -5583,7 +5601,7 @@ export class FormDataService implements OnApplicationBootstrap {
 
   async executeViewAction(
     request: ExecuteViewActionRequest,
-    runtimeOptions: Pick<TriggerOptions, "flowWorkerContext"> = {},
+    runtimeOptions: ViewActionRuntimeOptions = {},
   ): Promise<ExecuteViewActionResult> {
     const nocodeBody = await getNocodeBody(this.nocodesDir, request.nocodeId);
     const formData = nocodeBody?.formData;
