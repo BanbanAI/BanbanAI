@@ -206,6 +206,16 @@
           </el-popover>
         </template>
       </span>
+      <span v-else-if="isReadonlyCell && relatedDataItems.length" class="cell-presenter__related-tags">
+        <el-tag
+          v-for="item in relatedDataItems"
+          :key="item.id"
+          class="cell-presenter__related-tag"
+          effect="dark"
+          :title="item.label"
+          @click.stop="handleRelatedTagClick(item.id)"
+        >{{ item.label }}</el-tag>
+      </span>
       <span v-else-if="!showsUploadStrip && !isEmptyUploadCell">{{ isReadonlyCell ? readonlyContent.text : displayValue }}</span>
     </span>
   </div>
@@ -254,7 +264,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "commit", payload: { address: CellAddress; value: unknown }): void;
   (e: "click", address: CellAddress): void;
-  (e: "action", address: CellAddress, anchor?: HTMLElement | null, readonly?: boolean): void;
+  (e: "action", address: CellAddress, anchor?: HTMLElement | null, readonly?: boolean, relatedUuid?: string): void;
   (e: "enter", address: CellAddress): void;
 }>();
 
@@ -423,6 +433,21 @@ const rowContext = computed(() => {
 const isReadonlyCell = computed(() => props.readonly === true
   || props.column.adapter.isReadonly?.(rowContext.value!) === true
   || getRuntimeFieldCapability(props.column.type) === "readonly");
+
+const relatedDataItems = computed<readonly { id: string; label: string }[]>(() => {
+  if (!isReadonlyCell.value || props.column.type !== "widget.form.relatedData" || !props.relatedDataService) return [];
+  void relatedRenderVersion.value;
+  const value = props.store.getValue(props.address);
+  const ids = Array.isArray(value)
+    ? value.filter(Boolean).map(String)
+    : value === undefined || value === null || value === ""
+      ? []
+      : [String(value)];
+  const tableUID = props.column.schema.relatedTableUID;
+  if (!ids.length || !Array.isArray(tableUID)) return [];
+  const labels = props.relatedDataService.formatLabels(tableUID, ids);
+  return ids.map((id, index) => ({ id, label: labels[index] }));
+});
 
 const isEmptyUploadCell = computed(() => isUploadAction.value && !isReadonlyCell.value && !hasUploadValue.value);
 const uploadCell = inject<RuntimeUploadCellService | null>(RUNTIME_UPLOAD_CELL, null);
@@ -748,6 +773,10 @@ function handleClick(event: MouseEvent) {
   emit("action", props.address, cellRef.value, isReadonlyCell.value);
 }
 
+function handleRelatedTagClick(uuid: string) {
+  emit("action", props.address, cellRef.value, true, uuid);
+}
+
 function handleUploadOpen() {
   emit("action", props.address, cellRef.value, isReadonlyCell.value);
 }
@@ -892,6 +921,7 @@ function handleUploadDrop(event: DragEvent) {
     border-radius: 2px;
     background: var(--el-bg-color-overlay);
     color: var(--el-text-color-primary);
+    user-select: text;
   }
 
   &__readonly-box--empty {
@@ -1076,6 +1106,28 @@ function handleUploadDrop(event: DragEvent) {
 
   &__placeholder {
     color: var(--text-color-placeholder);
+  }
+
+  &__related-tags {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  &__related-tag {
+    flex: 0 0 auto;
+    max-width: 100%;
+    border: none;
+    cursor: pointer;
+
+    :deep(.el-tag__content) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   &--readonly {

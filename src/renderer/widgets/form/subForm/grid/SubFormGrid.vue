@@ -131,7 +131,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "cell-change", payload: { address: CellAddress; value: unknown }): void;
   (e: "selection-change", rowIds: RowId[]): void;
-  (e: "cell-action", payload: { address: CellAddress; anchor?: HTMLElement | null; readonly?: boolean }): void;
+  (e: "cell-action", payload: { address: CellAddress; anchor?: HTMLElement | null; readonly?: boolean; relatedUuid?: string }): void;
   (e: "enter", address: CellAddress): void;
 }>();
 
@@ -296,8 +296,8 @@ function handleCellCommit(payload: { address: CellAddress; value: unknown }) {
 function handleCellClick() {
 }
 
-function handleCellAction(address: CellAddress, anchor?: HTMLElement | null, readonly?: boolean) {
-  emit("cell-action", { address, anchor, readonly });
+function handleCellAction(address: CellAddress, anchor?: HTMLElement | null, readonly?: boolean, relatedUuid?: string) {
+  emit("cell-action", { address, anchor, readonly, relatedUuid });
 }
 
 function handleCellEnter(address: CellAddress) {

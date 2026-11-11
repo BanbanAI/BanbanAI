@@ -241,13 +241,14 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     return this._runtimeInitialRowsSettled.value;
   }
 
-  async getRuntimeRelatedDetailRow(address: CellAddress) {
+  async getRuntimeRelatedDetailRow(address: CellAddress, uuid?: string) {
     if (!this.hasRuntime || !this._runtime) return undefined;
     const related = this.relatedTableInfo[address.fieldId];
     if (!related) return undefined;
     const ids = this._runtime.store.getValue(address);
     const normalizedIds = Array.isArray(ids) ? ids.filter(Boolean).map(String) : ids ? [String(ids)] : [];
     if (!normalizedIds.length) return undefined;
+    const targetUuid = uuid || normalizedIds[0];
     const uuidField = getUUIDSystemField(related.relatedTableFields);
     const titleField = related.relatedTableFields.find(field => field.meta.name === SystemField.DATA_TITLE);
     if (!uuidField || !titleField || !this._runtimeRelatedDataService) return undefined;
@@ -261,7 +262,7 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     try {
       const rows = await token.promise;
       if (!token.isCurrent()) return undefined;
-      return rows.find(row => String(row[uuidField.uid]) === normalizedIds[0]);
+      return rows.find(row => String(row[uuidField.uid]) === targetUuid);
     } finally {
       token.release();
     }

@@ -340,11 +340,12 @@ const handleRuntimeUploaderVisibility = (visible: boolean) => {
 };
 
 const handleRuntimeCellAction = async (
-  payload: { address: { rowId: string; fieldId: string }; anchor?: HTMLElement | null; readonly?: boolean } | { rowId: string; fieldId: string },
+  payload: { address: { rowId: string; fieldId: string }; anchor?: HTMLElement | null; readonly?: boolean; relatedUuid?: string } | { rowId: string; fieldId: string },
 ) => {
   const address = "address" in payload ? payload.address : payload;
   const anchor = "address" in payload ? payload.anchor : undefined;
   const cellReadonly = "address" in payload ? payload.readonly === true : false;
+  const relatedUuid = "address" in payload ? payload.relatedUuid : undefined;
   if (!props.subForm.hasRuntime) return;
   const widget = props.subForm.children.find(child => (
     child.fieldId === address.fieldId
@@ -371,12 +372,12 @@ const handleRuntimeCellAction = async (
     runtimeUploaderVisible.value = true;
     return;
   }
-  if (widget.type === 'widget.form.relatedData' && props.subForm.isReadonly) {
+  if (widget.type === 'widget.form.relatedData' && (props.subForm.isReadonly || cellReadonly)) {
     const relatedTable = props.subForm.relatedTableInfo[address.fieldId];
     const ids = props.subForm.runtimeStore?.getValue(address);
-    const uuid = Array.isArray(ids) ? ids.find(Boolean) : ids;
+    const uuid = relatedUuid || (Array.isArray(ids) ? ids.find(Boolean) : ids);
     if (!relatedTable || !uuid) return;
-    const relatedRow = await props.subForm.getRuntimeRelatedDetailRow(address);
+    const relatedRow = await props.subForm.getRuntimeRelatedDetailRow(address, uuid);
     if (!props.subForm.runtimeStore?.getRow(address.rowId)) return;
     const payload = {
       relatedTableUID: relatedTable.relatedTableUID,
