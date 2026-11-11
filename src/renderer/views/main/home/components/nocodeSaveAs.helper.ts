@@ -22,7 +22,7 @@ const getExportPageNodeValue = (pageId: string) => {
 }
 
 export const getExportPageIdFromNodeValue = (value: string) => {
-  if (!value.startsWith(EXPORT_PAGE_NODE_PREFIX)) return "";
+  if (typeof value !== "string" || !value.startsWith(EXPORT_PAGE_NODE_PREFIX)) return "";
   return value.slice(EXPORT_PAGE_NODE_PREFIX.length);
 }
 
@@ -73,6 +73,7 @@ export const getExportTableOptionsFromStructure = (structure?: NocodeStructure[]
   const walk = (nodes?: NocodeStructure[], parentPath = ""): ExportTableTreeNode[] => {
     return (nodes || []).reduce((result, item, index) => {
       if (item.type === NocodeStructureType.PAGE) {
+        if (!item.id) return result;
         const pageNodeValue = getExportPageNodeValue(item.id);
         selectedNodeValues.push(pageNodeValue);
         result.push({
@@ -82,6 +83,7 @@ export const getExportTableOptionsFromStructure = (structure?: NocodeStructure[]
         return result;
       }
       if (item.type === NocodeStructureType.FORM) {
+        if (!item.id) return result;
         tableUIDs.push(item.id as TableUID);
         selectedNodeValues.push(item.id);
         result.push({
