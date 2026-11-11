@@ -653,7 +653,12 @@ export async function executeFormDataFind(
       if (!field || !targetTableUID) continue;
       const targetTable = context.tables.get(targetTableUID);
       const targetUUID = targetTable && getUUIDSystemField(targetTable.fields);
-      if (!targetTable || !targetUUID) notFound(`related table is invalid: ${field.uid}`);
+      if (!targetTable || !targetUUID) {
+        rows.forEach(row => {
+          row[field.uid] = normalizeRelatedIds(row[field.uid]).map(id => ({ id: String(id), title: null }));
+        });
+        continue;
+      }
       const current = relatedGroups.get(targetTableUID) || {
         table: targetTable,
         uuidField: targetUUID,
