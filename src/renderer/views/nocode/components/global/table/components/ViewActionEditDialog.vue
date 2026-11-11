@@ -8,16 +8,29 @@
       :close-on-click-modal="false"
       :destroy-on-close="true"
       :show-close="false"
-      :fullscreen="isMobileDevice"
-      :width="isMobileDevice ? '100%' : '720px'"
+      :fullscreen="isMobileDevice || isFullscreen"
+      :width="isMobileDevice || isFullscreen ? '100%' : '720px'"
       align-center
     >
       <template #header>
         <div class="dialog-header">
           <div class="dialog-title">{{ title }}</div>
-          <el-button link @click="handleClose">
-            <el-icon :size="16"><i-ep-close /></el-icon>
-          </el-button>
+          <div class="dialog-actions">
+            <el-button
+              v-if="!isMobileDevice"
+              link
+              :title="$t(isFullscreen ? 'DataFormDialog.exitFullscreen' : 'DataFormDialog.fullscreen')"
+              @click="isFullscreen = !isFullscreen"
+            >
+              <el-icon :size="16">
+                <i-ven-icon-shrink-screen v-if="isFullscreen" />
+                <i-ven-icon-full-screen v-else />
+              </el-icon>
+            </el-button>
+            <el-button link @click="handleClose">
+              <el-icon :size="16"><i-ep-close /></el-icon>
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -71,6 +84,7 @@ const saveTipDialogRef = ref();
 const editingFormRef = ref();
 const isSubmitting = ref(false);
 const isShowForm = ref(true);
+const isFullscreen = ref(false);
 
 const formMode = computed(() => FormMode.Edit);
 provideFormMode(formMode);
@@ -120,6 +134,7 @@ const handleClose = async () => {
 const handleClear = () => {
   isShowForm.value = true;
   isSubmitting.value = false;
+  isFullscreen.value = false;
 }
 </script>
 
@@ -155,10 +170,30 @@ const handleClear = () => {
     }
 
     .dialog-title {
+      min-width: 0;
+      flex: 1;
       font-size: 16px;
       font-weight: 500;
       line-height: 24px;
       color: var(--text-color-primary);
+    }
+
+    .dialog-actions {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    &.is-fullscreen {
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+
+      .el-dialog__body {
+        flex: 1;
+        min-height: 0;
+        max-height: none;
+      }
     }
 
     .dialog-content {
