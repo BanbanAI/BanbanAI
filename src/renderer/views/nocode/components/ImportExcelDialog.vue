@@ -2714,6 +2714,7 @@ function identifySpecialFieldType(colTitle: any[], colIndex: number, titleRowInd
 
 function validSpecialFieldType(colTitle: any[], colIndex: number, titleRowIndex: number, field: Field) {
   if (!field) return
+  if (field.meta.extra.widgetType === 'widget.form.textInput') return true;
   const specialTypeValidator = getSpecialTypeValidator(colTitle, colIndex, titleRowIndex);
   const target = specialTypeValidator.find(v => v.type === field.meta.extra.widgetType);
   if (target) return target?.validator();
