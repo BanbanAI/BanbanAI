@@ -3,6 +3,8 @@ import { getUUIDSystemField, SystemField, transformCondition } from "@common/uti
 import { FormCondition, RuleFunc, FormConditionValueType } from "@common/types/nocode";
 import { getRelatedFields } from "@common/utils/related";
 import { getCircularLinkageRuleIndexes } from "@common/utils/linkage-fill";
+import { findIdByFormula, getFormulaStr } from "@common/utils/formula";
+import { getHiddenFieldSubmitMode, HiddenFieldSubmitMode } from "@common/utils/hiddenFieldSubmitPolicy";
 import { DefinedOptions, FormLinkageRule, FormVisibleRule, LogicalOperator, VisibleType, SelectIdOfForm } from "@renderer/b2/types";
 import { Widget } from "@renderer/b2/controllers/widget";
 import { AbstractForm, AbstractSubForm, FormElement, isSubForm } from "@renderer/b2/controllers/form";
@@ -579,6 +581,135 @@ export class Form extends AbstractForm {
     return widget?.status?.lastChangeTime;
   }
 
+  private getDependencyFieldKeys(widget: FormElement) {
+    const keys = new Set<string>();
+    const addKey = (value?: string) => {
+      if (value) keys.add(value);
+    };
+
+    addKey(widget.uid);
+    addKey(widget.fieldId);
+    addKey(widget.field?.uid);
+    addKey(widget.field?.meta?.uid);
+    addKey(widget.field?.meta?.name);
+    const path = [widget.fieldId];
+    let parent = widget.parent;
+    while (parent && parent !== this) {
+      if (parent instanceof AbstractSubForm && parent.fieldId) {
+        path.unshift(parent.fieldId);
+      }
+      parent = parent instanceof Widget ? parent.parent : null;
+    }
+    if (path.every(Boolean)) addKey(path.join("."));
+
+    return keys;
+  }
+
+  private resolveDependencyWidget(reference: string, widgets: FormElement[]) {
+    if (!reference) return undefined;
+
+    const parts = reference.split(".").filter(Boolean);
+    const tableUID = this.tableUID?.[1];
+    const referenceTableUID = parts[0]?.split(":").at(-1);
+    if (parts.length > 1 && tableUID && referenceTableUID !== tableUID) {
+      return undefined;
+    }
+
+    const candidates = new Set<string>([
+      reference,
+      ...parts,
+      parts.slice(1).join("."),
+    ].filter(Boolean));
+
+    return widgets.find(widget => {
+      const keys = this.getDependencyFieldKeys(widget);
+      return [...candidates].some(candidate => keys.has(candidate));
+    });
+  }
+
+  private getDependencyFormulaSources(widget: FormElement) {
+    const formulas = [
+      (widget as any).defaultFormulaValue,
+      (widget as any).formulaValue,
+      widget.getOption("default-formula"),
+      widget.getOption("compute-formula"),
+    ];
+
+    return [...new Set(formulas
+      .map(formula => getFormulaStr(formula as any))
+      .filter(Boolean))];
+  }
+
+  private isHiddenFieldUsedByOtherCalculation(targetWidget: FormElement) {
+    const widgets = this.allFormInputs;
+    const dependencyGraph = new Map<FormElement, Set<FormElement>>();
+    const addDependency = (source: FormElement | undefined, consumer: FormElement | undefined) => {
+      if (!source || !consumer || source === consumer) return;
+      const consumers = dependencyGraph.get(source) || new Set<FormElement>();
+      consumers.add(consumer);
+      dependencyGraph.set(source, consumers);
+    };
+
+    for (const rule of this.runnableFieldsFilling) {
+      const conditionWidgets = (rule.conditions || [])
+        .concat(rule.subTableSetting?.conditions || [])
+        .filter(condition => condition.type !== FormConditionValueType.CUSTOM)
+        .map(condition => this.resolveDependencyWidget(condition.value, widgets))
+        .filter((widget): widget is FormElement => !!widget);
+      const fillWidgets = (rule.fillWidgets || [])
+        .map(item => this.getChildElement(item.fillWidget))
+        .filter((widget): widget is FormElement => !!widget);
+
+      conditionWidgets.forEach(source => {
+        fillWidgets.forEach(consumer => addDependency(source, consumer));
+      });
+    }
+
+    widgets.forEach(consumer => {
+      this.getDependencyFormulaSources(consumer).forEach(formula => {
+        findIdByFormula(formula)
+          .map(reference => this.resolveDependencyWidget(reference, widgets))
+          .forEach(source => addDependency(source, consumer));
+      });
+    });
+
+    const visited = new Set<FormElement>();
+    const pending = [targetWidget];
+    while (pending.length) {
+      const source = pending.shift();
+      if (!source || visited.has(source)) continue;
+      visited.add(source);
+
+      for (const consumer of dependencyGraph.get(source) || []) {
+        if (consumer !== targetWidget) return true;
+        if (!visited.has(consumer)) pending.push(consumer);
+      }
+    }
+
+    return false;
+  }
+
+  private canFillHiddenWidget(item: FormLinkageRule["fillWidgets"][number]) {
+    if (!item.fillWidget) return false;
+    const targetWidget = this.getChildElement(item.fillWidget);
+    if (!targetWidget || targetWidget.isHiddenByFieldPermission) return false;
+    if (!targetWidget.isHidden) return true;
+
+    return getHiddenFieldSubmitMode(
+      this.getSoul().options,
+      targetWidget.fieldId,
+    ) === HiddenFieldSubmitMode.RECALCULATE
+      && this.isHiddenFieldUsedByOtherCalculation(targetWidget);
+  }
+
+  private getFillWidgetVisibility(rule: FormLinkageRule) {
+    return (rule.fillWidgets || []).reduce<Record<string, boolean>>((visibility, item) => {
+      if (!item.fillWidget) return visibility;
+      visibility[item.fillWidget] = this.canFillHiddenWidget(item);
+      return visibility;
+    }, {});
+  }
+
   private transformFieldsFillCondition(condition: FormCondition) {
     const { uid, func, fixedValue, type } = condition;
     if (type === FormConditionValueType.FORM && Array.isArray(fixedValue)) {
@@ -627,9 +758,10 @@ export class Form extends AbstractForm {
             prev[item.id] = lastChangeTime;
             return prev;
           }, {}),
+          fillWidgetVisibility: this.getFillWidgetVisibility(rule),
         }
       },
-      async ({value, lastChangeTime}, {value: lastValue, lastChangeTime: lastLastChangeTime}) => {
+      async ({value, lastChangeTime, fillWidgetVisibility}, {value: lastValue, lastChangeTime: lastLastChangeTime, fillWidgetVisibility: lastFillWidgetVisibility}) => {
         if (this.isViewing) return;
         if (!value) return;
         const isEditInitWithoutChange =
@@ -666,8 +798,11 @@ export class Form extends AbstractForm {
           }
         }
 
+        if (!equals(fillWidgetVisibility, lastFillWidgetVisibility)) {
+          isChange = true;
+        }
         if (!isChange) return;
-        const fillWidgets = this.getMainFormLinkageFillWidgets(rule);
+        const fillWidgets = this.getMainFormLinkageFillWidgets(rule).filter(item => this.canFillHiddenWidget(item));
         if (!fillWidgets.length) return;
         const watchVersion = (this.fieldFillWatchVersions.get(watchKey) || 0) + 1;
         this.fieldFillWatchVersions.set(watchKey, watchVersion);
