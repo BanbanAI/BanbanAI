@@ -1675,6 +1675,10 @@ const updateHiddenWidgets = () => {
 };
 
 const setCurrentDocument = async (row: Row, restoreDraft = false) => {
+  if (!contentField) {
+    ElMessage.error(i18next.t('catalogSettingDialog.contentFieldMissing'));
+    return;
+  }
   const baseRow = stripDraftRowMeta(row);
   if (!baseRow) return;
   baseRow[contentField.uid] = normalizeDocumentContentHtml(baseRow[contentField.uid]);
@@ -2155,6 +2159,10 @@ function handleClickDeleteBtn() {
 }
 
 async function handleClickEditBtn() {
+  if (!contentField) {
+    ElMessage.error(i18next.t('catalogSettingDialog.contentFieldMissing'));
+    return;
+  }
   await setCurrentDocument(baseDocumentData.value || documentData.value, true);
   isViewing.value = false;
   // isSetting.value = false;
@@ -2871,7 +2879,7 @@ async function handleNodeDrop(draggingNode: TreeNode, dropNode: TreeNode, dropTy
   resetTreeSort(treeData.value);
   const flatNodes = flattenTree(treeData.value);
   const changedNodes = flatNodes.filter(nodeData => {
-    const parentFieldUid = nodeData.type === 'catalog' ? catalogParentField.uid : parentField.uid;
+    const parentFieldUid = nodeData.type === 'catalog' ? catalogParentField?.uid : parentField.uid;
     const sortFieldUid = nodeData.type === 'catalog' ? catalogSortField.uid : sortField.uid;
     return (nodeData.row[parentFieldUid]?.[0] !== (nodeData.parentIds?.[0])) ||
       (nodeData.row[sortFieldUid] !== nodeData.sort);
@@ -2891,11 +2899,13 @@ async function syncTreeData(nodesToSync: CustomNodeData[]) {
   if (nodesToSync.length === 0) return;
 
   const parentTableRows = nodesToSync.filter(item => item.type === 'catalog').map(item => {
-    item.row[catalogParentField.uid] = item.parentIds[0] ? item.parentIds : [];
+    if (catalogParentField) {
+      item.row[catalogParentField.uid] = item.parentIds[0] ? item.parentIds : [];
+    }
     item.row[catalogUuidField.uid] = item.id;
     item.row[catalogSortField.uid] = item.sort;
     return {
-      [catalogParentField.uid]: item.row[catalogParentField.uid],
+      ...(catalogParentField ? { [catalogParentField.uid]: item.row[catalogParentField.uid] } : {}),
       [catalogUuidField.uid]: item.row[catalogUuidField.uid],
       [catalogSortField.uid]: item.row[catalogSortField.uid],
     };
@@ -3023,7 +3033,7 @@ async function addCatalog(data: CustomNodeData, node: TreeNode) {
   const targetSubFormField = isSelfCatalogTable ? subFormField : catalogSubFormField;
   const row = {
     [targetTitleField.uid]: label,
-    [targetParentField.uid]: parentIds,
+    ...(targetParentField ? { [targetParentField.uid]: parentIds } : {}),
     [targetSortField.uid]: calculateNewSort(data, node, 'inside'),
   };
   if (isSelfCatalogTable && titleField.uid !== targetTitleField.uid) {
@@ -3039,7 +3049,7 @@ async function addCatalog(data: CustomNodeData, node: TreeNode) {
     row: { ...rowData },
     label: rowData[targetTitleField.uid],
     id: rowData[targetUuidField.uid],
-    parentIds: rowData[targetParentField.uid],
+    parentIds: targetParentField ? rowData[targetParentField.uid] : [],
     sort: rowData[targetSortField.uid] || 0,
     tableId: catalogTable.uid,
     type: isSelfCatalogTable ? 'document' : 'catalog',
@@ -3048,7 +3058,11 @@ async function addCatalog(data: CustomNodeData, node: TreeNode) {
     children: [],
     canContainChildren: isSelfCatalogTable,
   }
-  treeRef.value.append(newNodeData, node);
+  if (targetParentField) {
+    treeRef.value.append(newNodeData, node);
+  } else {
+    treeRef.value.append(newNodeData);
+  }
   renameNode(newNodeData);
   await scrollToTreeNodeById(newNodeData.id);
 }
@@ -3057,6 +3071,10 @@ const changeDocument = async (data: CustomNodeData) => {
   await setCurrentDocument(data.row);
 }
 async function addDocument(data: CustomNodeData, node: TreeNode, row?: Row) {
+  if (!contentField) {
+    ElMessage.error(i18next.t('catalogSettingDialog.contentFieldMissing'));
+    return;
+  }
   const allowLeave = await ensureCanLeaveCurrentDocument(true);
   if (!allowLeave) {
     return;

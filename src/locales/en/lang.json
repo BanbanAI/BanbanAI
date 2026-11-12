@@ -10020,7 +10020,8 @@
     "fieldPlaceHolder": "Select field",
     "confirmButton": "Confirm",
     "cancelButton": "Cancel",
-    "requiredMessage": "Required fields cannot be empty"
+    "requiredMessage": "Required fields cannot be empty",
+    "contentFieldMissing": "This table has no rich text field. Add a rich text field to the form and try again."
   },
   "workbenchAiToolCalls": {
     "searchApps": "Find Related Apps",
