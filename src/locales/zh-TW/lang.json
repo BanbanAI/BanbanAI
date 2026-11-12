@@ -4636,6 +4636,7 @@
     "rolledBack": "已退回",
     "rejected": "已拒絕",
     "skipped": "已跳過",
+    "autoSkipped": "自動跳過",
     "handled": "已處理",
     "handling": "處理中",
     "cced": "已抄送",

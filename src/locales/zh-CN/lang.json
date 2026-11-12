@@ -4857,6 +4857,7 @@
     "rolledBack": "已退回",
     "rejected": "已拒绝",
     "skipped": "已跳过",
+    "autoSkipped": "自动跳过",
     "handled": "已处理",
     "handling": "处理中",
     "cced": "已抄送",

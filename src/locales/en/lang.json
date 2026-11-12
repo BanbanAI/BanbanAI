@@ -4648,6 +4648,7 @@
     "rolledBack": "Returned",
     "rejected": "Rejected",
     "skipped": "Skipped",
+    "autoSkipped": "Skipped automatically",
     "handled": "Processed",
     "handling": "Processing",
     "cced": "CCed",

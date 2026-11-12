@@ -1,5 +1,5 @@
 import { AddTodoOptions, AggregationType, BackTodoOptions, BaseTodoOptions, CancelTodoOptions, ContinueTodoOptions, DeleteTodoOptions, FieldAuthValue, FilterRule, FinishTodoOptions, FlowTriggerContext, FlowTriggerSkipReason, FormCondition, FormConditionValueType, FormLinkageCondition, FormLinkageRule, FormWidgetType, GetFlowRecordsParams, GetTodoParams, GetTodosParams, GetTodosResult, GetTransferTodoUsersOptions, LogicalOperator, NocodeBody, NocodeFormData, PermissionCategory, PermissionRangeType, RejectTodoOptions, RuleFunc, SelectIdOfForm, SubmitTodoOptions, TODO, TodoCategory, TodoProcess, TransferTodoOptions, ViewActionTriggerContext, ViewActionTriggerMode, TodoSubCategory } from "@common/types/nocode";
-import { OwnerEmptyHandle, CurrentSubTableFilter, CrossTableExecutionMode, DataChangeType, EditDataTargetScope, FLOW_DATA_OWNER_SOURCE_SUBMITTER, FlowOpinionFile, OrganizeOptionValue, ProcessBranch, ProcessFlow, ProcessNodeOwner, ProcessNodeOwnerType, ProcessNodeStatus, ProcessNodeType, SubmitRecord, TableUID, ApprovalCategory, NocodeProcess, ApproverType, ApprovalCategoryRule, OptionFieldUID, Row, TargetFieldFillType, TODOTriggerType, FormDataStageWhereCondition, ConditionBranchCondition, ConditionBranchConditionGroup, TimeTaskOptions, TimeTaskRepeat, Table, TargetFieldFillRule, TriggerMode, WhereCondition, SortType, QueryOptions, FormOption, FormValidRule, Field, getAllowCancel, getCrossTableExecutionMode, getWaitCrossTableFlowCompletion, getProcessTargetSourceUID, isDataChangeTriggerConditionsEnabled, isTimeTaskSingleTriggerMode, isTimeTaskTriggerConditionsEnabled, OperationTriggerMode, getOperationTriggerMode, ProcessVersionStatus, ProcessTimeoutActionType, ProcessTimeoutRule, FieldUID } from "@common/types/project";
+import { OwnerEmptyHandle, CurrentSubTableFilter, CrossTableExecutionMode, DataChangeType, EditDataTargetScope, FLOW_DATA_OWNER_SOURCE_SUBMITTER, FlowOpinionFile, OrganizeOptionValue, ProcessBranch, ProcessFlow, ProcessNodeOwner, ProcessNodeOwnerType, ProcessNodeStatus, ProcessNodeType, SubmitRecord, TableUID, ApprovalCategory, NocodeProcess, ApproverSameAsSubmitter, ApproverType, ApprovalCategoryRule, OptionFieldUID, Row, TargetFieldFillType, TODOTriggerType, FormDataStageWhereCondition, ConditionBranchCondition, ConditionBranchConditionGroup, TimeTaskOptions, TimeTaskRepeat, Table, TargetFieldFillRule, TriggerMode, WhereCondition, SortType, QueryOptions, FormOption, FormValidRule, Field, getAllowCancel, getCrossTableExecutionMode, getWaitCrossTableFlowCompletion, getProcessTargetSourceUID, isDataChangeTriggerConditionsEnabled, isTimeTaskSingleTriggerMode, isTimeTaskTriggerConditionsEnabled, OperationTriggerMode, getOperationTriggerMode, ProcessVersionStatus, ProcessTimeoutActionType, ProcessTimeoutRule, FieldUID } from "@common/types/project";
 import { FormDataStage, canRollbackFlow, filterCircularLinkageRules, getCreateOwnerSystemField, getDueTimeoutRules, getFlowById, getFlows, getFollowingFlows, getLastFlowById, getLastOwnerBranchFlow, getLinkageFillData, getLinkageFillValue, getNextFlow, getNocodeDataSourceTableByUID, getOwnerBranchFlow, getRollbackReplayPlan, getRollbackTargetFlows, getUUIDSystemField, hasConfiguredValue, isBranchNode, isDataProcessingNode, isMeetConditionsByRow, isProcessTable, isRollbackSubmitNode, isSystemField, isTriggerNode, resolveTimeoutDeadlineAt, SystemField, transformCondition, transformFilterRule, getProcessVersionStatus } from "@common/utils";
 import { getNocodeDataSourceByUID, isDataOwnerEnabledTable } from "@common/utils/connection";
 import { ADMIN_USERNAME, Account, Dynamic, isSystemAdminAccount } from "@common/types/account";
@@ -2235,7 +2235,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
 
       try {
-        await this.backTodo(backOptions, userId);
+        await this.backTodoByTimeout(backOptions, userId);
         const metas = record.metas || {};
         metas[userId] = metas[userId] || {};
         metas[userId].timeoutAutoAction = "back";
@@ -6423,6 +6423,27 @@ export class FormFlowService implements OnApplicationBootstrap {
     return pendingOperatorIds;
   }
 
+  private async assertCurrentApprovalOperator(
+    options: BaseTodoOptions,
+    flow: ProcessFlow,
+    record: FlowExecutionRecords,
+    userId: string,
+  ) {
+    if (flow.type !== ProcessNodeType.APPROVAL) {
+      return;
+    }
+
+    let owners = record.paddingOperators;
+    if (!owners) {
+      const startRecord = await this.getStartRecord(options);
+      owners = await this.getOwnersByNode(options, flow, startRecord?.operators?.[0]);
+    }
+    const activeOperatorIds = this.getActivePendingOperatorIds(flow, owners, record.operators);
+    if (!activeOperatorIds.includes(userId)) {
+      throw new Error(global.i18next.t('formFlowService.noApprovePerm'));
+    }
+  }
+
   private getOwnerOrder(owner: ProcessNodeOwner) {
     const defaultOrder = [
       ProcessNodeOwnerType.SUBMITTER,
@@ -6680,6 +6701,113 @@ export class FormFlowService implements OnApplicationBootstrap {
     return [value];
   }
 
+  private async resolveApprovalOwnersByNode(
+    options: BaseTodoOptions,
+    node: ProcessFlow,
+    initiatorId: string,
+  ): Promise<{ owners: string[], recordOwners: string[], submitterAutoSkipped: boolean }> {
+    const {
+      approver,
+      categoryRule,
+      approverEmpty,
+      approverEmptyAdmin,
+      approverEmptyUsers,
+      approverSameAsSubmitter,
+    } = node.options;
+    let owners: string[];
+    if (categoryRule === ApprovalCategoryRule.NORMAL) {
+      delete approver[ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER];
+      owners = await this.getOwners(options, approver, initiatorId);
+    } else {
+      owners = await this.getOwners(options, {
+        [ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER]: approver[ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER],
+      }, initiatorId);
+    }
+    let submitterAutoSkipped = false;
+    let submitterOwnerIndex = -1;
+
+    const buildResult = () => {
+      if (!submitterAutoSkipped) {
+        return { owners, recordOwners: owners, submitterAutoSkipped };
+      }
+      const recordOwners = owners.filter(ownerId => ownerId !== initiatorId);
+      const insertIndex = submitterOwnerIndex < 0
+        ? 0
+        : Math.min(submitterOwnerIndex, recordOwners.length);
+      recordOwners.splice(insertIndex, 0, initiatorId);
+      return {
+        owners,
+        recordOwners: Array.from(new Set(recordOwners)),
+        submitterAutoSkipped,
+      };
+    };
+
+    const applyEmptyOwnerHandle = async () => {
+      const accounts = await this.workbenchService.filterValidUsers(owners);
+      if (!isEmpty(accounts)) return false;
+
+      if (approverEmpty === OwnerEmptyHandle.ASSIGNEE) {
+        owners = approverEmptyUsers || [];
+      } else if (approverEmpty === OwnerEmptyHandle.ADMIN) {
+        owners = [approverEmptyAdmin].filter(Boolean);
+      } else if (approverEmpty === OwnerEmptyHandle.AUTO_APPROVE) {
+        owners = [];
+        return true;
+      }
+      return false;
+    };
+
+    if (await applyEmptyOwnerHandle()) {
+      return buildResult();
+    }
+
+    if (owners.includes(initiatorId)) {
+      if (approverSameAsSubmitter === ApproverSameAsSubmitter.AUTO_SKIP) {
+        submitterAutoSkipped = true;
+        submitterOwnerIndex = owners.indexOf(initiatorId);
+        owners = owners.filter(ownerId => ownerId !== initiatorId);
+        if (isEmpty(owners)) {
+          return buildResult();
+        }
+        if (await applyEmptyOwnerHandle()) {
+          return buildResult();
+        }
+        owners = owners.filter(ownerId => ownerId !== initiatorId);
+        if (isEmpty(owners)) {
+          return buildResult();
+        }
+      } else if (approverSameAsSubmitter === ApproverSameAsSubmitter.DEPARTMENT_MANAGER) {
+        const departmentManagers = await this.workbenchService.getDepartmentManagerByLevel(
+          initiatorId,
+          { mode: "up", value: 0 },
+        );
+        owners = Array.from(new Set(owners.flatMap(ownerId => (
+          ownerId === initiatorId
+            ? departmentManagers.filter(managerId => managerId !== initiatorId)
+            : [ownerId]
+        ))));
+        if (await applyEmptyOwnerHandle()) {
+          return buildResult();
+        }
+      }
+    }
+
+    const accounts = await this.workbenchService.filterValidUsers(owners);
+    if (isEmpty(accounts)) {
+      const admin = await this.workbenchService.getAdmin();
+      owners = [admin.id];
+      if (
+        approverSameAsSubmitter === ApproverSameAsSubmitter.AUTO_SKIP
+        && admin.id === initiatorId
+      ) {
+        owners = [];
+        submitterAutoSkipped = true;
+        submitterOwnerIndex = 0;
+      }
+    }
+    return buildResult();
+  }
+
   async getOwnersByNode(options: BaseTodoOptions, node: ProcessFlow, initiatorId?: string): Promise<string[]> {
     if (!node) return [];
     if (!initiatorId) {
@@ -6689,23 +6817,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     let users = [];
     if (node.type === ProcessNodeType.APPROVAL) {
-      const { approver, categoryRule, approverEmpty, approverEmptyAdmin, approverEmptyUsers } = node.options;
-      if (categoryRule === ApprovalCategoryRule.NORMAL) {
-        delete approver[ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER];
-        users = await this.getOwners(options, approver, initiatorId);
-      } else {
-        users = await this.getOwners(options, { [ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER]: approver[ProcessNodeOwnerType.MULTI_LEVEL_DEPARTMENT_MANAGER] }, initiatorId);
-      }
-      const accounts = await this.workbenchService.filterValidUsers(users);
-      if (isEmpty(accounts)) {
-        if (approverEmpty === OwnerEmptyHandle.ASSIGNEE) {
-          users = approverEmptyUsers;
-        } else if (approverEmpty === OwnerEmptyHandle.ADMIN) {
-          users = [approverEmptyAdmin];
-        } else if (approverEmpty === OwnerEmptyHandle.AUTO_APPROVE) {
-          return [];
-        }
-      }
+      return (await this.resolveApprovalOwnersByNode(options, node, initiatorId)).owners;
     } else if (node.type === ProcessNodeType.TRANSACT) {
       const { transactor, transactorEmpty, transactorEmptyAdmin, transactorEmptyUsers } = node.options
       users = await this.getOwners(options, transactor, initiatorId);
@@ -6874,11 +6986,30 @@ export class FormFlowService implements OnApplicationBootstrap {
 
   private async startApprovalNode(options: BaseTodoOptions, node: ProcessFlow, initiatorId: string) {
     await this.ensureNodeSupportsEmptyRowTrigger(options, node);
-    let owners = await this.getOwnersByNode(options, node, initiatorId);
-    const isFinish = isEmpty(owners) && node.options.approverEmpty === OwnerEmptyHandle.AUTO_APPROVE;
-    const record = await this.createRecord(options, node, isFinish ? ProcessNodeStatus.FINISHED : ProcessNodeStatus.IN_PROGRESS);
-    if (!isFinish) {
-      record.paddingOperators = owners;
+    const { owners, recordOwners, submitterAutoSkipped } = await this.resolveApprovalOwnersByNode(options, node, initiatorId);
+    const isSkipped = submitterAutoSkipped && isEmpty(owners);
+    const isFinish = isSkipped || (isEmpty(owners) && node.options.approverEmpty === OwnerEmptyHandle.AUTO_APPROVE);
+    const status = isSkipped
+      ? ProcessNodeStatus.SKIPPED
+      : isFinish
+        ? ProcessNodeStatus.FINISHED
+        : ProcessNodeStatus.IN_PROGRESS;
+    const record = await this.createRecord(options, node, status);
+    if (submitterAutoSkipped) {
+      record.metas = {
+        ...(record.metas || {}),
+        [initiatorId]: {
+          ...(record.metas?.[initiatorId] || {}),
+          autoSkipped: true,
+          updateTime: record.startTime,
+        },
+      };
+      record.operators = [initiatorId];
+    }
+    if (isSkipped) {
+      await this.flowExecutionRecordsRepository.persistAndFlush(record);
+    } else if (!isFinish) {
+      record.paddingOperators = recordOwners;
       await this.initializeNodeTimeoutMeta(options, node, record);
       await this.flowExecutionRecordsRepository.persistAndFlush(record);
     }
@@ -6971,7 +7102,10 @@ export class FormFlowService implements OnApplicationBootstrap {
           startTime: "DESC",
         },
       });
-      if (record?.status === ProcessNodeStatus.SKIPPED) return;
+      if (record?.status === ProcessNodeStatus.SKIPPED) {
+        const isAutoSkipped = Object.values(record.metas || {}).some(meta => meta?.autoSkipped);
+        return isAutoSkipped ? ProcessNodeStatus.FINISHED : undefined;
+      }
       return record?.status;
     }
 
@@ -11544,7 +11678,7 @@ export class FormFlowService implements OnApplicationBootstrap {
           }
           throw err;
         }
-        if (record.status === ProcessNodeStatus.FINISHED) {
+        if ([ProcessNodeStatus.FINISHED, ProcessNodeStatus.SKIPPED].includes(record.status)) {
           toNext = true;
         }
       }
@@ -12105,6 +12239,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     const flows = await this.getInstanceFlows(process, options, flowRecord);
     const flow = getFlowById(flows, options.flowId);
     if (!flow) throw new Error(global.i18next.t('formFlowService.processNotFound'));
+    await this.assertCurrentApprovalOperator(options, flow, flowRecord, userId);
     if (![ProcessNodeType.TRIGGER_DATA_CHANGE, ProcessNodeType.APPROVAL, ProcessNodeType.TRANSACT, ProcessNodeType.REPORT_DATA].includes(flow.type)) {
       throw new Error(global.i18next.t('formFlowService.stashNotSupported'));
     }
@@ -14271,7 +14406,11 @@ export class FormFlowService implements OnApplicationBootstrap {
     }
     if (categoryRule === ApprovalCategoryRule.NORMAL && approverType !== ApproverType.SEQUENTIAL) {
       if (approverType === ApproverType.OR) {
-        flowRecord.operators = [userId];
+        const autoSkippedOperatorIds = Object.entries(flowRecord.metas || {})
+          .filter(([, meta]) => meta?.autoSkipped)
+          .map(([operatorId]) => operatorId);
+        const autoSkippedOperatorIdSet = new Set(autoSkippedOperatorIds);
+        flowRecord.operators = Array.from(new Set([...autoSkippedOperatorIds, userId]));
         flowRecord.status = ProcessNodeStatus.FINISHED;
         flowRecord.endTime = Date.now();
         if (this.hasOpinionContent(options)) {
@@ -14279,7 +14418,7 @@ export class FormFlowService implements OnApplicationBootstrap {
         }
         await this.flowExecutionRecordsRepository.persistAndFlush(flowRecord);
         // 隐含的抄送：给其他审批人员抄送一�?
-        const notifyOwners = owners.filter(id => id !== userId);
+        const notifyOwners = owners.filter(id => id !== userId && !autoSkippedOperatorIdSet.has(id));
         if (!isEmpty(notifyOwners)) {
           const record = await this.createRecord(options, { ...flow, type: ProcessNodeType.NOTIFY }, ProcessNodeStatus.FINISHED);
           record.operators = notifyOwners;
@@ -14324,7 +14463,7 @@ export class FormFlowService implements OnApplicationBootstrap {
       if (this.hasOpinionContent(options)) {
         this.applyOpinionToMeta(meta, options, meta.updateTime);
       }
-      const isFinish = operators.length === owners.length && owners.every(id => operators.includes(id));
+      const isFinish = owners.every(id => operators.includes(id));
       if (isFinish) {
         flowRecord.status = ProcessNodeStatus.FINISHED;
         flowRecord.endTime = Date.now();
@@ -14498,13 +14637,17 @@ export class FormFlowService implements OnApplicationBootstrap {
 
     if (categoryRule === ApprovalCategoryRule.NORMAL && approverType === ApproverType.OR) {
       const autoHandledUserIds = [pendingUserIds[0]];
-      flowRecord.operators = autoHandledUserIds;
+      const autoSkippedOperatorIds = Object.entries(flowRecord.metas || {})
+        .filter(([, meta]) => meta?.autoSkipped)
+        .map(([operatorId]) => operatorId);
+      const autoSkippedOperatorIdSet = new Set(autoSkippedOperatorIds);
+      flowRecord.operators = Array.from(new Set([...autoSkippedOperatorIds, ...autoHandledUserIds]));
       flowRecord.status = ProcessNodeStatus.FINISHED;
       flowRecord.endTime = Date.now();
       this.applyTimeoutAutoActionToMetas(flowRecord, autoHandledUserIds, "submit");
       await this.flowExecutionRecordsRepository.persistAndFlush(flowRecord);
 
-      const notifyOwners = owners.filter(id => id !== autoHandledUserIds[0]);
+      const notifyOwners = owners.filter(id => id !== autoHandledUserIds[0] && !autoSkippedOperatorIdSet.has(id));
       await this.createImplicitNotifyRecord(options, flow, notifyOwners);
 
       return {
@@ -14894,6 +15037,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     const flows = await this.getInstanceFlows(process, options, flowRecord);
     const flow = getFlowById(flows, options.flowId);
     if (!flow) throw new Error(global.i18next.t('formFlowService.processNotFound'));
+    await this.assertCurrentApprovalOperator(options, flow, flowRecord, userId);
     const executionContext = await this.getFlowExecutionContext(options.todoId);
     const nodeStashContext = this.getNodeStashContext(executionContext?.data, flow.uid);
     const reportStashContext = flow.type === ProcessNodeType.REPORT_DATA
@@ -15146,10 +15290,14 @@ export class FormFlowService implements OnApplicationBootstrap {
   }
 
   async backTodo(options: BackTodoOptions, userId: string) {
-    return await this.withTodoOperationLock(options.todoId, () => this.backTodoInternal(options, userId));
+    return await this.withTodoOperationLock(options.todoId, () => this.backTodoInternal(options, userId, true));
   }
 
-  private async backTodoInternal(options: BackTodoOptions, userId: string) {
+  private async backTodoByTimeout(options: BackTodoOptions, userId: string) {
+    return await this.withTodoOperationLock(options.todoId, () => this.backTodoInternal(options, userId, false));
+  }
+
+  private async backTodoInternal(options: BackTodoOptions, userId: string, validateCurrentOperator: boolean) {
     const nocodeBody = await getNocodeBody(this.nocodesDir, options.nocodeId);
     const formData = nocodeBody.formData;
     const process = formData.formOptions[options.tableId]?.process;
@@ -15165,6 +15313,9 @@ export class FormFlowService implements OnApplicationBootstrap {
     const flows = await this.getInstanceFlows(process, options, record);
     const flow = getFlowById(flows, options.flowId);
     if (!flow) throw new Error(global.i18next.t('formFlowService.processNotFound'));
+    if (validateCurrentOperator) {
+      await this.assertCurrentApprovalOperator(options, flow, record, userId);
+    }
     if (!canRollbackFlow(flow)) throw new Error(global.i18next.t('formFlowService.rejectNotAllowed'));
     const backFlow = getFlowById(flows, options.backId);
     if (!backFlow) throw new Error(global.i18next.t('formFlowService.rejectNodeNotFound'));
@@ -15243,12 +15394,44 @@ export class FormFlowService implements OnApplicationBootstrap {
     await this.updateFlowData(options, { node: { type: "delete", value: deletedFlowIds } });
     await this.clearSkipNodeIds(options.todoId);
 
-    const backedRecord = await this.createRecord(options, backFlow);
     const startRecord = await this.getStartRecord(options);
-    if (isRollbackSubmitNode(backFlow)) {
-      backedRecord.paddingOperators = startRecord.operators;
+    const initiatorId = startRecord.operators[0];
+    const isManualApprovalBackFlow = backFlow.type === ProcessNodeType.APPROVAL
+      && ![ApprovalCategory.AUTO_APPROVE, ApprovalCategory.AUTO_REJECT].includes(backFlow.options.category);
+    let shouldContinueAfterBack = false;
+    let backedRecord: FlowExecutionRecords;
+    if (isManualApprovalBackFlow) {
+      const { owners, recordOwners, submitterAutoSkipped } = await this.resolveApprovalOwnersByNode(options, backFlow, initiatorId);
+      const isSkipped = submitterAutoSkipped && isEmpty(owners);
+      const isFinish = isSkipped || (isEmpty(owners) && backFlow.options.approverEmpty === OwnerEmptyHandle.AUTO_APPROVE);
+      const status = isSkipped
+        ? ProcessNodeStatus.SKIPPED
+        : isFinish
+          ? ProcessNodeStatus.FINISHED
+          : ProcessNodeStatus.IN_PROGRESS;
+      backedRecord = await this.createRecord(options, backFlow, status);
+      if (submitterAutoSkipped) {
+        backedRecord.metas = {
+          ...(backedRecord.metas || {}),
+          [initiatorId]: {
+            ...(backedRecord.metas?.[initiatorId] || {}),
+            autoSkipped: true,
+            updateTime: backedRecord.startTime,
+          },
+        };
+        backedRecord.operators = [initiatorId];
+      }
+      if (!isSkipped && !isFinish) {
+        backedRecord.paddingOperators = recordOwners;
+      }
+      shouldContinueAfterBack = isFinish;
     } else {
-      backedRecord.paddingOperators = await this.getOwnersByNode(options, backFlow, startRecord.operators?.[0])
+      backedRecord = await this.createRecord(options, backFlow);
+      if (isRollbackSubmitNode(backFlow)) {
+        backedRecord.paddingOperators = startRecord.operators;
+      } else {
+        backedRecord.paddingOperators = await this.getOwnersByNode(options, backFlow, initiatorId)
+      }
     }
     if (shouldMoveStashState) {
       backedRecord.isStashed = true;
@@ -15265,7 +15448,38 @@ export class FormFlowService implements OnApplicationBootstrap {
       backedMeta.stashedTargetUUID = sourceReportTargetMeta.stashedTargetUUID;
     }
     await this.flowExecutionRecordsRepository.persistAndFlush(backedRecord);
-    await this.updateFlowData(options, { node: { type: "add", value: [backedRecord.flowId] } });
+    if (shouldContinueAfterBack) {
+      const activeRecordQuery: FilterQuery<FlowExecutionRecords> = {
+        nocodeId: options.nocodeId,
+        tableId: options.tableId,
+        uuid: options.uuid,
+        status: ProcessNodeStatus.IN_PROGRESS,
+      };
+      if (options.todoId) activeRecordQuery.todoId = options.todoId;
+      const activeRecordIdsBeforeContinue = shouldMoveStashState
+        ? new Set((await this.flowExecutionRecordsRepository.find(activeRecordQuery)).map(item => item.id))
+        : null;
+      const nextNode = getNextFlow(flows, backFlow.uid);
+      await this.addNextNode(options, flows, nextNode, initiatorId);
+      if (activeRecordIdsBeforeContinue) {
+        const activeRecords = await this.flowExecutionRecordsRepository.find(activeRecordQuery, {
+          orderBy: { startTime: "ASC" },
+        });
+        const stashTargetRecord = activeRecords.find(item => !activeRecordIdsBeforeContinue.has(item.id));
+        if (stashTargetRecord) {
+          await this.moveTodoFlowContext(record.todoId, backFlow.uid, stashTargetRecord.flowId, {
+            moveNodeStash: true,
+          });
+          this.clearRecordStashed(backedRecord);
+          stashTargetRecord.isStashed = true;
+          stashTargetRecord.stashTime = sourceStashSnapshot.stashTime;
+          stashTargetRecord.stashOperatorId = sourceStashSnapshot.stashOperatorId;
+          await this.flowExecutionRecordsRepository.persistAndFlush([backedRecord, stashTargetRecord]);
+        }
+      }
+    } else {
+      await this.updateFlowData(options, { node: { type: "add", value: [backedRecord.flowId] } });
+    }
   }
 
   private async continueAfterRejectedApproval(
@@ -15315,6 +15529,7 @@ export class FormFlowService implements OnApplicationBootstrap {
     const flow = getFlowById(flows, options.flowId);
     if (!flow) throw new Error(global.i18next.t("formFlowService.processNodeNotFound"));
     if (flow.type !== ProcessNodeType.APPROVAL) throw new Error(global.i18next.t('formFlowService.nodeNotSupportReject'));
+    await this.assertCurrentApprovalOperator(options, flow, record, userId);
     this.clearRecordStashed(record);
     if (record.operators) {
       record.operators.push(userId);
@@ -15705,7 +15920,9 @@ export class FormFlowService implements OnApplicationBootstrap {
         ? [initiatorId]
         : await this.getOwnersByNode(options, flow, initiatorId);
     }
-    if (!isAdmin && !this.canOperateFlowRecord(record, userId, owners)) {
+    if (!isAdmin && flow.type === ProcessNodeType.APPROVAL) {
+      await this.assertCurrentApprovalOperator(options, flow, record, userId);
+    } else if (!isAdmin && !this.canOperateFlowRecord(record, userId, owners)) {
       throw new Error(global.i18next.t('formDataService.noPerm'));
     }
     if (isDataProcessingNode(flow.type) && this.isDataProcessingExecutionActive(record)) {
