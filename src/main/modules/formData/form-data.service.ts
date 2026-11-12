@@ -1226,7 +1226,7 @@ export class FormDataService implements OnApplicationBootstrap {
   }
 
   async getAiReadableFieldIds(nocodeId: string, tableUID: TableUID) {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const tables = [
       ...(nocodeBody?.formData?.tables || []),
       ...((nocodeBody?.otherDataSources || []).flatMap((source: any) => source?.tables || [])),
@@ -1251,7 +1251,7 @@ export class FormDataService implements OnApplicationBootstrap {
   }
 
   async assertApiFieldsEditable(nocodeId: string, tableUID: TableUID, fieldUIDs: FieldUID[]) {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const tables = [
       ...(nocodeBody?.formData?.tables || []),
       ...((nocodeBody?.otherDataSources || []).flatMap((source: any) => source?.tables || [])),
@@ -1289,7 +1289,7 @@ export class FormDataService implements OnApplicationBootstrap {
       return result;
     }
 
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const resolveContext: FieldPermissionResolveContext = {
       memberRangeUsersCache: new Map<string, string[]>(),
     };
@@ -6677,7 +6677,7 @@ export class FormDataService implements OnApplicationBootstrap {
   ) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     return {
       nocodeBody,
       ...this.resolveTableSourceContext(nocodeBody, nocodeId, tableUID, fillSubTableFields),
@@ -6859,7 +6859,7 @@ export class FormDataService implements OnApplicationBootstrap {
   async distinct(nocodeId: string, tableUID: TableUID, fieldId: FieldUID, options?: QueryOptions, onlyValue = true) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const formData = nocodeBody.formData as NocodeFormData;
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const aggregateTableUIDSet = new Set(
@@ -7680,7 +7680,7 @@ export class FormDataService implements OnApplicationBootstrap {
     aggregateTable: AggregateTable,
     options?: QueryOptions,
   ): Promise<Bucket | undefined> {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const currentSourceUID = nocodeBody.formData?.uid;
     const source = currentSourceUID
@@ -7751,7 +7751,7 @@ export class FormDataService implements OnApplicationBootstrap {
     const metrics = createFormDataFindMetrics();
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(request.nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(request.nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(request.nocodeId);
     const { table: rootTable } = this.resolveTableSourceContext(nocodeBody, request.nocodeId, request.tableUID);
     if (!rootTable) {
       throw new NotFoundException({ code: "FIND_TABLE_NOT_FOUND", message: `Form data table not found: ${request.tableUID}` });
@@ -7863,7 +7863,7 @@ export class FormDataService implements OnApplicationBootstrap {
   ) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const aggregateTableUIDSet = new Set(
       runtimeSources.flatMap(source => (source.aggregateTables || []).map(table => table.uid)),
