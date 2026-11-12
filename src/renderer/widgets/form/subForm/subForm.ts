@@ -44,7 +44,7 @@ import { RuntimeUploaderService } from "./runtime/uploader-service";
 import { RuntimeOptionService, type DynamicOptionDescriptor, type RuntimeOptionSnapshot } from "./runtime/option-service";
 import type { LinkageRule } from "./runtime/linkage-engine";
 import { compileRuntimeFieldFillBindings, type RuntimeFieldFillTarget } from "./runtime/field-fill-rule";
-import { getDefaultQuickComputeRuntimeDataFilter } from "../_common/defaultQuickCompute";
+import { getDefaultQuickComputeRuntimeDataFilter, hasUnresolvedQuickComputeCondition } from "../_common/defaultQuickCompute";
 import { resolveDataSourceSelectionMeta } from "../_common/page-permission";
 import type { CellAddress, RowContext } from "./runtime/types";
 import { SUB_FORM_FIELD_TYPES } from "./sub-form-field-types";
@@ -55,6 +55,12 @@ export const SUB_FORM_ROW_LIMIT = 200;
 const CONDITION_WIDGET_SEPARATOR = ".";
 
 type SubFormFillTrace = { batch: true };
+
+type RuntimeQuickComputeConfig = {
+  fieldId: string;
+  sameRowDependencies: readonly string[];
+  requiredDependencies: readonly string[];
+};
 
 type SelectDataBatchTiming = {
   confirm: number;
@@ -195,7 +201,12 @@ export class SubForm extends AbstractSubForm implements RelatedData {
       await runtime.formulaEngine.recomputeAll(runtime.store.rowIds);
       this._runtimeVersion.value += 1;
     });
+    this.scheduleRuntimeQuickCompute(runtime.store.rowIds);
   });
+  private _runtimeQuickComputeStop: (() => boolean) | undefined;
+  private _runtimeQuickComputeTimer: ReturnType<typeof setTimeout> | undefined;
+  private _runtimeQuickComputeRows = new Set<string>();
+  private _runtimeQuickComputeConfigs: RuntimeQuickComputeConfig[] | null = null;
   private _runtimeRelatedDataService: RuntimeRelatedDataService | null = null;
   private _runtimeUploaderService: RuntimeUploaderService | null = null;
   private _runtimeOptionService: RuntimeOptionService | null = null;
@@ -1738,6 +1749,165 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     return child.fieldId || this.getSubWidgetFieldId(child);
   }
 
+  private isRuntimeQuickComputeChild(child: any) {
+    if (child.type === FormWidgetType.AUTO_COMPUTE) {
+      return child.computeType === "quickCompute" && child.otherTableFieldUID?.length >= 3;
+    }
+    return !!child.handleFormatValue
+      && child.defaultType === "formula"
+      && child.defaultComputeType === "quickCompute"
+      && child.defaultOtherTableFieldUID?.length >= 3;
+  }
+
+  private getRuntimeQuickComputeFieldIds() {
+    return new Set(
+      this.getRuntimeQuickComputeConfigs().map(config => config.fieldId),
+    );
+  }
+
+  private getRuntimeQuickComputeConfigs() {
+    if (this._runtimeQuickComputeConfigs) return this._runtimeQuickComputeConfigs;
+
+    const subFieldIds = new Set((this.field?.subTableFields || []).map(field => field.uid));
+    const configs: RuntimeQuickComputeConfig[] = [];
+    for (const child of this.children as any[]) {
+      if (!this.isRuntimeQuickComputeChild(child)) continue;
+      const fieldId = this.getDynamicChildFieldId(child);
+      if (!fieldId) continue;
+      const dataFilter = child.type === FormWidgetType.AUTO_COMPUTE ? child.dataFilter : child.defaultDataFilter;
+      const sameRowDependencies = new Set<string>();
+      const requiredDependencies = new Set<string>();
+      for (const condition of dataFilter?.conditions || []) {
+        if (condition.type && condition.type !== FormConditionValueType.FORM) continue;
+        const comparisonUid = typeof condition.comparisonUid === "string" ? condition.comparisonUid : "";
+        const dependencyFieldId = comparisonUid.split(".").at(-1);
+        if (!dependencyFieldId || !subFieldIds.has(dependencyFieldId)) continue;
+        sameRowDependencies.add(dependencyFieldId);
+        if (condition.func === RuleFunc.EQUAL) requiredDependencies.add(dependencyFieldId);
+      }
+      configs.push({
+        fieldId,
+        sameRowDependencies: [...sameRowDependencies],
+        requiredDependencies: [...requiredDependencies],
+      });
+    }
+    this._runtimeQuickComputeConfigs = configs;
+    return configs;
+  }
+
+  private getRuntimeQuickComputeExternalDependencies() {
+    const subFieldIds = new Set((this.field?.subTableFields || []).map(field => field.uid));
+    const dependencies = new Set<string>();
+    for (const child of this.children as any[]) {
+      if (!this.isRuntimeQuickComputeChild(child)) continue;
+      const dataFilter = child.type === FormWidgetType.AUTO_COMPUTE ? child.dataFilter : child.defaultDataFilter;
+      for (const condition of dataFilter?.conditions || []) {
+        if (condition.type && condition.type !== FormConditionValueType.FORM) continue;
+        const comparisonUid = typeof condition.comparisonUid === "string" ? condition.comparisonUid : "";
+        if (!comparisonUid || comparisonUid.includes(".") || subFieldIds.has(comparisonUid)) continue;
+        dependencies.add(comparisonUid);
+      }
+    }
+    return [...dependencies];
+  }
+
+  private scheduleRuntimeQuickCompute(rowIds: readonly string[]) {
+    if (!this._runtime || !this.getRuntimeQuickComputeConfigs().length) return;
+    for (const rowId of rowIds) this._runtimeQuickComputeRows.add(String(rowId));
+    if (!this._runtimeQuickComputeRows.size) return;
+    if (this._runtimeQuickComputeTimer !== undefined) clearTimeout(this._runtimeQuickComputeTimer);
+    this._runtimeQuickComputeTimer = setTimeout(() => {
+      this._runtimeQuickComputeTimer = undefined;
+      void this.flushRuntimeQuickCompute();
+    }, 200);
+  }
+
+  private async flushRuntimeQuickCompute() {
+    const runtime = this._runtime;
+    if (!runtime) return;
+    if (this._runtimeMutationDepth > 0) {
+      this.scheduleRuntimeQuickCompute([...this._runtimeQuickComputeRows]);
+      return;
+    }
+    const configs = this.getRuntimeQuickComputeConfigs();
+    if (!configs.length) return;
+    const rowIds = [...this._runtimeQuickComputeRows];
+    this._runtimeQuickComputeRows.clear();
+    if (!rowIds.length) return;
+
+    const rowsById = new Map((this._rows.value || []).map(row => [
+      String((row as Record<string, unknown>)[UUID] || ""),
+      row as Record<string, unknown>,
+    ] as const));
+    const quickComputeFieldIds = [...this.getRuntimeQuickComputeFieldIds()];
+    const valueUpdates = new Map<string, Record<string, unknown>>();
+
+    for (const rowId of rowIds) {
+      const row = rowsById.get(rowId);
+      const storeRow = runtime.store.getRow(rowId);
+      if (!row || !storeRow) continue;
+      const targetFieldIds = configs
+        .filter(config => config.requiredDependencies.every(fieldId => !isEmpty(storeRow.data[fieldId])))
+        .map(config => config.fieldId);
+      if (!targetFieldIds.length) continue;
+
+      this.invalidateDynamicValueCache(rowId);
+      try {
+        await this.ensureDynamicFieldValues(quickComputeFieldIds);
+      } catch {
+        continue;
+      }
+
+      const updates: Record<string, unknown> = {};
+      for (const fieldId of targetFieldIds) {
+        const nextValue = row[fieldId];
+        if (nextValue === undefined) continue;
+        if (Object.is(storeRow.data[fieldId], nextValue)) continue;
+        updates[fieldId] = deepClone(nextValue);
+      }
+      if (Object.keys(updates).length) valueUpdates.set(rowId, updates);
+    }
+
+    if (!valueUpdates.size || this._runtime !== runtime) return;
+    await runtime.store.transact(tx => {
+      for (const [rowId, updates] of valueUpdates) {
+        for (const [fieldId, value] of Object.entries(updates)) {
+          tx.setValue({ rowId, fieldId }, value, "formula");
+        }
+      }
+    });
+  }
+
+  private onRuntimeStoreChangeForQuickCompute(changeSet: {
+    changes: readonly { address: CellAddress; source: string }[];
+    addedRows: readonly string[];
+  }) {
+    const configs = this.getRuntimeQuickComputeConfigs();
+    if (!configs.length || !this._runtime) return;
+    if (
+      changeSet.changes.length
+      && changeSet.changes.every(change => change.source === "deduplication")
+    ) return;
+    if (!changeSet.addedRows.length && changeSet.changes.length) {
+      if (changeSet.changes.every(change => change.source === "default")) return;
+      const quickComputeFieldIds = this.getRuntimeQuickComputeFieldIds();
+      if (changeSet.changes.every(change => (
+        change.source === "formula" && quickComputeFieldIds.has(change.address.fieldId)
+      ))) return;
+    }
+
+    const dependencyFieldIds = new Set<string>();
+    for (const config of configs) {
+      for (const fieldId of config.sameRowDependencies) dependencyFieldIds.add(fieldId);
+    }
+    const affectedRowIds = new Set<string>(changeSet.addedRows);
+    for (const change of changeSet.changes) {
+      if (dependencyFieldIds.has(change.address.fieldId)) affectedRowIds.add(change.address.rowId);
+    }
+    if (!affectedRowIds.size) return;
+    this.scheduleRuntimeQuickCompute([...affectedRowIds]);
+  }
+
   /** Calculate formula-backed fields for unmounted virtual rows on demand. */
   public async ensureDynamicFieldValues(fieldIds: string[] = [], options: { force?: boolean } = {}) {
     const forceRecalculate = options.force === true;
@@ -1881,13 +2051,15 @@ export class SubForm extends AbstractSubForm implements RelatedData {
             // An unavailable source is a transient state during form restore,
             // and a failed request must never replace a persisted aggregate.
             if (!canCalculate) continue;
+            const dataFilter = isAutoCompute
+              ? fixedRuntimeDataFilter(child.runtimeDataFilter)
+              : getDefaultQuickComputeRuntimeDataFilter(child as any, true);
+            if (hasUnresolvedQuickComputeCondition(dataFilter)) continue;
             let value: number | null | undefined;
             try {
               value = await calculateAggregation({
                 otherTableFieldUID,
-                dataFilter: isAutoCompute
-                  ? fixedRuntimeDataFilter(child.runtimeDataFilter)
-                  : getDefaultQuickComputeRuntimeDataFilter(child as any, true),
+                dataFilter,
                 nocodeId: dataSourceMeta.nocodeId,
                 aggregateType: isAutoCompute ? child.aggregateType : child.defaultAggregateType,
                 decimal: child.decimal,
@@ -2177,7 +2349,8 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     this._runtimeExternalFormulaStop = undefined;
     if (!widgetUids.length || !this._runtime) return;
     const readTokens = () => widgetUids.map(widgetUid => {
-      const widget = this.topForm?.getChildElement(widgetUid) as FormElement | undefined;
+      const widget = (this.topForm?.getChildElement(widgetUid)
+        ?? (this.topForm?.container?.getChildWidgets(true) as FormElement[] | undefined)?.find(child => child.fieldId === widgetUid)) as FormElement | undefined;
       if (widget?.isInSubForm && isSubForm(widget.form)) {
         const subForm = widget.form as SubForm;
         if (!subForm.runtimeInitialRowsSettled) return null;
@@ -3466,8 +3639,14 @@ export class SubForm extends AbstractSubForm implements RelatedData {
           this.requestRuntimeStructureChange();
         }
       });
+      this._runtimeQuickComputeStop = this._runtime.store.subscribe(changeSet => {
+        this.onRuntimeStoreChangeForQuickCompute(changeSet);
+      });
       this._runtimeActive.value = true;
-      this.watchRuntimeExternalFormulaDependencies(schema.externalDependencies);
+      this.watchRuntimeExternalFormulaDependencies([
+        ...schema.externalDependencies,
+        ...this.getRuntimeQuickComputeExternalDependencies(),
+      ]);
     }
     return this._runtime;
   }
@@ -3706,6 +3885,13 @@ export class SubForm extends AbstractSubForm implements RelatedData {
     this._runtimeStoreStop = undefined;
     this._runtimeExternalFormulaStop?.();
     this._runtimeExternalFormulaStop = undefined;
+    this._runtimeQuickComputeStop?.();
+    this._runtimeQuickComputeStop = undefined;
+    if (this._runtimeQuickComputeTimer !== undefined) {
+      clearTimeout(this._runtimeQuickComputeTimer);
+      this._runtimeQuickComputeTimer = undefined;
+    }
+    this._runtimeQuickComputeRows.clear();
     this._runtimeDataFillOptions.clear();
     this._runtime?.dispose();
     this._runtimeRelatedDataService?.dispose();

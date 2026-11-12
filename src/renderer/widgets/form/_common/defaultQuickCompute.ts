@@ -3,7 +3,7 @@ import { watch } from "vue";
 import { debounce } from "lodash";
 import { isEmpty } from "@common/utils/object";
 import { calculateAggregation } from "@renderer/utils/autoCompute";
-import { FormConditionValueType, FormWidgetType, AggregationType } from "@common/types/nocode";
+import { FormConditionValueType, FormWidgetType, AggregationType, RuleFunc } from "@common/types/nocode";
 import { getFormulaStr } from "@common/utils/formula";
 import { isNocodeFormData, SystemField, isSystemField } from "@common/utils/connection";
 import { FormLinkageCondition, SelectChoice, SelectIdOfForm } from "@renderer/b2/types";
@@ -132,6 +132,19 @@ const resolveConditionRuntimeValue = (
   }
 
   return condition.value;
+};
+
+export const hasUnresolvedQuickComputeCondition = (dataFilter?: FilterRule | null) => {
+  return (dataFilter?.conditions || []).some(condition => {
+    const comparisonUid = (condition as { comparisonUid?: string }).comparisonUid;
+    if (condition.func !== RuleFunc.EQUAL || !comparisonUid) return false;
+    const value = condition.fixedValue !== undefined ? condition.fixedValue : condition.value;
+    return value === undefined
+      || value === null
+      || value === ""
+      || (Array.isArray(value) && !value.length)
+      || value === comparisonUid;
+  });
 };
 
 export const getDefaultQuickComputeType = (widget: NumericDefaultQuickComputeWidget) => {
@@ -407,9 +420,11 @@ export const watchDefaultQuickComputeValue = ({
       if (!dataSourceMeta.nocodeId || (!dataSourceMeta.isCurrentConnection && !dataSourceMeta.hasViewPermission)) {
         value = null;
       } else {
+        const dataFilter = getRuntimeDataFilter() as FilterRule;
+        if (hasUnresolvedQuickComputeCondition(dataFilter)) return;
         value = await calculateAggregation({
           otherTableFieldUID,
-          dataFilter: getRuntimeDataFilter() as FilterRule,
+          dataFilter,
           nocodeId: dataSourceMeta.nocodeId,
           aggregateType: getDefaultQuickComputeAggregateType(widget) as AggregationType,
           decimal: getDecimal(),

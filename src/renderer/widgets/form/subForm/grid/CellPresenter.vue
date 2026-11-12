@@ -655,15 +655,26 @@ const cellClasses = computed(() => ({
   "cell-presenter--error": !!cellError.value,
 }));
 
+let relatedIdsKey = "";
 const refreshRelatedData = () => {
-  relatedRequest?.release();
-  relatedRequest = undefined;
   if (props.column.type !== "widget.form.relatedData" || !props.relatedDataService) return;
   const value = props.store.getValue(props.address);
   const ids = Array.isArray(value) ? value.filter(Boolean).map(String) : value ? [String(value)] : [];
   const tableUID = props.column.schema.relatedTableUID;
   const uuidFieldId = props.column.schema.relatedUuidFieldId;
   const titleFieldId = props.column.schema.relatedTitleFieldId;
+  const nextIdsKey = [
+    props.address.rowId,
+    props.address.fieldId,
+    Array.isArray(tableUID) ? tableUID.join(".") : "",
+    uuidFieldId || "",
+    titleFieldId || "",
+    ids.join(","),
+  ].join("\u0000");
+  if (nextIdsKey === relatedIdsKey) return;
+  relatedIdsKey = nextIdsKey;
+  relatedRequest?.release();
+  relatedRequest = undefined;
   if (!ids.length || !Array.isArray(tableUID) || typeof uuidFieldId !== "string" || typeof titleFieldId !== "string") return;
   relatedRequest = props.relatedDataService.request(props.address, tableUID, uuidFieldId, titleFieldId, ids);
   const request = relatedRequest;
