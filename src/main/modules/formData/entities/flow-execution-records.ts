@@ -5,6 +5,7 @@ import { unique } from "@common/utils/unique";
 import { PrimaryKey } from "@main/decorators/primary-key";
 
 export type FlowExecutionRecordMeta = {
+  autoSkipped?: boolean,
   comment?: string,
   tip?: string,
   commentImages?: FlowOpinionFile[],

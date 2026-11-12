@@ -71,6 +71,9 @@
             <el-icon :size="20" v-else-if="item.status === ProcessNodeStatus.TRANSFERED">
               <i-workbench-flow-transfer/>
             </el-icon>
+            <el-icon :size="20" v-else-if="isApprovalAutoSkipped(item)">
+              <i-workbench-flow-finish/>
+            </el-icon>
             <span class="skip-badge" v-else-if="item.status === ProcessNodeStatus.SKIPPED">
               <span class="skip-line"></span>
             </span>
@@ -132,7 +135,7 @@
             />
           </el-icon>
         </div>
-        <div class="item-body" v-if="getPaddingOperators(item)?.length && !foldData[index]">
+        <div class="item-body" v-if="item.status !== ProcessNodeStatus.SKIPPED && getPaddingOperators(item)?.length && !foldData[index]">
           <ul>
             <li  v-for="(id, opIndex) in getPaddingOperators(item)" :key="id + opIndex">
               <div class="user-card" :title="getUserName(id)">
@@ -410,6 +413,23 @@ const getDataProcessingStatusText = (status?: ProcessNodeStatus) => {
     : i18next.t('ProcessTimeline.pending')
 }
 
+const getAutoSkippedOperatorIds = (flow) => {
+  if (flow.type !== ProcessNodeType.APPROVAL) {
+    return []
+  }
+  return Object.entries(flow.data?.metas || {})
+    .filter(([, meta]) => Boolean(meta?.autoSkipped))
+    .map(([operatorId]) => operatorId)
+}
+
+const isApprovalAutoSkipped = (flow) => {
+  const operatorId = flow.operator || flow.data?.operators?.[0]
+  return [ProcessNodeType.APPROVAL, 'approval_temp'].includes(flow.type)
+    && flow.status === ProcessNodeStatus.SKIPPED
+    && Boolean(operatorId)
+    && Boolean(flow.data?.metas?.[operatorId]?.autoSkipped)
+}
+
 const getFlowDirector = (flow) => {
   const process = flow.data
 
@@ -426,6 +446,11 @@ const getFlowDirector = (flow) => {
   // 没有数据直接返回空
   if (!process && !['approval_temp', 'transact_temp', 'notify_temp'].includes(flow.type)) {
     return ''
+  }
+
+  if (isApprovalAutoSkipped(flow)) {
+    const operatorId = flow.operator || process?.operators?.[0]
+    return `${getUserName(operatorId)}（${i18next.t('ProcessTimeline.autoSkipped')}）`
   }
 
   if(flow.status === ProcessNodeStatus.SKIPPED) {
@@ -755,6 +780,7 @@ const expandFlow = (flow, nodeType) => {
   const { manualOperatorIds, autoOperatorIds } = splitFlowOperatorsByTimeoutAutoAction(flow)
   const manualOperatorIdSet = new Set(manualOperatorIds)
   const autoOperatorIdSet = new Set(autoOperatorIds)
+  const autoSkippedOperatorIdSet = new Set(getAutoSkippedOperatorIds(flow))
   const timeoutAutoSource = autoOperatorIds
     .map(userId => flow.data?.metas?.[userId])
     .find(source => ['submit', 'back'].includes(source?.timeoutAutoAction))
@@ -770,6 +796,18 @@ const expandFlow = (flow, nodeType) => {
       operators: [],
       paddingOperators: [],
     }
+  })
+  const createAutoSkippedNode = (operator) => ({
+    ...flow,
+    uid: unique(),
+    type: nodeType,
+    status: ProcessNodeStatus.SKIPPED,
+    operator,
+    data: {
+      ...flow.data,
+      operators: [operator],
+      paddingOperators: [],
+    },
   })
   const createTimeoutAutoNode = () => ({
     ...flow,
@@ -789,6 +827,10 @@ const expandFlow = (flow, nodeType) => {
   const newNodes = []
   let timeoutAutoInserted = false
   for (const operator of operators) {
+    if (autoSkippedOperatorIdSet.has(operator)) {
+      newNodes.push(createAutoSkippedNode(operator))
+      continue
+    }
     if (autoOperatorIdSet.has(operator)) {
       if (!timeoutAutoInserted && timeoutAutoSource) {
         newNodes.push(createTimeoutAutoNode())
@@ -937,7 +979,7 @@ const showFlowData = computed(() => {
       flow.options.name = flow.data.flowName
     }
     if (
-      (flow.type === ProcessNodeType.APPROVAL && flow.options.category === ApprovalCategory.MANUAL) ||
+      (flow.type === ProcessNodeType.APPROVAL && flow.options.category === ApprovalCategory.MANUAL && flow.status !== ProcessNodeStatus.SKIPPED) ||
       (flow.type === ProcessNodeType.TRANSACT && !flow.data?.submitRecords?.length)
     ) {
       const { replace, nodes } = expandFlow(flow, `${flow.type}_temp`)
