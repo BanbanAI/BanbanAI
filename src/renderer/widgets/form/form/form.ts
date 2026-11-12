@@ -605,7 +605,7 @@ export class Form extends AbstractForm {
     return keys;
   }
 
-  private resolveDependencyWidget(reference: string, widgets: FormElement[]) {
+  private resolveDependencyWidget(reference: string, widgets: FormElement[], keyIndex: Map<string, number>) {
     if (!reference) return undefined;
 
     const parts = reference.split(".").filter(Boolean);
@@ -621,10 +621,15 @@ export class Form extends AbstractForm {
       parts.slice(1).join("."),
     ].filter(Boolean));
 
-    return widgets.find(widget => {
-      const keys = this.getDependencyFieldKeys(widget);
-      return [...candidates].some(candidate => keys.has(candidate));
-    });
+    let matchedIndex = -1;
+    for (const candidate of candidates) {
+      const index = keyIndex.get(candidate);
+      if (index !== undefined && (matchedIndex === -1 || index < matchedIndex)) {
+        matchedIndex = index;
+      }
+    }
+
+    return matchedIndex === -1 ? undefined : widgets[matchedIndex];
   }
 
   private getDependencyFormulaSources(widget: FormElement) {
@@ -640,8 +645,36 @@ export class Form extends AbstractForm {
       .filter(Boolean))];
   }
 
-  private isHiddenFieldUsedByOtherCalculation(targetWidget: FormElement) {
+  private _hiddenCalculationContext?: {
+    widgets: FormElement[];
+    dependencyGraph: Map<FormElement, Set<FormElement>>;
+  };
+
+  private getHiddenCalculationDependencyGraph() {
     const widgets = this.allFormInputs;
+    const cached = this._hiddenCalculationContext;
+    if (!this.isEditable
+      && cached
+      && cached.widgets.length === widgets.length
+      && cached.widgets.every((widget, index) => widget === widgets[index])) {
+      return cached.dependencyGraph;
+    }
+
+    const dependencyGraph = this.buildHiddenCalculationDependencyGraph(widgets);
+    this._hiddenCalculationContext = this.isEditable ? undefined : { widgets, dependencyGraph };
+    return dependencyGraph;
+  }
+
+  private buildHiddenCalculationDependencyGraph(widgets: FormElement[]) {
+    const keyIndex = this.buildDependencyKeyIndex(widgets);
+    const resolvedWidgets = new Map<string, FormElement | undefined>();
+    const resolve = (reference: string) => {
+      if (!reference) return undefined;
+      if (!resolvedWidgets.has(reference)) {
+        resolvedWidgets.set(reference, this.resolveDependencyWidget(reference, widgets, keyIndex));
+      }
+      return resolvedWidgets.get(reference);
+    };
     const dependencyGraph = new Map<FormElement, Set<FormElement>>();
     const addDependency = (source: FormElement | undefined, consumer: FormElement | undefined) => {
       if (!source || !consumer || source === consumer) return;
@@ -654,7 +687,7 @@ export class Form extends AbstractForm {
       const conditionWidgets = (rule.conditions || [])
         .concat(rule.subTableSetting?.conditions || [])
         .filter(condition => condition.type !== FormConditionValueType.CUSTOM)
-        .map(condition => this.resolveDependencyWidget(condition.value, widgets))
+        .map(condition => resolve(condition.value))
         .filter((widget): widget is FormElement => !!widget);
       const fillWidgets = (rule.fillWidgets || [])
         .map(item => this.getChildElement(item.fillWidget))
@@ -668,10 +701,28 @@ export class Form extends AbstractForm {
     widgets.forEach(consumer => {
       this.getDependencyFormulaSources(consumer).forEach(formula => {
         findIdByFormula(formula)
-          .map(reference => this.resolveDependencyWidget(reference, widgets))
+          .map(reference => resolve(reference))
           .forEach(source => addDependency(source, consumer));
       });
     });
+
+    return dependencyGraph;
+  }
+
+  private buildDependencyKeyIndex(widgets: FormElement[]) {
+    const keyIndex = new Map<string, number>();
+    widgets.forEach((widget, index) => {
+      for (const key of this.getDependencyFieldKeys(widget)) {
+        if (!keyIndex.has(key)) {
+          keyIndex.set(key, index);
+        }
+      }
+    });
+    return keyIndex;
+  }
+
+  private isHiddenFieldUsedByOtherCalculation(targetWidget: FormElement) {
+    const dependencyGraph = this.getHiddenCalculationDependencyGraph();
 
     const visited = new Set<FormElement>();
     const pending = [targetWidget];
@@ -802,7 +853,9 @@ export class Form extends AbstractForm {
           isChange = true;
         }
         if (!isChange) return;
-        const fillWidgets = this.getMainFormLinkageFillWidgets(rule).filter(item => this.canFillHiddenWidget(item));
+        const fillWidgets = this.getMainFormLinkageFillWidgets(rule).filter(item => {
+          return !!item.fillWidget && !!fillWidgetVisibility[item.fillWidget];
+        });
         if (!fillWidgets.length) return;
         const watchVersion = (this.fieldFillWatchVersions.get(watchKey) || 0) + 1;
         this.fieldFillWatchVersions.set(watchKey, watchVersion);
