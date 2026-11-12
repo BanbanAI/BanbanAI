@@ -909,7 +909,8 @@ export type NocodeBody = {
   views?: TOC,
   printTemplate?: Record<TableUID, PrintTemplate[]>,
   isEditTableCell?: boolean,
-  sign?: string
+  sign?: string,
+  license?: "Community"
 }
 
 export type NocodeCoverSummary = {

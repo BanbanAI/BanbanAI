@@ -530,6 +530,7 @@ export async function writeNocodeBody(nocodeDir: string, nocodeBody: NocodeBody)
   }
 
   nocodeBody.sign = createMainVersion();
+  nocodeBody.license = "Community";
   const content = serializeNocodeBody(nocodeBody);
 
   await mkdir(nocodeDir, { recursive: true });
