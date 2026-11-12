@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger, OnApplicationBootstrap, forwardRef, INestAp
 import { ModuleRef } from "@nestjs/core";
 import AsyncLock from "async-lock";
 import { PREFERENCES, CLIENT_CONTEXT, USER, REPORTS_DIR, NOCODES_DIR, UPLOADS_DIR, SERVER_ENDPOINT, COMMON_UTIL } from "@main/constants";
+import { RequestStorage } from "@main/middleware";
 import { CommonUtil, Preferences } from "../common";
 import { EntityManager, FilterQuery, MikroORM, MikroORMOptions, UseRequestContext } from "@mikro-orm/core";
 import { Group as GroupEntity, GroupRepository, Nocode as NocodeEntity, NocodeRepository } from "./entities";
@@ -2163,6 +2164,26 @@ export class ProjectService implements OnApplicationBootstrap {
       otherDataSources,
       otherDataSourceSchemas: otherDataSources,
     };
+  }
+
+  public async getReadonlyNocodeBodyWithOtherDataSources(id: string): Promise<NocodeBody> {
+    const req = RequestStorage.current?.req as ({ readonlyNocodeBodyCache?: Map<string, Promise<NocodeBody>> } | undefined);
+    if (!req) {
+      return await this.getNocodeBodyWithOtherDataSources(id);
+    }
+    const cache = req.readonlyNocodeBodyCache || (req.readonlyNocodeBodyCache = new Map());
+    const cached = cache.get(id);
+    if (cached) {
+      return await cached;
+    }
+    const pending = this.getNocodeBodyWithOtherDataSources(id);
+    cache.set(id, pending);
+    pending.catch(() => {
+      if (cache.get(id) === pending) {
+        cache.delete(id);
+      }
+    });
+    return await pending;
   }
 
   public async resolveFormMutationSource(
