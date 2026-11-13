@@ -418,11 +418,12 @@ const handleRuntimeUploaderVisibility = (visible: boolean) => {
 };
 
 const handleRuntimeCellAction = async (
-  payload: { address: CellAddress; anchor?: HTMLElement | null; readonly?: boolean } | CellAddress,
+  payload: { address: CellAddress; anchor?: HTMLElement | null; readonly?: boolean; relatedUuid?: string } | CellAddress,
 ) => {
   const address = "address" in payload ? payload.address : payload;
   const anchor = "address" in payload ? payload.anchor : undefined;
   const cellReadonly = "address" in payload ? payload.readonly === true : false;
+  const relatedUuid = "address" in payload ? payload.relatedUuid : undefined;
   if (!props.subForm.hasRuntime) return;
   const widget = findRuntimeWidget(address);
   if (!widget) return;
@@ -446,12 +447,12 @@ const handleRuntimeCellAction = async (
     runtimeUploaderVisible.value = true;
     return;
   }
-  if (widget.type === 'widget.form.relatedData' && props.subForm.isReadonly) {
+  if (widget.type === 'widget.form.relatedData' && (props.subForm.isReadonly || cellReadonly)) {
     const relatedTable = props.subForm.relatedTableInfo[address.fieldId];
     const ids = props.subForm.runtimeStore?.getValue(address);
-    const uuid = Array.isArray(ids) ? ids.find(Boolean) : ids;
+    const uuid = relatedUuid || (Array.isArray(ids) ? ids.find(Boolean) : ids);
     if (!relatedTable || !uuid) return;
-    const relatedRow = await props.subForm.getRuntimeRelatedDetailRow(address);
+    const relatedRow = await props.subForm.getRuntimeRelatedDetailRow(address, uuid);
     if (!props.subForm.runtimeStore?.getRow(address.rowId)) return;
     const detailPayload = {
       relatedTableUID: relatedTable.relatedTableUID,

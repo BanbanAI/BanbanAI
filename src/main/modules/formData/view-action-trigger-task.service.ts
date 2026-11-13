@@ -2304,7 +2304,9 @@ export class ViewActionTriggerTaskService implements OnApplicationBootstrap, OnA
             ...task.requestPayload,
             targetUUIDs: [task.uuid],
           } as ExecuteViewActionRequest;
-          const precheck = await this.formDataService.precheckViewActionTrigger(request);
+          const precheck = await this.formDataService.precheckViewActionTrigger(request, {
+            skipPersistedViewFilters: true,
+          });
           const item = precheck.items.find(current => current.uuid === task.uuid);
           if (!item?.executable) {
             await this.restoreTaskQueueState(task);
@@ -2342,6 +2344,7 @@ export class ViewActionTriggerTaskService implements OnApplicationBootstrap, OnA
                 queueClass: task.queueClass === "p0" ? "p0" : "p1",
               }
               : undefined,
+            skipPersistedViewFilters: true,
           });
           if ((result.successCount || 0) <= 0) {
             const failedItem = result.failedItems?.[0];

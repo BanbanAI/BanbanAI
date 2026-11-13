@@ -3,7 +3,7 @@
     <el-dialog :modelValue="modelValue" @update:modelValue="emit('update:modelValue', $event)"
       :close-on-press-escape="false" :title="$t('SelectFormTableDialog.selectForm')" width="30%" :close-on-click-modal="false" align-center
       @closed="onClosed">
-      <el-tree-select v-model="selectedTable" :data="tableChoices" :render-after-expand="false" :placeholder="$t('SelectFormTableDialog.selectForm')" />
+      <el-tree-select v-model="selectedTable" :data="tableChoices" :render-after-expand="false" :placeholder="$t('SelectFormTableDialog.selectForm')" filterable />
       <template #footer>
         <span class="dialog-footer">
           <el-button type="primary" @click="handleConfirm">

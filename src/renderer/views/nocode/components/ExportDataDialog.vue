@@ -111,13 +111,13 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { Search } from '@element-plus/icons-vue';
 import { useTable, useTableProps } from '../components/global/table/hooks';
 import * as XLSX from "xlsx";
 import axios from "axios";
 import { ElIcon, ElMessage } from "element-plus";
-import { doDownload } from "@renderer/utils";
+import { doDownload, storeFactory } from "@renderer/utils";
 import { ExportType } from '@common/types/nocode';
 import { replaceIllegalChars } from '@common/utils';
 import i18next from 'i18next';
@@ -133,6 +133,7 @@ dayjs.extend(customParseFormat)
 const widget = useTable();
 const searchVal = ref('');
 const selectedFieldList = ref([])
+const restoredFieldUIDs = ref<string[]>([])
 const isExportCompleted = ref(false)
 const settingDialogVisible = ref(false);
 const isExportIdField = ref(false);
@@ -290,6 +291,88 @@ const resetValues = () => {
   }
 };
 
+type ExportDataConfig = {
+  fieldUids: string[];
+  isExportIdField: boolean;
+  isExportFileFormat: boolean;
+  namingMethod: string;
+};
+
+const getExportConfigStore = () => {
+  const tableUID = widget.formTableUID;
+  if (!tableUID) return null;
+  return storeFactory<ExportDataConfig>(`EXPORT_DATA_CONFIG_V1_${widget.widgetNocodeId}_${tableUID}`);
+};
+
+const collectLeafFieldUIDs = (nodes, result: Set<string> = new Set()) => {
+  for (const node of nodes || []) {
+    if (node.subColumns?.length) {
+      collectLeafFieldUIDs(node.subColumns, result);
+    } else if (node.uid) {
+      result.add(node.uid);
+    }
+  }
+  return result;
+};
+
+const restoreExportConfig = () => {
+  let config: ExportDataConfig | null = null;
+  try {
+    config = getExportConfigStore()?.get() ?? null;
+  } catch {
+    config = null;
+  }
+  if (!config) return;
+
+  const validLeafUIDs = collectLeafFieldUIDs(props.fields || []);
+  restoredFieldUIDs.value = Array.isArray(config.fieldUids)
+    ? config.fieldUids.filter(uid => validLeafUIDs.has(uid))
+    : [];
+  isExportIdField.value = config.isExportIdField === true;
+  isExportFileFormat.value = config.isExportFileFormat === true;
+  namingMethod.value = config.namingMethod === 'formFieldName' ? 'formFieldName' : 'originalFilename';
+};
+
+const syncTreeFromRestoredFields = () => {
+  const tree = fieldTreeRef.value;
+  if (!tree) return;
+  tree.setCheckedKeys([], true);
+  for (const uid of restoredFieldUIDs.value) {
+    tree.setChecked(uid, true, false);
+  }
+  selectedFieldList.value = Array.from(new Set([
+    ...(tree.getCheckedKeys?.() ?? []),
+    ...(tree.getHalfCheckedKeys?.() ?? []),
+  ]));
+};
+
+const saveExportConfig = () => {
+  const leafUIDs = collectLeafFieldUIDs(props.fields || []);
+  getExportConfigStore()?.set({
+    fieldUids: selectedFieldList.value.filter(uid => leafUIDs.has(uid)),
+    isExportIdField: isExportIdField.value,
+    isExportFileFormat: isExportFileFormat.value,
+    namingMethod: namingMethod.value,
+  });
+};
+
+watch(() => props.dialogVisible, async (visible) => {
+  if (!visible) return;
+  resetValues();
+  selectedFieldList.value = [];
+  isExportIdField.value = false;
+  isExportFileFormat.value = false;
+  namingMethod.value = 'originalFilename';
+  restoredFieldUIDs.value = [];
+  restoreExportConfig();
+  await nextTick();
+  syncTreeFromRestoredFields();
+}, { immediate: true });
+
+watch(fieldTreeRef, (tree) => {
+  if (tree && props.dialogVisible) syncTreeFromRestoredFields();
+}, { flush: 'post' });
+
 const handleCloseExportDialog = () => {
   resetValues()
   selectedFieldList.value = []
@@ -313,6 +396,7 @@ const handleCancel = () => {
 }
 
 const handleConfirm = async () => {
+  saveExportConfig()
   resetValues()
   exportLoading.value = true
   try {

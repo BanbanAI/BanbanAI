@@ -1420,6 +1420,10 @@ export abstract class AbstractForm extends BaseWidget {
     }
     return descendants.some(item => this.hasForceShownField(item));
   }
+  private isForceHiddenFieldPath(fieldId: string) {
+    const segments = String(fieldId).split(".");
+    return segments.some((_, index) => this._forceHiddenFields.value.includes(segments.slice(0, index + 1).join(".")));
+  }
   private hasVisibleDescendantAfterForceHidden(widget: BaseWidget) {
     const descendants = widget.container?.getChildWidgets?.(true) as BaseWidget[] | undefined;
     if (!descendants?.length) {
@@ -1431,7 +1435,7 @@ export abstract class AbstractForm extends BaseWidget {
         return false;
       }
       return fieldIds.some(fieldId => this._forceShownFields.value.includes(fieldId))
-        || fieldIds.every(fieldId => !this._forceHiddenFields.value.includes(fieldId));
+        || fieldIds.every(fieldId => !this.isForceHiddenFieldPath(fieldId));
     });
   }
   public isForceShownWidget(widget: BaseWidget) {

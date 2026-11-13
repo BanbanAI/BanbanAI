@@ -11,6 +11,7 @@
         v-if="props.isShowHeader && props.headerVariant === 'default'"
         :rowHeightLevel="displayState.rowHeightLevel.value"
         :disabled="isInitialLoading"
+        :displayColumns="displayColumns"
         @add-data="showFormRowDialog(FormMode.Add)"
         @execute-view-action="void handleExecuteViewAction($event)"
         @import-completed="void handleImportCompleted()"

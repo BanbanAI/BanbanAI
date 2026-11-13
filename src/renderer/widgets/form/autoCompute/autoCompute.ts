@@ -17,6 +17,7 @@ import { ElInput } from "element-plus";
 import { debounce } from "lodash";
 import { FilterRule } from "./types";
 import { resolveDataSourceSelectionMeta } from "../_common/page-permission";
+import { hasUnresolvedQuickComputeCondition } from "../_common/defaultQuickCompute";
 
 export class AutoCompute extends FormElement {
   static resource = resource as any;
@@ -134,7 +135,20 @@ export class AutoCompute extends FormElement {
     }
 
     const comparisonForm = this.getComparisonFormElement(condition.comparisonUid);
-    return comparisonForm ? comparisonForm.inputValue : condition.value;
+    if (comparisonForm) return comparisonForm.inputValue;
+
+    const currentSubFormRow = this.currentSubFormRow;
+    const [subFormFieldId, subFieldId] = condition.comparisonUid.split(".");
+    const currentSubForm = currentSubFormRow?.parent as FormElement | undefined;
+    if (currentSubFormRow && subFieldId && currentSubForm
+      && (!currentSubForm.fieldId || [currentSubForm.uid, currentSubForm.fieldId].includes(subFormFieldId))) {
+      const field = this.findElementByUidOrFieldId(currentSubForm.children as FormElement[], subFieldId);
+      const fieldId = field?.fieldId || subFieldId;
+      const row = currentSubFormRow.getRow();
+      if (row && Object.prototype.hasOwnProperty.call(row, fieldId)) return row[fieldId];
+    }
+
+    return condition.value;
   }
 
   get runtimeDataFilter() {
@@ -269,9 +283,11 @@ export class AutoCompute extends FormElement {
       return;
     }
 
+    const dataFilter = this.runtimeDataFilter as FilterRule;
+    if (hasUnresolvedQuickComputeCondition(dataFilter)) return;
     this.inputValue = await calculateAggregation({
       otherTableFieldUID: this.otherTableFieldUID,
-      dataFilter: this.runtimeDataFilter as FilterRule,
+      dataFilter,
       nocodeId: dataSourceMeta.nocodeId,
       aggregateType: this.aggregateType as AggregationType,
       decimal: this.decimal

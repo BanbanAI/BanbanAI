@@ -54,9 +54,13 @@ export class RuntimeRelatedDataService {
     return token;
   }
 
-  format(tableUID: readonly string[], ids: readonly string[]) {
+  formatLabels(tableUID: readonly string[], ids: readonly string[]) {
     const tableLabels = this.labels.get(tableUID.join("."));
-    return ids.map(id => tableLabels?.get(String(id)) || String(id)).join(", ");
+    return ids.map(id => tableLabels?.get(String(id)) || String(id));
+  }
+
+  format(tableUID: readonly string[], ids: readonly string[]) {
+    return this.formatLabels(tableUID, ids).join(", ");
   }
 
   dispose() {

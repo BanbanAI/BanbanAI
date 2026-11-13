@@ -60,6 +60,10 @@ type TryAddDataOptions = {
 }
 type SubTableUpdateFieldMap = Map<FieldUID, ViewActionFieldId[] | null>;
 
+type ViewActionRuntimeOptions = Pick<TriggerOptions, "flowWorkerContext"> & {
+  skipPersistedViewFilters?: boolean;
+};
+
 type UniqueRowDescriptor = {
   identity: string;
   rowIndex: number;
@@ -1222,7 +1226,7 @@ export class FormDataService implements OnApplicationBootstrap {
   }
 
   async getAiReadableFieldIds(nocodeId: string, tableUID: TableUID) {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const tables = [
       ...(nocodeBody?.formData?.tables || []),
       ...((nocodeBody?.otherDataSources || []).flatMap((source: any) => source?.tables || [])),
@@ -1247,7 +1251,7 @@ export class FormDataService implements OnApplicationBootstrap {
   }
 
   async assertApiFieldsEditable(nocodeId: string, tableUID: TableUID, fieldUIDs: FieldUID[]) {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const tables = [
       ...(nocodeBody?.formData?.tables || []),
       ...((nocodeBody?.otherDataSources || []).flatMap((source: any) => source?.tables || [])),
@@ -1285,7 +1289,7 @@ export class FormDataService implements OnApplicationBootstrap {
       return result;
     }
 
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const resolveContext: FieldPermissionResolveContext = {
       memberRangeUsersCache: new Map<string, string[]>(),
     };
@@ -3764,10 +3768,13 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ) {
     const rowKey = getUUIDSystemField(table.fields).uid;
     const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
-    const persistedFilterRules = this.getViewActionPersistedFilterRules(nocodeBody, table.uid, request.viewId);
+    const persistedFilterRules = options.skipPersistedViewFilters
+      ? []
+      : this.getViewActionPersistedFilterRules(nocodeBody, table.uid, request.viewId);
     const persistedCondition = await this.buildViewActionPersistedCondition(
       formData,
       nocodeId,
@@ -3862,6 +3869,7 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ) {
     const mergedCondition = await this.buildViewActionCondition(
       nocodeBody,
@@ -3869,6 +3877,7 @@ export class FormDataService implements OnApplicationBootstrap {
       nocodeId,
       table,
       request,
+      options,
     );
     return await this.getSubmittedRows(formData, nocodeId, table, mergedCondition, {
       applyGetPermission: true,
@@ -3909,6 +3918,7 @@ export class FormDataService implements OnApplicationBootstrap {
     nocodeId: string,
     table: Table,
     request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
   ): Promise<ViewActionTriggerRetryTargets> {
     const targetUUIDs = this.normalizeViewActionTargetUUIDs(request.targetUUIDs);
     const uniqueRows = this.getUniqueViewActionRows(
@@ -3919,6 +3929,7 @@ export class FormDataService implements OnApplicationBootstrap {
         nocodeId,
         table,
         request,
+        options,
       ),
     );
     const uuidFieldId = getUUIDSystemField(table.fields).uid;
@@ -4977,7 +4988,7 @@ export class FormDataService implements OnApplicationBootstrap {
     table: Table,
     action: ViewAction,
     request: ExecuteViewActionRequest,
-    runtimeOptions: Pick<TriggerOptions, "flowWorkerContext"> = {},
+    runtimeOptions: ViewActionRuntimeOptions = {},
   ): Promise<ExecuteViewActionResult> {
     if (action.behavior.type !== ViewActionBehaviorType.TRIGGER_PROCESS) {
       throw new Error(global.i18next.t('formDataService.viewActionTriggerProcessOnly'));
@@ -4997,6 +5008,7 @@ export class FormDataService implements OnApplicationBootstrap {
           request.nocodeId,
           table,
           request,
+          runtimeOptions,
         )
       : null;
     const viewCondition = isRetryByTargetUUIDs
@@ -5007,6 +5019,7 @@ export class FormDataService implements OnApplicationBootstrap {
           request.nocodeId,
           table,
           request,
+          runtimeOptions,
         );
     const affectedCount = isRetryByTargetUUIDs
       ? (retryTargets?.affectedCount || 0)
@@ -5056,6 +5069,7 @@ export class FormDataService implements OnApplicationBootstrap {
         request.nocodeId,
         table,
         request,
+        runtimeOptions,
       ),
     );
     const affectedRowsDigest = isRetryByTargetUUIDs
@@ -5390,7 +5404,10 @@ export class FormDataService implements OnApplicationBootstrap {
     };
   }
 
-  async precheckViewActionTrigger(request: ExecuteViewActionRequest): Promise<ViewActionTriggerPrecheckResult> {
+  async precheckViewActionTrigger(
+    request: ExecuteViewActionRequest,
+    options: Pick<ViewActionRuntimeOptions, "skipPersistedViewFilters"> = {},
+  ): Promise<ViewActionTriggerPrecheckResult> {
     const nocodeBody = await getNocodeBody(this.nocodesDir, request.nocodeId);
     const formData = nocodeBody?.formData;
     const table = formData?.tables?.find(item => item.uid === request.tableUID);
@@ -5417,6 +5434,7 @@ export class FormDataService implements OnApplicationBootstrap {
       request.nocodeId,
       table,
       request,
+      options,
     );
     const candidateCount = targetUUIDs.length
       ? targetUUIDs.length
@@ -5583,7 +5601,7 @@ export class FormDataService implements OnApplicationBootstrap {
 
   async executeViewAction(
     request: ExecuteViewActionRequest,
-    runtimeOptions: Pick<TriggerOptions, "flowWorkerContext"> = {},
+    runtimeOptions: ViewActionRuntimeOptions = {},
   ): Promise<ExecuteViewActionResult> {
     const nocodeBody = await getNocodeBody(this.nocodesDir, request.nocodeId);
     const formData = nocodeBody?.formData;
@@ -6659,7 +6677,7 @@ export class FormDataService implements OnApplicationBootstrap {
   ) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     return {
       nocodeBody,
       ...this.resolveTableSourceContext(nocodeBody, nocodeId, tableUID, fillSubTableFields),
@@ -6841,7 +6859,7 @@ export class FormDataService implements OnApplicationBootstrap {
   async distinct(nocodeId: string, tableUID: TableUID, fieldId: FieldUID, options?: QueryOptions, onlyValue = true) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const formData = nocodeBody.formData as NocodeFormData;
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const aggregateTableUIDSet = new Set(
@@ -7662,7 +7680,7 @@ export class FormDataService implements OnApplicationBootstrap {
     aggregateTable: AggregateTable,
     options?: QueryOptions,
   ): Promise<Bucket | undefined> {
-    const nocodeBody = await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+    const nocodeBody = await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const currentSourceUID = nocodeBody.formData?.uid;
     const source = currentSourceUID
@@ -7733,7 +7751,7 @@ export class FormDataService implements OnApplicationBootstrap {
     const metrics = createFormDataFindMetrics();
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(request.nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(request.nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(request.nocodeId);
     const { table: rootTable } = this.resolveTableSourceContext(nocodeBody, request.nocodeId, request.tableUID);
     if (!rootTable) {
       throw new NotFoundException({ code: "FIND_TABLE_NOT_FOUND", message: `Form data table not found: ${request.tableUID}` });
@@ -7845,7 +7863,7 @@ export class FormDataService implements OnApplicationBootstrap {
   ) {
     const nocodeBody = options?.useEditorSources
       ? await this.projectService.getEditorNocodeBodyWithOtherDataSources(nocodeId)
-      : await this.projectService.getNocodeBodyWithOtherDataSources(nocodeId);
+      : await this.projectService.getReadonlyNocodeBodyWithOtherDataSources(nocodeId);
     const runtimeSources = this.getAggregateRuntimeSources(nocodeBody, nocodeId);
     const aggregateTableUIDSet = new Set(
       runtimeSources.flatMap(source => (source.aggregateTables || []).map(table => table.uid)),

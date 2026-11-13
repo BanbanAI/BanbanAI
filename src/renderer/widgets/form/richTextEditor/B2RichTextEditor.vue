@@ -209,6 +209,10 @@ const dialogEditorConfig: Partial<IEditorConfig> = {
 
 const handleCreated = (editor) => {
   editorRef.value = editor;
+  const value = widget.inputValue;
+  if (value && value !== "<p><br></p>" && editor.isEmpty()) {
+    editor.setHtml(value);
+  }
 };
 const noEventsArr = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 const handleKeyDown = (event: KeyboardEvent)=>{

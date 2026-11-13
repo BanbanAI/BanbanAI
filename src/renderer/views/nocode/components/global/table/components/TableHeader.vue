@@ -631,6 +631,7 @@ import { Menus } from './table-menu/types';
 import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, inject, watch, reactive, Ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTable, useTableProps } from '../hooks';
+import type { Column } from '../table';
 import { useFormTable } from '../../../../views/editor/form/hooks';
 import { FormTableRowHeight, PrintTemplateType, PrintTemplateMode, ExportType, PrintedTemplateRecord, PrintTemplate, RuleFunc, FormWidgetType, PermissionRangeType, ViewAction, ViewActionConditionScope, ViewActionTarget, ViewActionTriggerMode, ViewActionViewConditionMode, ViewOperationPermissionKey } from "@common/types/nocode";
 import { getViewActionTriggerMode, isViewActionSelectedTarget, isViewActionViewTarget } from "@common/utils/viewAction";
@@ -667,6 +668,7 @@ const isPublicVisit = computed(() => route.matched?.some(record => record.meta?.
 interface Props {
   rowHeightLevel: FormTableRowHeight;
   disabled?: boolean;
+  displayColumns: Column[];
 }
 
 const props = withDefaults(
@@ -1621,7 +1623,7 @@ const fields = ref([])
 
 const handleExportData = async (type)=>{
   exportDialogReady.value = true;
-  fields.value = widget.allColumns.filter(c => ![SystemField.UUID, SystemField.RELATED_SUB_FORM].includes(c.name as any));
+  fields.value = props.displayColumns.filter(c => ![SystemField.UUID, SystemField.RELATED_SUB_FORM].includes(c.name as any));
   exportType.value = type;
   exportDialogVisible.value = true;
 }
