@@ -13,6 +13,7 @@ import { DataMode } from "./types";
 
 export class RelatedData extends SelectData {
   static resource = resource as any;
+  private _hasExplicitSelection = false;
 
   get defaultName() {
     return i18next.t("defaultName");
@@ -200,7 +201,8 @@ export class RelatedData extends SelectData {
       this.selectedRows = rows || {};
       this.updateLastChangeTime();
     }
-    if (this.inSubFormRow) {
+    this._hasExplicitSelection = true;
+    if (this.isInSubForm) {
       this.syncInputValueToRow();
     }
   }
@@ -221,7 +223,7 @@ export class RelatedData extends SelectData {
     // transient change timestamp before their relation lookup completes.
     const rawValue = this.dataValue;
     if (isEmpty(this.connectionTable)) return [];
-    if (!this.isChanged && isEmpty(this.selectedRows) && !isEmpty(rawValue)) {
+    if (isEmpty(this.selectedRows) && !isEmpty(rawValue) && !this._hasExplicitSelection) {
       return rawValue;
     }
     const selectedValue = Object.entries(this.selectedRows).map(([key, rows]) => {
@@ -229,7 +231,7 @@ export class RelatedData extends SelectData {
     })?.flat(Infinity)?.filter(Boolean) || [];
     // During initial hydration a lookup can return only a subset of the
     // requested IDs. Keep persisted IDs until a user action changes the field.
-    if (!this.isChanged && !isEmpty(rawValue)) {
+    if (!this._hasExplicitSelection && !isEmpty(rawValue)) {
       const rawIds = Array.isArray(rawValue) ? rawValue : [rawValue];
       return [...new Set([...rawIds, ...selectedValue])];
     }
